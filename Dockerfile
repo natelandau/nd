@@ -37,7 +37,7 @@ RUN --mount=type=cache,target=/root/.cache/ \
 ARG UID=1000
 ARG GID=$UID
 RUN groupadd --gid $GID app && \
-    useradd --create-home --gid $GID --uid $UID app
+  useradd --create-home --gid $GID --uid $UID app
 
 FROM base as ci
 
