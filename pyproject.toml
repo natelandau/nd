@@ -29,6 +29,7 @@ nd = "nd.cli:app"
 loguru = "^0.6.0"
 python = "^3.10"
 rich = "^12.5.1"
+tomli = "^2.0.1"
 typer = { extras = ["all"], version = "^0.6.1" }
 
 # https://python-poetry.org/docs/master/managing-dependencies/
