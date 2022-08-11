@@ -45,7 +45,6 @@ flake8 = "^5.0.4"
 flake8-bugbear = "^22.6.22"
 flake8-comprehensions = "^3.10.0"
 flake8-mutable = "^1.2.0"
-flake8-print = "^5.0.0"
 flake8-pytest-style = "^1.6.0"
 flake8-return = "^1.1.3"
 flake8-rst-docstrings = "^0.2.6"
@@ -72,7 +71,7 @@ yesqa = "^1.4.0"
 
 # https://bandit.readthedocs.io/en/latest/config.html
 [tool.bandit]
-skips = ["B101"]
+skips = ["B101", "B404", "B607"]
 
 # https://black.readthedocs.io/en/stable/usage_and_configuration/the_basics.html#configuration-via-a-file
 [tool.black]
