@@ -1,0 +1,34 @@
+# type: ignore
+"""Tests for the list_jobs function."""
+from pathlib import Path
+
+import pytest
+
+from nd._commands.utils import job_files
+
+
+def test_list_job_files():
+    """Test list_jobs function."""
+    jobs_dir_list = [Path("tests/resources/job_files"), Path("/dev/null")]
+
+    valid_jobs = job_files.list_job_files(jobs_dir_list)
+
+    assert len(valid_jobs) == 4
+    assert "sonarr" in valid_jobs[3].name
+
+    no_jobs_list = [Path("/some/random/path")]
+    with pytest.raises(AssertionError) as exc_info:
+        valid_jobs = job_files.list_job_files(no_jobs_list)
+
+    assert str(exc_info.value) == "No valid job files found in /some/random/path"
+
+
+def test_parse_job_file():
+    """Test parse_job_file function."""
+    job = job_files.parse_job_file(Path("tests/resources/job_files/sonarr.hcl"))
+    assert job.name == "sonarr"
+    assert job.file == Path("tests/resources/job_files/sonarr.hcl")
+    assert job.local_backup is True
+
+    job2 = job_files.parse_job_file(Path("tests/resources/job_files/nojob.hcl"))
+    assert job2 is None

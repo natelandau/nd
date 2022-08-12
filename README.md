@@ -52,7 +52,8 @@ To view this app's commands once it's installed, run `nd --help`. Alternatively,
 
 <details>
 <summary>Developing</summary>
-
+- Access an interactive terminal within the container from an external terminal application `docker compose exec -it dev /usr/bin/zsh`
+- Rebuild the `app` Docker image `docker compose build --no-cache app`
 - This project follows the [Conventional Commits](https://www.conventionalcommits.org/) standard to automate [Semantic Versioning](https://semver.org/) and [Keep A Changelog](https://keepachangelog.com/) with [Commitizen](https://github.com/commitizen-tools/commitizen).
 - Run `poe` from within the development environment to print a list of [Poe the Poet](https://github.com/nat-n/poethepoet) tasks available to run on this project.
 - Run `poetry add {package}` from within the development environment to install a run time dependency and add it to `pyproject.toml` and `poetry.lock`.

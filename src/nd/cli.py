@@ -127,7 +127,10 @@ def status() -> None:
 @app.command("list")
 def list_jobs() -> None:
     """List all valid Nomad jobs."""
-    log.info("list_jobs")
+    if not _commands.list_jobs(
+        state.verbosity, state.dry_run, state.log_to_file, state.log_file, state.config
+    ):
+        raise typer.Exit(1)
 
 
 @app.callback()

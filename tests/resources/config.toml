@@ -1,0 +1,2 @@
+job_files_location = ['tests/resources/job_files']
+nomad_api_url = 'http://localhost:8500'
