@@ -47,7 +47,7 @@ class JobFile:
                 do something
         """
         command = ["nomad", "job", "validate", str(self.file)]
-        log.trace(f"Running command: {command}")
+        log.trace(f"Running command: {' '.join(command)}")
         try:
             process = subprocess.Popen(  # nosec
                 command,

@@ -14,8 +14,17 @@ def test_list_job_files():
     valid_jobs = job_files.list_job_files(jobs_dir_list)
 
     assert len(valid_jobs) == 4
-    assert "sonarr" in valid_jobs[3].name
 
+    job_names = []
+    for job in valid_jobs:
+        job_names.append(job.name)
+
+    assert "sonarr" in job_names
+    assert "lidarr" in job_names
+    assert "template-simple" in job_names
+    assert "template-group" not in job_names
+
+    # Test no jobs found
     no_jobs_list = [Path("/some/random/path")]
     with pytest.raises(AssertionError) as exc_info:
         valid_jobs = job_files.list_job_files(no_jobs_list)
