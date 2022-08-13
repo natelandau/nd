@@ -37,6 +37,6 @@ def test_list() -> None:
 
 def test_list_fail() -> None:
     """Test that the list command works as expected."""
-    result = runner.invoke(app, ["--config-file", "tests/resources/config_invalid.toml", "list"])
+    result = runner.invoke(app, ["--config-file", "tests/resources/config_no_jobs.toml", "list"])
     assert result.exit_code == 1
     assert "No valid job files found in /dev/null " in result.stdout

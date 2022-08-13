@@ -9,6 +9,7 @@ except ModuleNotFoundError:
 
 import rich.repr
 import typer
+import validators
 
 from nd import _commands
 from nd._commands.utils.alerts import logger as log
@@ -52,7 +53,7 @@ def load_configuration(paths: list[Path]) -> dict:
         dict: Configuration data.
 
     Raises:
-        Exit: If config file is malformed
+        Exit: If config file is malformed or not found
     """
     config = {}
     for config_file in paths:
@@ -67,13 +68,28 @@ def load_configuration(paths: list[Path]) -> dict:
             break
 
     if not config:
-        log.info("Config file not found. Using default values.")
-        config = {
-            "job_files_location": ["/home/juan/Desktop/job_files"],
-            "nomad_api_url": "http://localhost:8500",
-        }
+        log.error("No configuration found. Please create a config file.")
+        raise typer.Exit(code=1)
+    elif config.get("job_files_locations") is None:
+        log.error(
+            "Configuration file is missing 'job_files_locations' key. "
+            "Please check your configuration file."
+        )
+        raise typer.Exit(code=1)
+    elif config.get("nomad_api_url") is None:
+        log.error(
+            "Configuration file is missing 'nomad_api_url' key. "
+            "Please check your configuration file."
+        )
+        raise typer.Exit(code=1)
+    elif not validators.url(config["nomad_api_url"]):
+        log.error(
+            "Configuration file 'nomad_api_url' is not a valid URL. "
+            "Please check your configuration file."
+        )
+        raise typer.Exit(code=1)
 
-    return config  # noqa: R504
+    return config
 
 
 @app.command()

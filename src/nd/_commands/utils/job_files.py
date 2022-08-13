@@ -1,8 +1,6 @@
 """Shared utility functions for working with Nomad job files."""
 
 import re
-
-# import nd._commands.utils.shared as shared
 import subprocess
 import sys
 from pathlib import Path

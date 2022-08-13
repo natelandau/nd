@@ -1,0 +1,2 @@
+job_files_locations = ['/dev/null']
+nomad_api_url = 'http://localhost:8500'

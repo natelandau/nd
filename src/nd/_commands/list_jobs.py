@@ -15,7 +15,7 @@ def list_jobs(
     """List command."""
     log.trace(config)
 
-    directories_to_search = config["job_files_location"]
+    directories_to_search = config["job_files_locations"]
     try:
         valid_job_files = job_files.list_job_files(directories_to_search)
     except AssertionError as e:
