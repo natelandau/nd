@@ -118,16 +118,21 @@ def list_job_files(directories: list[Path | str]) -> list[JobFile]:
     """
     valid_job_files = []
 
-    for dir in directories:
-        dir = Path(dir)
-        if not dir.is_dir():
+    for directory in directories:
+
+        directory = Path(directory)
+        if not directory.is_dir():
             continue
         else:
-            for f in dir.iterdir():
-                if f.is_file() and (f.suffix == ".nomad" or f.suffix == ".hcl"):
-                    job_file = parse_job_file(f)
-                    if job_file is not None:
-                        valid_job_files.append(job_file)
+            files = [
+                f
+                for f in directory.rglob("*")
+                if f.is_file() and (f.suffix == ".nomad" or f.suffix == ".hcl")
+            ]
+            for f in files:
+                job_file = parse_job_file(f)
+                if job_file is not None:
+                    valid_job_files.append(job_file)
 
     for idx, job in enumerate(valid_job_files):
         if not job.validate():
