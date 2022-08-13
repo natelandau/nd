@@ -9,7 +9,10 @@ from nd._commands.utils import job_files
 
 def test_list_job_files():
     """Test list_jobs function."""
-    jobs_dir_list = [Path("tests/resources/job_files"), Path("/dev/null")]
+    jobs_dir_list = [
+        Path("tests/resources/job_files/valid"),
+        Path("tests/resources/job_files/invalid"),
+    ]
 
     valid_jobs = job_files.list_job_files(jobs_dir_list)
 
@@ -21,6 +24,7 @@ def test_list_job_files():
 
     assert "sonarr" in job_names
     assert "lidarr" in job_names
+    assert "whoogle" in job_names
     assert "template-simple" in job_names
     assert "template-group" not in job_names
 
@@ -34,10 +38,15 @@ def test_list_job_files():
 
 def test_parse_job_file():
     """Test parse_job_file function."""
-    job = job_files.parse_job_file(Path("tests/resources/job_files/sonarr.hcl"))
+    job = job_files.parse_job_file(Path("tests/resources/job_files/valid/sonarr.hcl"))
     assert job.name == "sonarr"
-    assert job.file == Path("tests/resources/job_files/sonarr.hcl")
+    assert job.file == Path("tests/resources/job_files/valid/sonarr.hcl")
     assert job.local_backup is True
 
-    job2 = job_files.parse_job_file(Path("tests/resources/job_files/nojob.hcl"))
+    job = job_files.parse_job_file(Path("tests/resources/job_files/valid/whoogle.hcl"))
+    assert job.name == "whoogle"
+    assert job.file == Path("tests/resources/job_files/valid/whoogle.hcl")
+    assert job.local_backup is False
+
+    job2 = job_files.parse_job_file(Path("tests/resources/job_files/invalid/nojob.hcl"))
     assert job2 is None
