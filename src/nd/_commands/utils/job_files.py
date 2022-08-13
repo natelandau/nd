@@ -101,12 +101,13 @@ def parse_job_file(job_file: Path) -> JobFile | None:
 
 
 @log.catch(exclude=AssertionError)
-def list_job_files(directories: list[Path | str]) -> list[JobFile]:
+def list_job_files(directories: list[Path | str], pattern: str | None = None) -> list[JobFile]:
     """
     Lists valid Nomad job files within a specified directory.
 
     Args:
         directories: Path to directory to search for job files
+        pattern: Returned job files will match this string
 
     Returns:
         List of JobFile class objects for valid Nomad jobs
@@ -129,14 +130,20 @@ def list_job_files(directories: list[Path | str]) -> list[JobFile]:
             ]
             for f in files:
                 job_file = parse_job_file(f)
-                if job_file is not None:
+                if (
+                    job_file is not None
+                    and job_file.validate()
+                    and (pattern is None or pattern.lower() in job_file.name.lower())
+                ):
                     valid_job_files.append(job_file)
 
-    for idx, job in enumerate(valid_job_files):
-        if not job.validate():
-            valid_job_files.pop(idx)
+    if pattern is None:
+        assert (
+            len(valid_job_files) > 0
+        ), f"No valid job files found in {', '.join(map(str, directories))}"
+    else:
+        assert (
+            len(valid_job_files) > 0
+        ), f"No valid job files found in {', '.join(map(str, directories))} matching '{pattern}'"
 
-    assert (
-        len(valid_job_files) > 0
-    ), f"No valid job files found in {', '.join(map(str, directories))}"
     return valid_job_files

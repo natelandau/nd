@@ -35,6 +35,19 @@ def test_list_job_files():
 
     assert str(exc_info.value) == "No valid job files found in /some/random/path"
 
+    # Test matching pattern
+    valid_jobs = job_files.list_job_files(jobs_dir_list, pattern="sonarr")
+    assert len(valid_jobs) == 1
+
+    with pytest.raises(AssertionError) as exc_info:
+        valid_jobs = job_files.list_job_files(jobs_dir_list, pattern="zzz")
+
+    # Test failed matching pattern
+    assert (
+        str(exc_info.value)
+        == "No valid job files found in tests/resources/job_files/valid, tests/resources/job_files/invalid matching 'zzz'"
+    )
+
 
 def test_parse_job_file():
     """Test parse_job_file function."""

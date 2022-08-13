@@ -1,6 +1,7 @@
 """nd CLI."""
 
 from pathlib import Path
+from typing import Optional
 
 try:
     import tomllib
@@ -141,10 +142,16 @@ def status() -> None:
 
 
 @app.command("list")
-def list_jobs() -> None:
-    """List all valid Nomad jobs."""
+def list_jobs(
+    job_name: Optional[str] = typer.Argument(
+        None,
+        help="Name or partial name of a Nomad jobs to list.",
+        show_default=False,
+    )
+) -> None:
+    """List all valid Nomad jobs. Pass a complete or partial job name to list all matching jobs."""
     if not _commands.list_jobs(
-        state.verbosity, state.dry_run, state.log_to_file, state.log_file, state.config
+        state.verbosity, state.dry_run, state.log_to_file, state.log_file, state.config, job_name
     ):
         raise typer.Exit(1)
 

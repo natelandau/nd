@@ -10,14 +10,19 @@ from nd._commands.utils.alerts import logger as log
 
 
 def list_jobs(
-    verbosity: int, dry_run: bool, log_to_file: bool, log_file: Path, config: dict
+    verbosity: int,
+    dry_run: bool,
+    log_to_file: bool,
+    log_file: Path,
+    config: dict,
+    job_name: str | None = None,
 ) -> bool:
     """List command."""
     log.trace(config)
 
     directories_to_search = config["job_files_locations"]
     try:
-        valid_job_files = job_files.list_job_files(directories_to_search)
+        valid_job_files = job_files.list_job_files(directories_to_search, job_name)
     except AssertionError as e:
         log.error(e)
         return False
