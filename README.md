@@ -1,6 +1,8 @@
+[![Test](https://github.com/natelandau/nd/actions/workflows/test.yml/badge.svg)](https://github.com/natelandau/nd/actions/workflows/test.yml)
+
 # nd
 
-A highly personalized CLI wrapper for Nomad
+dsfA highly personalized CLI wrapper for Nomad
 
 ## Using
 
