@@ -1,0 +1,20 @@
+{
+    "python.linting.banditArgs": ["--configfile", "pyproject.toml"],
+    "python.linting.banditEnabled": true,
+    "python.defaultInterpreterPath": "./.venv/bin/python",
+    "coverage-gutters.coverageFileNames": ["reports/coverage.xml"],
+    "python.formatting.blackPath": "./.venv/bin/black",
+    "python.formatting.blackArgs": ["--config", "pyproject.toml"],
+    "python.linting.flake8Enabled": true,
+    "python.linting.mypyEnabled": true,
+    "python.linting.pydocstyleEnabled": true,
+    "python.sortImports.path": ".venv/bin/isort",
+    "python.formatting.provider": "black",
+    "python.linting.banditPath": ".venv/bin/bandit",
+    "python.linting.flake8Path": ".venv/bin/flake8",
+    "python.linting.mypyPath": ".venv/bin/mypy",
+    "python.linting.pydocstylePath": ".venv/bin/pydocstyle",
+    "python.terminal.activateEnvInCurrentTerminal": true,
+    "python.testing.pytestEnabled": true,
+    "python.testing.pytestPath": ".venv/bin/pytest"
+}
