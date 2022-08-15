@@ -15,9 +15,6 @@ import validators
 from nd import _commands
 from nd._commands.utils.alerts import logger as log
 
-# from rich import print
-
-
 app = typer.Typer()
 
 
@@ -99,8 +96,8 @@ def clean() -> None:
     log.info("clean")
 
 
-@app.command()
-def exec() -> None:
+@app.command("exec")
+def exec_in_container() -> None:
     """Say a message."""
     log.info("exec")
 

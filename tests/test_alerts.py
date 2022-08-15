@@ -8,8 +8,6 @@ from nd._commands.utils import alerts
 from nd._commands.utils.alerts import logger as log
 from tests.helpers import Regex
 
-# from pathlib import Path
-
 
 def test_dryrun(capsys):
     """Test dry run."""
@@ -100,10 +98,6 @@ def test_logging(capsys, tmp_path, verbosity, log_to_file) -> None:
         log.info("This is Info logging")
         captured = capsys.readouterr()
         assert captured.err == "INFO     | This is Info logging\n"
-
-        # log.success("This is Success logging")
-        # captured = capsys.readouterr()
-        # assert captured.out == "SUCCESS  | This is Success logging\n"
     else:
         assert logging.is_info("info text") is False
         captured = capsys.readouterr()
@@ -112,10 +106,6 @@ def test_logging(capsys, tmp_path, verbosity, log_to_file) -> None:
         log.info("This is Info logging")
         captured = capsys.readouterr()
         assert captured.out == ""
-
-        # log.success("This is Success logging")
-        # captured = capsys.readouterr()
-        # assert captured.out == ""
 
     assert logging.is_default() is True
     captured = capsys.readouterr()
