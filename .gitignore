@@ -1,6 +1,10 @@
 # Scratch folder for temporary files
 scratch/
 
+# config file for development
+nd.toml
+.nd.toml
+
 # Coverage.py
 htmlcov/
 reports/
