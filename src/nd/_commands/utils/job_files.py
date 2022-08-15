@@ -30,8 +30,7 @@ class JobFile:
 
     @log.catch
     def validate(self) -> bool:
-        """
-        Validate a nomad job file using 'nomad validate [job]'.
+        """Validate a nomad job file using 'nomad validate [job]'.
 
         Returns:
             True if validation is successful
@@ -62,8 +61,7 @@ class JobFile:
 
     @log.catch
     def plan(self) -> str:
-        """
-        Plan Nomad job using 'nomad plan [job]' and returns the modify-index number to be used with 'nomad job run'.
+        """Plan Nomad job using 'nomad plan [job]' and returns the modify-index number to be used with 'nomad job run'.
 
         Returns:
             Nomad modify-index ID
@@ -110,8 +108,7 @@ class JobFile:
 
 @log.catch
 def parse_job_file(job_file: Path) -> JobFile | None:
-    """
-    Parse a Nomad job file and return a JobFile object.
+    """Parse a Nomad job file and return a JobFile object.
 
     Args:
         job_file: Path to Nomad job file
@@ -139,8 +136,7 @@ def parse_job_file(job_file: Path) -> JobFile | None:
 
 @log.catch(exclude=AssertionError)
 def list_job_files(directories: list[Path | str], pattern: str | None = None) -> list[JobFile]:
-    """
-    Lists valid Nomad job files within a specified directory.
+    """Lists valid Nomad job files within a specified directory.
 
     Args:
         directories: Path to directory to search for job files

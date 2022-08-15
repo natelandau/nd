@@ -8,8 +8,7 @@ from rich import print
 
 
 def dryrun(dry_run: bool, msg: str) -> None:
-    """
-    Print a message if the dry run flag is set.
+    """Print a message if the dry run flag is set.
 
     Args:
         dry_run: True if dry run
@@ -38,8 +37,7 @@ def _log_formatter(record: dict) -> str:
 
 @rich.repr.auto
 class LoggerManager:
-    """
-    Instantiate the loguru logging system with the following levels.
+    """Instantiate the loguru logging system with the following levels.
 
         - TRACE: Usage: log.trace("")
         - DEBUG: Usage: log.debug("")
@@ -136,8 +134,7 @@ class LoggerManager:
         logger.debug("Logging instantiated")
 
     def is_trace(self, msg: str | None = None) -> bool:
-        """
-        Check if the current log level is TRACE.
+        """Check if the current log level is TRACE.
 
         Args:
             msg (optional): Message to print. Defaults to None.
@@ -153,8 +150,7 @@ class LoggerManager:
             return False
 
     def is_debug(self, msg: str | None = None) -> bool:
-        """
-        Check if the current log level is DEBUG.
+        """Check if the current log level is DEBUG.
 
         Args:
             msg (optional): Message to print. Defaults to None.
@@ -170,8 +166,7 @@ class LoggerManager:
             return False
 
     def is_info(self, msg: str | None = None) -> bool:
-        """
-        Check if the current log level is INFO.
+        """Check if the current log level is INFO.
 
         Args:
             msg (optional): Message to print. Defaults to None.
@@ -187,8 +182,7 @@ class LoggerManager:
             return False
 
     def is_default(self, msg: str | None = None) -> bool:
-        """
-        Check if the current log level is default level (SUCCESS or WARNING).
+        """Check if the current log level is default level (SUCCESS or WARNING).
 
         Args:
             msg (optional): Message to print. Defaults to None.

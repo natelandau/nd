@@ -17,8 +17,7 @@ class Regex:
         self._regex = re.compile(pattern, flags)
 
     def __eq__(self, actual):
-        """
-        Define equality.
+        """Define equality.
 
         Args:
             actual (str): String to be matched to the regex
