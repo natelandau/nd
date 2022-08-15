@@ -156,7 +156,7 @@ xfail_strict = true
 [tool.vulture]
 # exclude = ["file*.py", "dir/"]
 # ignore_decorators = ["@app.route", "@require_*"]
-# ignore_names = ["visit_*", "do_*"]
+ignore_names = ["args", "kwargs", "request"]
 # make_whitelist = true
 min_confidence = 80
 paths = ["src", "tests"]
