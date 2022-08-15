@@ -41,8 +41,7 @@ state = State(0, False, False, Path(""), {})
 
 
 def load_configuration(paths: list[Path]) -> dict:
-    """
-    Load configuration data from toml file. If not found, return default config.
+    """Load configuration data from toml file. If not found, return default config.
 
     Args:
         paths: List of possible config locations.
