@@ -124,9 +124,18 @@ def rebuild() -> None:
 
 
 @app.command()
-def plan() -> None:
-    """Say a message."""
-    log.info("plan")
+def plan(
+    job_name: str = typer.Argument(
+        ...,
+        help="Name or partial name of a Nomad job to plan.",
+        show_default=False,
+    )
+) -> None:
+    """Plans a Nomad job based on [JOB-NAME].  Pass a complete or partial job name to run all matching jobs."""
+    if not _commands.plan(
+        state.verbosity, state.dry_run, state.log_to_file, state.log_file, state.config, job_name
+    ):
+        raise typer.Exit(1)
 
 
 @app.command()

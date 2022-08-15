@@ -44,31 +44,68 @@ class JobFile:
             if job.validate():
                 do something
         """
-        command = ["nomad", "job", "validate", str(self.file)]
+        command = ["nomad", "job", "validate", "-no-color", str(self.file)]
         log.trace(f"Running command: {' '.join(command)}")
+
         try:
-            process = subprocess.Popen(  # nosec
-                command,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.STDOUT,
-                universal_newlines=True,
-            )
+            result = subprocess.run(command, capture_output=True, text=True)  # nosec
         except FileNotFoundError:  # pragma: no cover
-            log.error("Nomad binary not found. Please install Nomad.")
+            print("Nomad binary not found. Please install Nomad.")
             raise sys.exit(1)
 
-        while True:
-            # output = process.stdout.readline()  # type: ignore [union-attr]
-            return_code = process.poll()
-            if return_code is not None:
-                if return_code == 0:
-                    log.debug(f"Nomad validated job file: {self.file}")
-                    return True
-                else:
-                    # for output in process.stdout.readlines():  # type: ignore [union-attr]
-                    #     log.trace(output.strip())
-                    log.debug(f"Nomad job validation failed for '{self.file}'")
-                    return False
+        if result.returncode == 0:
+            log.debug(f"Nomad validated job file: {self.file}")
+            return True
+        else:
+            log.debug(f"Error from 'nomad job validate {self.file}:\n{result.stderr}")
+            return False
+
+    @log.catch
+    def plan(self) -> str:
+        """
+        Plan Nomad job using 'nomad plan [job]' and returns the modify-index number to be used with 'nomad job run'.
+
+        Returns:
+            Nomad modify-index ID
+
+        Raises:
+            exit: If job file is not valid
+            exit: If Nomad binary is not installed on the system
+
+        Usage:
+            modify_index = job.plan()
+
+        """
+        if not self.validate():
+            log.error(f"Nomad job file is not valid: {self.file}")
+            raise sys.exit(1)
+
+        command = ["nomad", "job", "plan", "-no-color", "-diff=false", str(self.file)]
+        log.trace(f"Running command: {' '.join(command)}")
+
+        try:
+            result = subprocess.run(command, capture_output=True, text=True)  # nosec
+        except FileNotFoundError:  # pragma: no cover
+            print("Nomad binary not found. Please install Nomad.")
+            raise sys.exit(1)
+
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if re.match(r"^Job Modify Index: (\d+)$", line):
+                    modify_index = re.match(r"^Job Modify Index: (\d+)$", line).group(1)  # type: ignore [union-attr]
+                    break
+
+            try:
+                log.debug(f"Planned Nomad job with modify index #: {modify_index}")
+                return modify_index
+            except NameError:
+                log.error("No modify_index")
+                raise sys.exit(1)
+        else:
+            log.error(
+                f"Nomad job plan failed for '{self.name}' with return code: {result.returncode}"
+            )
+            raise sys.exit(1)
 
 
 @log.catch
