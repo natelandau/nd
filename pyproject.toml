@@ -78,6 +78,7 @@ yesqa = "*"
 
 # https://bandit.readthedocs.io/en/latest/config.html
 flake8-docstrings = "^1.6.0"
+tryceratops = "^1.1.0"
 [tool.bandit]
 skips = ["B101", "B404", "B607"]
 

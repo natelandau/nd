@@ -60,8 +60,8 @@ def load_configuration(paths: list[Path]) -> dict:
                 try:
                     config = tomllib.load(fp)
                 except tomllib.TOMLDecodeError as e:
-                    log.error(f"Could not parse '{config_file}': {e}")
-                    raise typer.Exit(code=1)
+                    log.exception(f"Could not parse '{config_file}'")
+                    raise typer.Exit(code=1) from e
             break
 
     if not config:
@@ -128,7 +128,7 @@ def plan(
     )
 ) -> None:
     """Plans a Nomad job based on [JOB-NAME].  Pass a complete or partial job name to run all matching jobs."""
-    if not _commands.plan(
+    if not _commands.plan_nomad_job(
         state.verbosity, state.dry_run, state.log_to_file, state.log_file, state.config, job_name
     ):
         raise typer.Exit(1)
@@ -155,8 +155,13 @@ def list_jobs(
     )
 ) -> None:
     """List all valid Nomad jobs. Pass a complete or partial job name to list all matching jobs."""
-    if not _commands.list_jobs(
-        state.verbosity, state.dry_run, state.log_to_file, state.log_file, state.config, job_name
+    if not _commands.list_jobs_command.show_jobs(
+        state.verbosity,
+        state.dry_run,
+        state.log_to_file,
+        state.log_file,
+        state.config,
+        job_name,
     ):
         raise typer.Exit(1)
 

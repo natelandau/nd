@@ -116,14 +116,14 @@ def test_plan(monkeypatch):
     assert exc_info.value.code == 1
 
 
-def test_list_job_files():
+def test_list_valid_jobs():
     """Test list_jobs function."""
     jobs_dir_list = [
         Path("tests/resources/job_files/valid"),
         Path("tests/resources/job_files/invalid"),
     ]
 
-    valid_jobs = job_files.list_job_files(jobs_dir_list)
+    valid_jobs = job_files.list_valid_jobs(jobs_dir_list)
 
     assert len(valid_jobs) == 4
 
@@ -140,16 +140,16 @@ def test_list_job_files():
     # Test no jobs found
     no_jobs_list = [Path("/some/random/path")]
     with pytest.raises(AssertionError) as exc_info:
-        valid_jobs = job_files.list_job_files(no_jobs_list)
+        valid_jobs = job_files.list_valid_jobs(no_jobs_list)
 
     assert str(exc_info.value) == "No valid job files found in /some/random/path"
 
     # Test matching pattern
-    valid_jobs = job_files.list_job_files(jobs_dir_list, pattern="sonarr")
+    valid_jobs = job_files.list_valid_jobs(jobs_dir_list, pattern="sonarr")
     assert len(valid_jobs) == 1
 
     with pytest.raises(AssertionError) as exc_info:
-        valid_jobs = job_files.list_job_files(jobs_dir_list, pattern="zzz")
+        valid_jobs = job_files.list_valid_jobs(jobs_dir_list, pattern="zzz")
 
     # Test failed matching pattern
     assert (

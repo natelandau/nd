@@ -48,9 +48,9 @@ class JobFile:
 
         try:
             result = subprocess.run(command, capture_output=True, text=True)  # nosec
-        except FileNotFoundError:  # pragma: no cover
+        except FileNotFoundError as e:  # pragma: no cover
             print("Nomad binary not found. Please install Nomad.")
-            raise sys.exit(1)
+            raise sys.exit(1) from e
 
         if result.returncode == 0:
             log.debug(f"Nomad validated job file: {self.file}")
@@ -83,9 +83,9 @@ class JobFile:
 
         try:
             result = subprocess.run(command, capture_output=True, text=True)  # nosec
-        except FileNotFoundError:  # pragma: no cover
+        except FileNotFoundError as e:  # pragma: no cover
             print("Nomad binary not found. Please install Nomad.")
-            raise sys.exit(1)
+            raise sys.exit(1) from e
 
         if result.returncode == 0:
             for line in result.stdout.splitlines():
@@ -95,13 +95,14 @@ class JobFile:
 
             try:
                 log.debug(f"Planned Nomad job with modify index #: {modify_index}")
+            except NameError as e:
+                log.exception("No modify_index")
+                raise sys.exit(1) from e
+            else:
                 return modify_index
-            except NameError:
-                log.error("No modify_index")
-                raise sys.exit(1)
         else:
             log.error(
-                f"Nomad job plan failed for '{self.name}' with return code: {result.returncode}"
+                f"Nomad job plan failed for '{self.name}' with return code: '{result.returncode}'\n{result.stderr}"
             )
             raise sys.exit(1)
 
@@ -135,7 +136,7 @@ def parse_job_file(job_file: Path) -> JobFile | None:
 
 
 @log.catch(exclude=AssertionError)
-def list_job_files(directories: list[Path | str], pattern: str | None = None) -> list[JobFile]:
+def list_valid_jobs(directories: list[Path | str], pattern: str | None = None) -> list[JobFile]:
     """Lists valid Nomad job files within a specified directory.
 
     Args:

@@ -5,11 +5,11 @@ from pathlib import Path
 from rich import box, print
 from rich.table import Table
 
-from nd._commands.utils import job_files
+from nd._commands.utils import list_valid_jobs
 from nd._commands.utils.alerts import logger as log
 
 
-def list_jobs(
+def show_jobs(
     verbosity: int,
     dry_run: bool,
     log_to_file: bool,
@@ -22,9 +22,9 @@ def list_jobs(
 
     directories_to_search = config["job_files_locations"]
     try:
-        valid_job_files = job_files.list_job_files(directories_to_search, job_name)
+        valid_job_files = list_valid_jobs(directories_to_search, job_name)
     except AssertionError as e:
-        log.error(e)
+        log.error(e)  # noqa: TC400
         return False
 
     log.info(f"Found {len(valid_job_files)} valid job files.")

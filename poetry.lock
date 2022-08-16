@@ -1208,6 +1208,19 @@ optional = false
 python-versions = ">=3.6,<4.0"
 
 [[package]]
+name = "tryceratops"
+version = "1.1.0"
+description = "A linter to manage your exception like a PRO!"
+category = "dev"
+optional = false
+python-versions = ">=3.8,<4.0"
+
+[package.dependencies]
+click = ">=7"
+rich = ">=10.14.0"
+toml = ">=0.10.2"
+
+[[package]]
 name = "typeguard"
 version = "2.13.3"
 description = "Run-time type checker for Python"
@@ -1355,7 +1368,7 @@ tokenize-rt = ">=2.1"
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.10"
-content-hash = "dcd09b173b68a225c84daf8a01df8e5d7a423519a405fab3fd10a362a5437de1"
+content-hash = "abbace0eb2c4d918da6017e39f169fef4f4cb0157c76e05de30a0e9b3c5cbcb8"
 
 [metadata.files]
 absolufy-imports = [
@@ -1952,6 +1965,10 @@ tomli = [
 tomlkit = [
     {file = "tomlkit-0.11.4-py3-none-any.whl", hash = "sha256:25d4e2e446c453be6360c67ddfb88838cfc42026322770ba13d1fbd403a93a5c"},
     {file = "tomlkit-0.11.4.tar.gz", hash = "sha256:3235a9010fae54323e727c3ac06fb720752fe6635b3426e379daec60fbd44a83"},
+]
+tryceratops = [
+    {file = "tryceratops-1.1.0-py3-none-any.whl", hash = "sha256:f4770960782a2ae87cad7a7fd1206476468d0f41383c9fd7a49c6d537534015e"},
+    {file = "tryceratops-1.1.0.tar.gz", hash = "sha256:58e56b33eeb7a9cfd643957069bb1872ebe26c1eeac7abb1877c9535b7e473db"},
 ]
 typeguard = [
     {file = "typeguard-2.13.3-py3-none-any.whl", hash = "sha256:5e3e3be01e887e7eafae5af63d1f36c849aaa94e3a0112097312aabfa16284f1"},
