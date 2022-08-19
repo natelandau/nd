@@ -25,7 +25,7 @@ class Regex:
         Returns:
             bool: True if the actual string matches the regex, False otherwise.
         """
-        return bool(self._regex.match(actual))
+        return bool(self._regex.search(actual))
 
     def __repr__(self):
         """Error printed on failed tests."""

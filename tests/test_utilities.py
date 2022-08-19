@@ -24,4 +24,10 @@ def test_select_one(monkeypatch) -> None:
     assert utilities.select_one(["one_item"]) == "one_item"
 
 
-# Prompt.ask
+def test_chunks():
+    """Test chunks()."""
+    test_list = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    assert list(utilities.chunks(test_list, 2)) == [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10], [11]]
+    assert list(utilities.chunks(test_list, 3)) == [[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11]]
+    assert list(utilities.chunks(test_list, 5)) == [[1, 2, 3, 4, 5], [6, 7, 8, 9, 10], [11]]
+    assert list(utilities.chunks(test_list, 11)) == [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]]

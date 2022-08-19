@@ -142,8 +142,11 @@ def logs() -> None:
 
 @app.command()
 def status() -> None:
-    """Say a message."""
-    log.info("status")
+    """Show status of Nomad cluster."""
+    if not _commands.show_cluster_status(
+        state.verbosity, state.dry_run, state.log_to_file, state.log_file, state.config
+    ):
+        raise typer.Exit(1)
 
 
 @app.command("list")
