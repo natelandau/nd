@@ -84,7 +84,7 @@ job "sonarr" {
         name = "${NOMAD_JOB_NAME}"
         tags = [
           "traefik.enable=true",
-          "traefik.http.routers.${NOMAD_JOB_NAME}.rule=Host(`${NOMAD_JOB_NAME}.natelandau.org`)",
+          "traefik.http.routers.${NOMAD_JOB_NAME}.rule=Host(`${NOMAD_JOB_NAME}.url.com`)",
           "traefik.http.routers.${NOMAD_JOB_NAME}.entryPoints=web,websecure",
           "traefik.http.routers.${NOMAD_JOB_NAME}.service=sonarr",
           "traefik.http.routers.${NOMAD_JOB_NAME}.tls=true",

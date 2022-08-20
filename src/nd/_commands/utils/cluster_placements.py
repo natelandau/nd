@@ -101,7 +101,10 @@ def populate_running_jobs(nomad_api_url: str, filter_pattern: str | None = None)
     log.trace(f"Populating placed jobs from {url}")
     response = make_nomad_api_call(url, "GET", params)
 
-    return [Job(nomad_api_url, job["ID"], job["Type"], job["Status"]) for job in response]
+    if type(response) is list:
+        return [Job(nomad_api_url, job["ID"], job["Type"], job["Status"]) for job in response]
+    else:
+        return []
 
 
 @log.catch
@@ -111,61 +114,64 @@ def populate_allocations(job: str, nomad_api_url: str) -> tuple[list[Allocation]
     response = make_nomad_api_call(url, "GET")
     allocations = []
     tasks = []
-    for alloc in response:
+    if type(response) is list:
+        for alloc in response:
 
-        if (
-            alloc["JobType"] == "sysbatch"
-            or alloc["JobType"] == "batch"
-            or alloc["JobType"] == "system"
-        ):
-            allocations.append(
-                Allocation(
-                    alloc["ID"],
-                    alloc["NodeName"],
-                    alloc["NodeID"],
-                    alloc["JobType"],
-                    True,
-                )
-            )
-
-            for task in alloc["TaskStates"]:
-                tasks.append(
-                    Task(
-                        task,
+            if (
+                alloc["JobType"] == "sysbatch"
+                or alloc["JobType"] == "batch"
+                or alloc["JobType"] == "system"
+            ):
+                allocations.append(
+                    Allocation(
                         alloc["ID"],
                         alloc["NodeName"],
                         alloc["NodeID"],
-                        alloc["TaskStates"][task]["StartedAt"],
-                        alloc["TaskStates"][task]["State"],
-                        alloc["TaskStates"][task]["Failed"],
-                        alloc["TaskStates"][task]["Restarts"],
+                        alloc["JobType"],
                         True,
                     )
                 )
-        else:
-            allocations.append(
-                Allocation(
-                    alloc["ID"],
-                    alloc["NodeName"],
-                    alloc["NodeID"],
-                    alloc["JobType"],
-                    alloc["DeploymentStatus"]["Healthy"],
-                )
-            )
 
-            for task in alloc["TaskStates"]:
-                tasks.append(
-                    Task(
-                        task,
+                for task in alloc["TaskStates"]:
+                    tasks.append(
+                        Task(
+                            task,
+                            alloc["ID"],
+                            alloc["NodeName"],
+                            alloc["NodeID"],
+                            alloc["TaskStates"][task]["StartedAt"],
+                            alloc["TaskStates"][task]["State"],
+                            alloc["TaskStates"][task]["Failed"],
+                            alloc["TaskStates"][task]["Restarts"],
+                            True,
+                        )
+                    )
+            else:
+                allocations.append(
+                    Allocation(
                         alloc["ID"],
                         alloc["NodeName"],
                         alloc["NodeID"],
-                        alloc["TaskStates"][task]["StartedAt"],
-                        alloc["TaskStates"][task]["State"],
-                        alloc["TaskStates"][task]["Failed"],
-                        alloc["TaskStates"][task]["Restarts"],
+                        alloc["JobType"],
                         alloc["DeploymentStatus"]["Healthy"],
                     )
                 )
 
-    return allocations, tasks
+                for task in alloc["TaskStates"]:
+                    tasks.append(
+                        Task(
+                            task,
+                            alloc["ID"],
+                            alloc["NodeName"],
+                            alloc["NodeID"],
+                            alloc["TaskStates"][task]["StartedAt"],
+                            alloc["TaskStates"][task]["State"],
+                            alloc["TaskStates"][task]["Failed"],
+                            alloc["TaskStates"][task]["Restarts"],
+                            alloc["DeploymentStatus"]["Healthy"],
+                        )
+                    )
+
+        return allocations, tasks
+    else:
+        return [], []

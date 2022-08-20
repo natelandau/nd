@@ -43,7 +43,7 @@ job "whoogle" {
         WHOOGLE_CONFIG_NEW_TAB         = "0"
         WHOOGLE_CONFIG_SEARCH_LANGUAGE = "lang_en"
         WHOOGLE_CONFIG_THEME           = "light"
-        WHOOGLE_CONFIG_URL             = "https://${NOMAD_JOB_NAME}.natelandau.org"
+        WHOOGLE_CONFIG_URL             = "https://${NOMAD_JOB_NAME}.url.com"
         WHOOGLE_CONFIG_VIEW_IMAGE      = "1"
         WHOOGLE_RESULTS_PER_PAGE       = "20"
       }
@@ -60,7 +60,7 @@ job "whoogle" {
         name = "${NOMAD_JOB_NAME}"
         tags = [
           "traefik.enable=true",
-          "traefik.http.routers.${NOMAD_JOB_NAME}.rule=Host(`${NOMAD_JOB_NAME}.natelandau.org`)",
+          "traefik.http.routers.${NOMAD_JOB_NAME}.rule=Host(`${NOMAD_JOB_NAME}.url.com`)",
           "traefik.http.routers.${NOMAD_JOB_NAME}.entryPoints=web,websecure",
           "traefik.http.routers.${NOMAD_JOB_NAME}.service=${NOMAD_JOB_NAME}",
           "traefik.http.routers.${NOMAD_JOB_NAME}.tls=true",

@@ -91,8 +91,20 @@ def load_configuration(paths: list[Path]) -> dict:
 
 @app.command()
 def clean() -> None:
-    """Say a message."""
-    log.info("clean")
+    """Run Nomad garbace collection.
+
+    Nomad periodically garbage collects jobs, evaluations, allocations, and nodes. The exact garbage collection logic varies by object, but in general Nomad only permanently deletes objects once they are terminal and no longer needed for future scheduling decisions.
+
+    This command bypasses these settings and immediately attempts to garbage collect dead objects regardless of any "threshold" or "interval" server settings. This is useful to quickly free memory on servers running low, but users should prefer tuning periodic garbage collection parameters to meet their needs instead of relying on manually running garbage collection.
+    """
+    if not _commands.run_garbage_collection(
+        state.verbosity,
+        state.dry_run,
+        state.log_to_file,
+        state.log_file,
+        state.config,
+    ):
+        raise typer.Exit(1)
 
 
 @app.command("exec")

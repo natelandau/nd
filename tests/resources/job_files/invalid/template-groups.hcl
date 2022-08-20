@@ -61,7 +61,7 @@ job "TEMPLATE" {
               name = "${NOMAD_JOB_NAME}1"
               tags = [
                   "traefik.enable=true",
-                  "traefik.http.routers.${NOMAD_JOB_NAME}1.rule=Host(`${NOMAD_JOB_NAME}1.natelandau.org`)",
+                  "traefik.http.routers.${NOMAD_JOB_NAME}1.rule=Host(`${NOMAD_JOB_NAME}1.url.com`)",
                   "traefik.http.routers.${NOMAD_JOB_NAME}1.entryPoints=web,websecure",
                   "traefik.http.routers.${NOMAD_JOB_NAME}1.service=${NOMAD_JOB_NAME}1",
                   "traefik.http.routers.${NOMAD_JOB_NAME}1.tls=true",,
@@ -160,7 +160,7 @@ job "TEMPLATE" {
                 port = "port2"
                 tags = [
                   "traefik.enable=true",
-                    "traefik.http.routers.${NOMAD_TASK_NAME}.rule=Host(`${NOMAD_TASK_NAME}.natelandau.org`)",
+                    "traefik.http.routers.${NOMAD_TASK_NAME}.rule=Host(`${NOMAD_TASK_NAME}.url.com`)",
                     "traefik.http.routers.${NOMAD_TASK_NAME}.entryPoints=web,websecure",
                     "traefik.http.routers.${NOMAD_TASK_NAME}.service=${NOMAD_TASK_NAME}",
                     "traefik.http.routers.${NOMAD_TASK_NAME}.tls=true",,

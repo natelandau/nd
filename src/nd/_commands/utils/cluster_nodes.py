@@ -45,16 +45,19 @@ def populate_nodes(nomad_api_url: str) -> list[Node]:
 
     log.trace(f"Populating nodes from {url}")
     response = make_nomad_api_call(url, "GET")
-    return [
-        Node(
-            node["Name"],
-            node["ID"],
-            node["Address"],
-            node["Status"],
-            node["SchedulingEligibility"],
-            node["Datacenter"],
-            node["NodeClass"],
-            node["Version"],
-        )
-        for node in response
-    ]
+    if type(response) is list:
+        return [
+            Node(
+                node["Name"],
+                node["ID"],
+                node["Address"],
+                node["Status"],
+                node["SchedulingEligibility"],
+                node["Datacenter"],
+                node["NodeClass"],
+                node["Version"],
+            )
+            for node in response
+        ]
+    else:
+        return []

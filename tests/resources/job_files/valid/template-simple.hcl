@@ -60,7 +60,7 @@ job "TEMPLATE" {
           name = "${NOMAD_TASK_NAME}"
           tags = [
               "traefik.enable=true",
-              "traefik.http.routers.${NOMAD_TASK_NAME}.rule=Host(`${NOMAD_JOB_NAME}.natelandau.org`)",
+              "traefik.http.routers.${NOMAD_TASK_NAME}.rule=Host(`${NOMAD_JOB_NAME}.url.com`)",
               "traefik.http.routers.${NOMAD_TASK_NAME}.entryPoints=web,websecure",
               "traefik.http.routers.${NOMAD_TASK_NAME}.service=${NOMAD_TASK_NAME}",
               "traefik.http.routers.${NOMAD_TASK_NAME}.tls=true",
