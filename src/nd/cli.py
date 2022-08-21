@@ -165,9 +165,23 @@ def plan(
 
 
 @app.command()
-def logs() -> None:
-    """Say a message."""
-    log.info("logs")
+def logs(
+    task_name: str = typer.Argument(
+        ...,
+        help="Name or partial name of a task to view logs for.",
+        show_default=False,
+    )
+) -> None:
+    """Enter an interactive shell within a running container."""
+    if not _commands.view_logs(
+        state.verbosity,
+        state.dry_run,
+        state.log_to_file,
+        state.log_file,
+        state.config,
+        task_name,
+    ):
+        raise typer.Exit(1)
 
 
 @app.command()

@@ -58,7 +58,12 @@ class Allocation:
 
 @rich.repr.auto
 class Task:
-    """Class for a Nomad Task."""
+    """Class for a Nomad Task.
+
+    Methods:
+        execute() - Execute a command in a container
+        logs() - View logs from a container
+    """
 
     def __init__(
         self,
@@ -100,6 +105,17 @@ class Task:
         else:
             cmd = command
         exec_command = f"nomad alloc exec -i -t -task {self.name} {self.allocation_short} {cmd}"
+        pyperclip.copy(exec_command)
+        alerts.success(f"Command copied to clipboard: {exec_command}")
+        return True
+
+    def logs(self) -> bool:
+        """Generate a command to execute view logs in a container and copy the command to the users's clipboard.
+
+        Returns:
+            True if the command was copied to the clipboard.
+        """
+        exec_command = f"nomad alloc logs -f -n 50 {self.allocation_short} {self.name}"
         pyperclip.copy(exec_command)
         alerts.success(f"Command copied to clipboard: {exec_command}")
         return True
