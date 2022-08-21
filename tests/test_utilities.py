@@ -7,7 +7,7 @@ from nd._commands.utils import utilities
 from nd._commands.utils.job_files import JobFile
 
 
-def test_select_one(monkeypatch) -> None:
+def test_select_one_jobfile(monkeypatch, mock_jobs) -> None:
     """Test select_one."""
     monkeypatch.setattr("sys.stdin", io.StringIO("item1"))
     items = ["item1", "item2", "item3"]
@@ -22,6 +22,10 @@ def test_select_one(monkeypatch) -> None:
     assert utilities.select_one([]) is None
 
     assert utilities.select_one(["one_item"]) == "one_item"
+
+    monkeypatch.setattr("sys.stdin", io.StringIO("job1"))
+    jobs = mock_jobs
+    assert utilities.select_one(jobs) == jobs[0]
 
 
 def test_chunks():

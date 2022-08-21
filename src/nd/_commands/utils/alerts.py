@@ -15,12 +15,12 @@ def dryrun(dry_run: bool, msg: str) -> None:
         msg: Message to print
     """
     if dry_run:
-        print(f"[cyan]DRYRUN   |{msg}[/cyan]")
+        print(f"[cyan]DRYRUN   | {msg}[/cyan]")
 
 
 def success(msg: str) -> None:
     """Print a success message."""
-    print(f"[green]SUCCESS  |{msg}[/green]")
+    print(f"[green]SUCCESS  | {msg}[/green]")
 
 
 def _log_formatter(record: dict) -> str:

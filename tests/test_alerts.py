@@ -14,7 +14,7 @@ def test_dryrun(capsys):
     dry_run = True
     alerts.dryrun(dry_run, "This prints in dry run")
     captured = capsys.readouterr()
-    assert captured.out == "DRYRUN   |This prints in dry run\n"
+    assert captured.out == "DRYRUN   | This prints in dry run\n"
 
     dry_run = False
     alerts.dryrun(dry_run, "This prints in dry run")
@@ -26,7 +26,7 @@ def test_success(capsys):
     """Test success."""
     alerts.success("This prints in success")
     captured = capsys.readouterr()
-    assert captured.out == "SUCCESS  |This prints in success\n"
+    assert captured.out == "SUCCESS  | This prints in success\n"
 
 
 @pytest.mark.parametrize(

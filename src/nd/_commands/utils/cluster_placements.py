@@ -1,9 +1,9 @@
 """Nomad client (node) classes and functions."""
 
-
+import pyperclip
 import rich.repr
 
-from nd._commands.utils import make_nomad_api_call
+from nd._commands.utils import alerts, make_nomad_api_call
 from nd._commands.utils.alerts import logger as log
 
 
@@ -71,6 +71,7 @@ class Task:
         failed: str = "",
         restarts: int = 0,
         healthy: bool = False,
+        job_id: str = "",
     ):
         self.name = name
         self.allocation = allocation
@@ -83,6 +84,25 @@ class Task:
         self.failed = failed
         self.restarts = restarts
         self.healthy = healthy
+        self.job_id = job_id
+
+    def execute(self, command: str | None) -> bool:
+        """Generate a command to execute in a container and copy it to the users's clipboard.
+
+        Args:
+            command: Optional command to execute in the task. Defaults to /bin/sh
+
+        Returns:
+            True if the command was copied to the clipboard.
+        """
+        if command is None:
+            cmd = "/bin/sh"
+        else:
+            cmd = command
+        exec_command = f"nomad alloc exec -i -t -task {self.name} {self.allocation_short} {cmd}"
+        pyperclip.copy(exec_command)
+        alerts.success(f"Command copied to clipboard: {exec_command}")
+        return True
 
 
 def populate_running_jobs(nomad_api_url: str, filter_pattern: str | None = None) -> list[Job]:
@@ -108,9 +128,9 @@ def populate_running_jobs(nomad_api_url: str, filter_pattern: str | None = None)
 
 
 @log.catch
-def populate_allocations(job: str, nomad_api_url: str) -> tuple[list[Allocation], list[Task]]:
+def populate_allocations(job_id: str, nomad_api_url: str) -> tuple[list[Allocation], list[Task]]:
     """Populate list of running allocations."""
-    url = f"{nomad_api_url}/job/{job}/allocations"
+    url = f"{nomad_api_url}/job/{job_id}/allocations"
     response = make_nomad_api_call(url, "GET")
     allocations = []
     tasks = []
@@ -144,6 +164,7 @@ def populate_allocations(job: str, nomad_api_url: str) -> tuple[list[Allocation]
                             alloc["TaskStates"][task]["Failed"],
                             alloc["TaskStates"][task]["Restarts"],
                             True,
+                            job_id,
                         )
                     )
             else:
@@ -169,6 +190,7 @@ def populate_allocations(job: str, nomad_api_url: str) -> tuple[list[Allocation]
                             alloc["TaskStates"][task]["Failed"],
                             alloc["TaskStates"][task]["Restarts"],
                             alloc["DeploymentStatus"]["Healthy"],
+                            job_id,
                         )
                     )
 

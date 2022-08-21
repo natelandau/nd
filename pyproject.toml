@@ -28,6 +28,7 @@ nd = "nd.cli:app"
 [tool.poetry.dependencies]
 arrow = "^1.2.2"
 loguru = "^0.6.0"
+pyperclip = "^1.8.2"
 python = "^3.10"
 requests = "^2.28.1"
 rich = "^12.5.1"

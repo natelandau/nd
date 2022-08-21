@@ -108,9 +108,27 @@ def clean() -> None:
 
 
 @app.command("exec")
-def exec_in_container() -> None:
-    """Say a message."""
-    log.info("exec")
+def exec_in_container(
+    task_name: str = typer.Argument(
+        ...,
+        help="Name or partial name of a task to run a command in.",
+        show_default=False,
+    ),
+    exec_command: Optional[str] = typer.Argument(
+        None, help="Command to run in the container.", show_default=False
+    ),
+) -> None:
+    """Enter an interactive shell within a running container."""
+    if not _commands.exec_in_container(
+        state.verbosity,
+        state.dry_run,
+        state.log_to_file,
+        state.log_file,
+        state.config,
+        task_name,
+        exec_command,
+    ):
+        raise typer.Exit(1)
 
 
 @app.command()
