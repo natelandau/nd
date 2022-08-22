@@ -173,15 +173,34 @@ def stop(
 
 
 @app.command()
-def start() -> None:
-    """Say a message."""
-    log.info("start")
-
-
-@app.command()
-def rebuild() -> None:
-    """Say a message."""
-    log.info("rebuild")
+def rebuild(
+    job_name: str = typer.Argument(
+        ...,
+        help="Name or partial name of a Nomad job to rebuild.",
+        show_default=False,
+    ),
+) -> None:
+    """Stop, garbage collect, and run selected Nomad Job."""
+    if _commands.stop_job(
+        state.verbosity,
+        state.dry_run,
+        state.log_to_file,
+        state.log_file,
+        state.config,
+        job_name,
+        no_clean=False,
+    ):
+        if not _commands.run_nomad_job(
+            state.verbosity,
+            state.dry_run,
+            state.log_to_file,
+            state.log_file,
+            state.config,
+            job_name,
+        ):
+            raise typer.Exit(1)
+    else:
+        raise typer.Exit(1)
 
 
 @app.command()
