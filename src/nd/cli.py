@@ -132,9 +132,29 @@ def exec_in_container(
 
 
 @app.command()
-def stop() -> None:
-    """Say a message."""
-    log.info("stop")
+def stop(
+    job_name: str = typer.Argument(
+        ...,
+        help="Name or partial name of a Nomad job to stop..",
+        show_default=False,
+    ),
+    no_clean: bool = typer.Option(
+        False,
+        "--no-clean",
+        help="Do not garbage collect the job after stopping.",
+    ),
+) -> None:
+    """Stop a running job."""
+    if not _commands.stop_job(
+        state.verbosity,
+        state.dry_run,
+        state.log_to_file,
+        state.log_file,
+        state.config,
+        job_name,
+        no_clean,
+    ):
+        raise typer.Exit(1)
 
 
 @app.command()

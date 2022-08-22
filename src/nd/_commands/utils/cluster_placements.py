@@ -1,7 +1,10 @@
 """Nomad client (node) classes and functions."""
 
+import time
+
 import pyperclip
 import rich.repr
+from rich.progress import track
 
 from nd._commands.utils import alerts, make_nomad_api_call
 from nd._commands.utils.alerts import logger as log
@@ -23,12 +26,60 @@ class Job:
         status: str = "",
         allocations: list = [],
         tasks: list = [],
+        create_backup: bool = False,
     ) -> None:
         self.api_url = api_url
         self.job_id = job_id
         self.job_type = job_type
         self.status = status
+        self.create_backup = create_backup
         self.allocations, self.tasks = populate_allocations(self.job_id, self.api_url)
+
+        for task in self.tasks:
+            if "filesystem" in task.name:
+                self.create_backup = True
+                break
+
+    def stop(self, no_clean: bool = False, dry_run: bool = False) -> bool:
+        """Stop a job.
+
+        Args:
+            no_clean: Do not garbage collect the job after stopping, but save its state.
+            dry_run: Do not actually stop the job, but print what would be done.
+
+        Returns:
+            bool: True if job was stopped, False otherwise.
+        """
+        log.info(f"Stopping job {self.job_id}")
+
+        api_url = f"{self.api_url}/job/{self.job_id}"
+        if no_clean:
+            params = None
+        else:
+            params = {"purge": "true"}
+
+        if make_nomad_api_call(api_url, "DELETE", data=params, dry_run=dry_run):
+            if not dry_run:
+                for _idx, _value in enumerate(
+                    track(
+                        range(200), description=f"[{self.job_id}] Stopping job...", transient=True
+                    )
+                ):
+                    time.sleep(0.01)
+
+                if self.create_backup:  # pragma: no cover
+                    for _idx, _value in enumerate(
+                        track(
+                            range(4000),
+                            description=f"[{self.job_id}] Creating local backup...",
+                            transient=True,
+                        )
+                    ):
+                        time.sleep(0.01)
+
+            return True
+        else:
+            return False
 
 
 @rich.repr.auto

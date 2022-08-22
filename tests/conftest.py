@@ -79,6 +79,7 @@ def mock_job(mocker):
         job_id="job1",
         job_type="service",
         status="running",
+        create_backup=False,
     )
 
     return [job1]
@@ -131,12 +132,14 @@ def mock_jobs(mocker):
         job_id="job1",
         job_type="service",
         status="running",
+        create_backup=False,
     )
 
     job2 = Job(
         job_id="job2",
         job_type="service",
         status="running",
+        create_backup=True,
     )
 
     return [job1, job2]

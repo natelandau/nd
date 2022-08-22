@@ -7,20 +7,23 @@ from loguru import logger
 from rich import print
 
 
-def dryrun(dry_run: bool, msg: str) -> None:
+def dryrun(msg: str) -> None:
     """Print a message if the dry run flag is set.
 
     Args:
-        dry_run: True if dry run
         msg: Message to print
     """
-    if dry_run:
-        print(f"[cyan]DRYRUN   | {msg}[/cyan]")
+    print(f"[cyan]DRYRUN   | {msg}[/cyan]")
 
 
 def success(msg: str) -> None:
-    """Print a success message."""
+    """Print a success message without using logging."""
     print(f"[green]SUCCESS  | {msg}[/green]")
+
+
+def error(msg: str) -> None:
+    """Print an error message without using logging."""
+    print(f"[red]ERROR    | {msg}[/red]")
 
 
 def _log_formatter(record: dict) -> str:

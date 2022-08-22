@@ -1,7 +1,9 @@
 # type: ignore
 """Test cluster_placements.py."""
 
-from nd._commands.utils.cluster_placements import Job
+import re
+
+from nd._commands.utils.cluster_placements import Job, populate_running_jobs
 
 mock_jobs_response = [
     {
@@ -16,7 +18,7 @@ mock_jobs_response = [
         "ID": "job2",
         "ParentID": "",
         "Name": "job2",
-        "Type": "service",
+        "Type": "sysbatch",
         "Priority": 50,
         "Status": "pending",
     },
@@ -41,7 +43,7 @@ mock_allocation_response = [
                 "Restarts": 0,
                 "StartedAt": "2022-06-17T12:52:50.059724591Z",
             },
-            "task2": {
+            "create_filesystem": {
                 "State": "running",
                 "Failed": False,
                 "Restarts": 0,
@@ -58,12 +60,10 @@ mock_allocation_response = [
 ]
 
 
-def test_job_class(mocker):
+def test_job_class(requests_mock):
     """Test the Job class."""
-    mocker.patch(
-        "nd._commands.utils.cluster_placements.make_nomad_api_call",
-        return_value=mock_allocation_response,
-    )
+    allocations_url = re.compile(r".*/job/.*/allocations$")
+    requests_mock.get(allocations_url, json=mock_allocation_response)
 
     jobs = [
         Job("http://junk.url", job["ID"], job["Type"], job["Status"]) for job in mock_jobs_response
@@ -72,6 +72,33 @@ def test_job_class(mocker):
     assert jobs[0].job_type == "service"
     assert jobs[0].status == "pending"
     assert jobs[0].allocations[0].id_num == "36be6d11-cabe-b70f-2a5e-8ddf9a9079fc"
+    assert jobs[0].allocations[0].healthy is True
     assert jobs[0].tasks[0].name == "task1"
-    assert jobs[0].tasks[1].name == "task2"
+    assert jobs[0].tasks[1].name == "create_filesystem"
+    assert jobs[0].create_backup is True
     assert jobs[1].job_id == "job2"
+    assert jobs[1].job_type == "sysbatch"
+    assert jobs[1].status == "pending"
+    assert jobs[1].allocations[0].healthy is True
+
+
+def test_populate_running_jobs(
+    requests_mock,
+):
+    """Test the populate_running_jobs function."""
+    jobs_url = re.compile(r".*/jobs$")
+    allocations_url = re.compile(r".*/job/.*/allocations$")
+    requests_mock.get(jobs_url, json=mock_jobs_response)
+    requests_mock.get(allocations_url, json=mock_allocation_response)
+
+    jobs = populate_running_jobs("http://junk.url")
+    assert jobs[0].job_id == "job1"
+    assert jobs[0].job_type == "service"
+    assert jobs[0].status == "pending"
+    assert jobs[1].job_id == "job2"
+    assert jobs[1].job_type == "sysbatch"
+    assert jobs[1].status == "pending"
+
+    requests_mock.get(jobs_url, json=[])
+    jobs = populate_running_jobs("http://junk.url")
+    assert jobs == []

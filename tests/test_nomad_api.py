@@ -30,6 +30,20 @@ def test_nomad_api_call_valid_json(requests_mock):
     assert response["Attributes"]["os.name"] == "ubuntu"
 
 
+def test_dry_run(requests_mock, capsys):
+    """Test a dry run."""
+    requests_mock.get("http://fake.url", json=valid_json)
+    assert make_nomad_api_call("http://fake.url", "get", dry_run=True) is True
+    captured = capsys.readouterr()
+    assert "API call: GET http://fake.url" in captured.out
+
+    assert (
+        make_nomad_api_call("http://fake.url", "get", dry_run=True, data={"test": "test"}) is True
+    )
+    captured = capsys.readouterr()
+    assert "API call: GET http://fake.url?test=test" in captured.out
+
+
 def test_nomad_api_call_no_json(requests_mock) -> None:
     """Test a valid response from the Nomad API."""
     requests_mock.get("http://fake.url", text="")

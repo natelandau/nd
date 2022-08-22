@@ -1,18 +1,19 @@
 # type: ignore
-"""Test the logs command."""
+"""Test the Stop command and method."""
 import re
 from pathlib import Path
 
-from nd._commands import view_logs
-from tests.helpers import Regex
+from nd._commands import stop_job
 
 
-def test_single_command(mock_job, capsys, mocker):
-    """Test that a single command is executed."""
-    mocker.patch("nd._commands.logs_command.populate_running_jobs", return_value=mock_job)
+def test_stop_command(mocker, mock_job, capsys, requests_mock):
+    """Test stop command."""
+    mocker.patch("nd._commands.stop_command.populate_running_jobs", return_value=mock_job)
 
+    stop_url = re.compile(r".*/job/.*")
+    requests_mock.delete(stop_url, text="")
     assert (
-        view_logs(
+        stop_job(
             verbosity=0,
             dry_run=False,
             log_to_file=False,
@@ -24,24 +25,16 @@ def test_single_command(mock_job, capsys, mocker):
                 ],
                 "nomad_api_url": "http://junk.url",
             },
-            task_name="mock_task1",
+            job_name="job1",
+            no_clean=True,
         )
         is True
     )
     output = capsys.readouterr().out
-
-    assert output == Regex(
-        r"Command copied to clipboard: nomad.*alloc.*logs.*-f.*-n.*50.*36be6d11.*mock_task1",
-        re.DOTALL + re.MULTILINE,
-    )
-
-
-def test_no_command(mock_job, mocker):
-    """Test that view_logs fails if no matching task is found."""
-    mocker.patch("nd._commands.logs_command.populate_running_jobs", return_value=mock_job)
+    assert "SUCCESS  | Stopped job: job1" in output
 
     assert (
-        view_logs(
+        stop_job(
             verbosity=0,
             dry_run=False,
             log_to_file=False,
@@ -53,7 +46,10 @@ def test_no_command(mock_job, mocker):
                 ],
                 "nomad_api_url": "http://junk.url",
             },
-            task_name="nonexistant_task",
+            job_name="job1",
+            no_clean=False,
         )
-        is False
+        is True
     )
+    output = capsys.readouterr().out
+    assert "SUCCESS  | Stopped job: job1" in output

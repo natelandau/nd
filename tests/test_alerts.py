@@ -11,15 +11,9 @@ from tests.helpers import Regex
 
 def test_dryrun(capsys):
     """Test dry run."""
-    dry_run = True
-    alerts.dryrun(dry_run, "This prints in dry run")
+    alerts.dryrun("This prints in dry run")
     captured = capsys.readouterr()
     assert captured.out == "DRYRUN   | This prints in dry run\n"
-
-    dry_run = False
-    alerts.dryrun(dry_run, "This prints in dry run")
-    captured = capsys.readouterr()
-    assert captured.out == ""
 
 
 def test_success(capsys):
@@ -27,6 +21,13 @@ def test_success(capsys):
     alerts.success("This prints in success")
     captured = capsys.readouterr()
     assert captured.out == "SUCCESS  | This prints in success\n"
+
+
+def test_error(capsys):
+    """Test success."""
+    alerts.error("This prints in error")
+    captured = capsys.readouterr()
+    assert captured.out == "ERROR    | This prints in error\n"
 
 
 @pytest.mark.parametrize(

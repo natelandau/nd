@@ -35,7 +35,7 @@ def test_show_cluster_status(mock_nodes, mock_jobs, mocker, capsys):
     assert "No running jobs" in output
 
 
-def test_show_cluster_status_with_no_nodes(mocker, mock_nodes):
+def test_show_cluster_status_with_no_nodes(mocker):
     """Test show_cluster_status fails without nodes."""
     mocker.patch("nd._commands.status_command.populate_nodes", return_value=[])
     assert (

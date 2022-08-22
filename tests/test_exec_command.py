@@ -67,7 +67,7 @@ def test_no_command(mock_job, capsys, mocker):
     )
 
 
-def test_no_results(mocker, mock_job, capsys):
+def test_no_results(mocker, mock_job):
     """Test that no results are returned."""
     mocker.patch("nd._commands.exec_command.populate_running_jobs", return_value=mock_job)
 
