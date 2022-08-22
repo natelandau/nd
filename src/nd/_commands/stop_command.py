@@ -27,7 +27,7 @@ def stop_job(
     if len(matching_jobs) == 0:
         log.error(f"No jobs found matching {job_name}")
         return False
-    elif len(matching_jobs) > 1:
+    elif len(matching_jobs) > 1:  # pragma: no cover
         print(f"Multiple jobs found matching {job_name}")
         job = select_one(matching_jobs)
     else:

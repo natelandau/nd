@@ -132,6 +132,21 @@ def exec_in_container(
 
 
 @app.command()
+def run(
+    job_name: str = typer.Argument(
+        ...,
+        help="Name or partial name of a Nomad job to run.",
+        show_default=False,
+    )
+) -> None:
+    """Runs a Nomad job."""
+    if not _commands.run_nomad_job(
+        state.verbosity, state.dry_run, state.log_to_file, state.log_file, state.config, job_name
+    ):
+        raise typer.Exit(1)
+
+
+@app.command()
 def stop(
     job_name: str = typer.Argument(
         ...,

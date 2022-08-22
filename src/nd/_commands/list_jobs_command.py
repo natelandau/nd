@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from rich import box, print
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from nd._commands.utils import list_valid_jobs
@@ -21,11 +22,26 @@ def show_jobs(
     log.trace(config)
 
     directories_to_search = config["job_files_locations"]
-    try:
-        valid_job_files = list_valid_jobs(directories_to_search, job_name)
-    except AssertionError as e:
-        log.error(e)  # noqa: TC400
-        return False
+
+    if verbosity <= 1:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            transient=True,
+        ) as progress:
+            progress.add_task(description="Processing job files...", total=None)
+            try:
+                valid_job_files = list_valid_jobs(directories_to_search, job_name)
+            except AssertionError as e:
+                progress.stop()
+                log.error(e)  # noqa: TC400
+                return False
+    else:
+        try:
+            valid_job_files = list_valid_jobs(directories_to_search, job_name)
+        except AssertionError as e:
+            log.error(e)  # noqa: TC400
+            return False
 
     log.info(f"Found {len(valid_job_files)} valid job files.")
 

@@ -6,7 +6,11 @@ import sys
 from pathlib import Path
 
 import rich.repr
+from rich import print
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.prompt import Prompt
 
+from nd._commands.utils import alerts
 from nd._commands.utils.alerts import logger as log
 
 
@@ -87,7 +91,7 @@ class JobFile:
             print("Nomad binary not found. Please install Nomad.")
             raise sys.exit(1) from e
 
-        if result.returncode == 0:
+        if result.returncode <= 1:
             for line in result.stdout.splitlines():
                 if re.match(r"^Job Modify Index: (\d+)$", line):
                     modify_index = re.match(r"^Job Modify Index: (\d+)$", line).group(1)  # type: ignore [union-attr]
@@ -105,6 +109,41 @@ class JobFile:
                 f"Nomad job plan failed for '{self.name}' with return code: '{result.returncode}'\n{result.stderr}"
             )
             raise sys.exit(1)
+
+    @log.catch
+    def run(self) -> bool:
+        """Run a Nomad job."""
+        modify_index = self.plan()
+        if modify_index != "0":
+            print(f"'{self.name}' is already running.  New modify index: '{modify_index}'")
+            confirm = Prompt.ask("'Do you want run a new version?", choices=["y", "n"])
+            if confirm == "n":
+                print(f"{self.name}: Run aborted")
+                return False
+
+        command = ["nomad", "job", "run", "-check-index", modify_index, str(self.file)]
+        log.trace(f"Running command: {' '.join(command)}")
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            transient=True,
+        ) as progress:
+            progress.add_task(description=f"Attempting to start {self.name}...", total=None)
+            try:
+                result = subprocess.run(command, capture_output=True, text=True)  # nosec
+            except FileNotFoundError as e:  # pragma: no cover
+                progress.stop()
+                print("Nomad binary not found. Please install Nomad.")
+                raise sys.exit(1) from e
+
+        if result.returncode == 0:
+            return True
+        else:
+            alerts.error(
+                f"Nomad job plan failed for '{self.name}' with return code: '{result.returncode}'\n{result.stderr}"
+            )
+            return False
 
 
 @log.catch

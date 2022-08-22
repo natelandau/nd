@@ -1,5 +1,6 @@
 # type: ignore
 """Tests for the list_jobs function."""
+import io
 import subprocess
 from pathlib import Path
 from subprocess import CompletedProcess
@@ -46,6 +47,42 @@ def test_validate(monkeypatch):
     assert job.validate() is False
 
 
+def test_run(monkeypatch):
+    """Test run() method of Jobfile."""
+    result_ok = CompletedProcess(
+        returncode=0,
+        args=["nomad", "job", "run", "-check-index", "0", "/at/some/path/job.hcl"],
+        stderr="",
+        stdout="",
+    )
+    result_failed = CompletedProcess(
+        returncode=1,
+        args=["nomad", "job", "run", "-check-index", "0", "/at/some/path/job.hcl"],
+        stderr="",
+        stdout="",
+    )
+    job = JobFile(name="sonarr", file=Path("/at/some/path/job.hcl"), local_backup=False)
+    monkeypatch.setattr(job, "validate", lambda: True)
+    monkeypatch.setattr(job, "plan", lambda: "0")
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: result_ok)
+    assert job.run() is True
+
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: result_failed)
+    assert job.run() is False
+
+    monkeypatch.setattr("sys.stdin", io.StringIO("y"))
+    monkeypatch.setattr(job, "validate", lambda: True)
+    monkeypatch.setattr(job, "plan", lambda: "1234567")
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: result_ok)
+    assert job.run() is True
+
+    monkeypatch.setattr("sys.stdin", io.StringIO("n"))
+    monkeypatch.setattr(job, "validate", lambda: True)
+    monkeypatch.setattr(job, "plan", lambda: "1234567")
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: result_ok)
+    assert job.run() is False
+
+
 def test_plan(monkeypatch):
     """Test plan() method of JobFile."""
     result1 = CompletedProcess(
@@ -83,7 +120,7 @@ def test_plan(monkeypatch):
             "-diff=false",
             "/at/some/path/job.hcl",
         ],
-        returncode=1,
+        returncode=2,
         stdout="Scheduler dry-run:\n- All tasks successfully allocated.\n\nJob Modify Index: 772785\nTo submit the job with version verification run:\n\nnomad job run -check-index 772785 tests/resources/job_files/valid/sonarr.hcl\n\nWhen running the job with the check-index flag, the job will only be run if the\njob modify index given matches the server-side version. If the index has\nchanged, another user has modified the job and the plan's results are\npotentially invalid.\n",
         stderr="",
     )
