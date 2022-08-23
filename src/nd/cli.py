@@ -15,7 +15,9 @@ import validators
 from nd import _commands
 from nd._commands.utils.alerts import logger as log
 
-app = typer.Typer()
+app = typer.Typer(add_completion=False, no_args_is_help=True, rich_markup_mode="rich")
+
+typer.rich_utils.STYLE_HELPTEXT = ""
 
 
 @rich.repr.auto
@@ -89,9 +91,9 @@ def load_configuration(paths: list[Path]) -> dict:
     return config
 
 
-@app.command()
+@app.command(short_help="Run Nomad garbage collection.")
 def clean() -> None:
-    """Run Nomad garbace collection.
+    """[bold]Run Nomad garbace collection[/bold].
 
     Nomad periodically garbage collects jobs, evaluations, allocations, and nodes. The exact garbage collection logic varies by object, but in general Nomad only permanently deletes objects once they are terminal and no longer needed for future scheduling decisions.
 
@@ -107,18 +109,34 @@ def clean() -> None:
         raise typer.Exit(1)
 
 
-@app.command("exec")
+@app.command(
+    "exec", short_help="Run a command or enter an interactive shell within a running container."
+)
 def exec_in_container(
     task_name: str = typer.Argument(
         ...,
-        help="Name or partial name of a task to run a command in.",
+        help="Name or partial name of a task to run command in.",
         show_default=False,
     ),
     exec_command: Optional[str] = typer.Argument(
-        None, help="Command to run in the container.", show_default=False
+        "/bin/sh", help="Command to run in the container.", show_default=True
     ),
 ) -> None:
-    """Enter an interactive shell within a running container."""
+    """[bold]Run a command or enter an interactive shell within a running container[/bold].
+
+    Command to enter an interactive shell within a running container is printed to the screen and copied to your clipboard.
+
+    [underline]Example Usage[/underline]
+
+       [dim]# Default brings up an interactive shell (/bin/sh)[/dim]
+       nd exec webserver
+
+       [dim]# Specify a shell[/dim]
+       nd exec webserver /bin/bash
+
+       [dim]# Run a command[/dim]
+       nd exec webserver "/bin/bash -c 'ls -la'"
+    """
     if not _commands.exec_in_container(
         state.verbosity,
         state.dry_run,
@@ -131,7 +149,7 @@ def exec_in_container(
         raise typer.Exit(1)
 
 
-@app.command()
+@app.command(short_help="Run a Nomad job.")
 def run(
     job_name: str = typer.Argument(
         ...,
@@ -139,18 +157,21 @@ def run(
         show_default=False,
     )
 ) -> None:
-    """Runs a Nomad job."""
+    """[bold]Run a Nomad job[/bold].
+
+    If the allocation is already running, you will be prompted before replacing the allocation with a new instance.
+    """
     if not _commands.run_nomad_job(
         state.verbosity, state.dry_run, state.log_to_file, state.log_file, state.config, job_name
     ):
         raise typer.Exit(1)
 
 
-@app.command()
+@app.command(short_help="Stop a running Nomad job.")
 def stop(
     job_name: str = typer.Argument(
         ...,
-        help="Name or partial name of a Nomad job to stop..",
+        help="Name or partial name of a Nomad job to stop.",
         show_default=False,
     ),
     no_clean: bool = typer.Option(
@@ -159,7 +180,10 @@ def stop(
         help="Do not garbage collect the job after stopping.",
     ),
 ) -> None:
-    """Stop a running job."""
+    """[bold]Stop a running job[/bold].
+
+    If the specified job is running, the job will be stopped and garbage collected. To prevent garbage collection, use the [bold]--no-clean[/bold] flag.
+    """
     if not _commands.stop_job(
         state.verbosity,
         state.dry_run,
@@ -172,7 +196,7 @@ def stop(
         raise typer.Exit(1)
 
 
-@app.command()
+@app.command(short_help="Stop, garbage collect, and rerun selected Nomad Job.")
 def rebuild(
     job_name: str = typer.Argument(
         ...,
@@ -180,7 +204,14 @@ def rebuild(
         show_default=False,
     ),
 ) -> None:
-    """Stop, garbage collect, and run selected Nomad Job."""
+    """[bold]Stop, garbage collect, and run selected Nomad Job[/bold].
+
+    [blue]rebuild[/blue] command automates a common task of:
+
+    1. Stopping a running job
+    2. Garbage collecting the job
+    3. Running the job again
+    """
     if _commands.stop_job(
         state.verbosity,
         state.dry_run,
@@ -203,7 +234,7 @@ def rebuild(
         raise typer.Exit(1)
 
 
-@app.command()
+@app.command(short_help="Plan a Nomad job.")
 def plan(
     job_name: str = typer.Argument(
         ...,
@@ -211,14 +242,19 @@ def plan(
         show_default=False,
     )
 ) -> None:
-    """Plans a Nomad job based on [JOB-NAME].  Pass a complete or partial job name to run all matching jobs."""
+    """[bold]Plans a Nomad job[/bold].
+
+    Pass a complete or partial job name to run all matching jobs.
+
+    Returns the Nomad Job Run command to start the job.
+    """
     if not _commands.plan_nomad_job(
         state.verbosity, state.dry_run, state.log_to_file, state.log_file, state.config, job_name
     ):
         raise typer.Exit(1)
 
 
-@app.command()
+@app.command(short_help="View the running logs from a task.")
 def logs(
     task_name: str = typer.Argument(
         ...,
@@ -226,7 +262,10 @@ def logs(
         show_default=False,
     )
 ) -> None:
-    """Enter an interactive shell within a running container."""
+    """[bold]View the running logs from a task[/bold].
+
+    Will print the command to run to view logs and copy it to your clipboard.
+    """
     if not _commands.view_logs(
         state.verbosity,
         state.dry_run,
@@ -238,7 +277,7 @@ def logs(
         raise typer.Exit(1)
 
 
-@app.command()
+@app.command(short_help="Show status of Nomad cluster.")
 def status() -> None:
     """Show status of Nomad cluster."""
     if not _commands.show_cluster_status(
@@ -247,15 +286,24 @@ def status() -> None:
         raise typer.Exit(1)
 
 
-@app.command("list")
+@app.command("list", short_help="List all valid Nomad job files.")
 def list_jobs(
     job_name: Optional[str] = typer.Argument(
         None,
         help="Name or partial name of a Nomad jobs to list.",
         show_default=False,
-    )
+    ),
+    not_running: bool = typer.Option(
+        False,
+        "--not-running/--running",
+        help="Filter results to only show jobs that are not running.",
+        show_default=True,
+    ),
 ) -> None:
-    """List all valid Nomad jobs. Pass a complete or partial job name to list all matching jobs."""
+    """[bold]List all valid Nomad jobs files[/bold].
+
+    Pass a complete or partial job name to list all matching job files.
+    """
     if not _commands.list_jobs_command.show_jobs(
         state.verbosity,
         state.dry_run,
@@ -263,6 +311,7 @@ def list_jobs(
         state.log_file,
         state.config,
         job_name,
+        not_running,
     ):
         raise typer.Exit(1)
 
@@ -306,8 +355,10 @@ def main(
         exists=True,
     ),
 ) -> None:
-    """Manage users in the awesome CLI app."""
-    # Find a config file
+    """A highly customized light wrapper around common Nomad API commands and tasks.
+
+    Full usage and help: https://github.com/natelandau/nd
+    """
     if config_file:  # pragma: no cover
         possible_config_locations = [config_file]
     else:
