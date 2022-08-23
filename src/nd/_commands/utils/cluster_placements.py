@@ -62,7 +62,9 @@ class Job:
             if not dry_run:
                 for _idx, _value in enumerate(
                     track(
-                        range(200), description=f"[{self.job_id}] Stopping job...", transient=True
+                        range(200),
+                        description=f"[{self.job_id}] Stopping {self.job_id}...",
+                        transient=True,
                     )
                 ):
                     time.sleep(0.01)
@@ -71,7 +73,7 @@ class Job:
                     for _idx, _value in enumerate(
                         track(
                             range(4000),
-                            description=f"[{self.job_id}] Creating local backup...",
+                            description=f"Creating {self.job_id} backup...",
                             transient=True,
                         )
                     ):
