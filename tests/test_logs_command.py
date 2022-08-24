@@ -31,7 +31,7 @@ def test_single_command(mock_job, capsys, mocker):
     output = capsys.readouterr().out
 
     assert output == Regex(
-        r"Command copied to clipboard: nomad.*alloc.*logs.*-f.*-n.*50.*36be6d11.*mock_task1",
+        r"nomad.*alloc.*logs.*-f.*-n.*50.*36be6d11.*mock_task1",
         re.DOTALL + re.MULTILINE,
     )
 

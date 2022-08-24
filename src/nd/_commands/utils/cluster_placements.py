@@ -158,8 +158,13 @@ class Task:
         else:
             cmd = command
         exec_command = f"nomad alloc exec -i -t -task {self.name} {self.allocation_short} {cmd}"
-        pyperclip.copy(exec_command)
-        alerts.success(f"Command copied to clipboard: {exec_command}")
+        try:
+            pyperclip.copy(exec_command)
+        except pyperclip.PyperclipException:
+            alerts.success(f"{exec_command}")
+        else:
+            alerts.success(f"Command copied to clipboard: {exec_command}")
+
         return True
 
     def logs(self) -> bool:
@@ -169,8 +174,13 @@ class Task:
             True if the command was copied to the clipboard.
         """
         exec_command = f"nomad alloc logs -f -n 50 {self.allocation_short} {self.name}"
-        pyperclip.copy(exec_command)
-        alerts.success(f"Command copied to clipboard: {exec_command}")
+        try:
+            pyperclip.copy(exec_command)
+        except pyperclip.PyperclipException:
+            alerts.success(f"{exec_command}")
+        else:
+            alerts.success(f"Command copied to clipboard: {exec_command}")
+
         return True
 
 

@@ -62,7 +62,7 @@ def test_no_command(mock_job, capsys, mocker):
     output = capsys.readouterr().out
 
     assert output == Regex(
-        r"Command copied to clipboard: nomad alloc exec.*-i.*-t.*-task.*mock_task1.*36be6d11.*/bin/sh",
+        r".*omad alloc exec.*-i.*-t.*-task.*mock_task1.*36be6d11.*/bin/sh",
         re.DOTALL + re.MULTILINE,
     )
 
