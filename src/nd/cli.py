@@ -293,9 +293,9 @@ def list_jobs(
         help="Name or partial name of a Nomad jobs to list.",
         show_default=False,
     ),
-    not_running: bool = typer.Option(
+    filter_running: bool = typer.Option(
         False,
-        "--not-running/--running",
+        "--filter-running/--running",
         help="Filter results to only show jobs that are not running.",
         show_default=True,
     ),
@@ -311,7 +311,7 @@ def list_jobs(
         state.log_file,
         state.config,
         job_name,
-        not_running,
+        filter_running,
     ):
         raise typer.Exit(1)
 

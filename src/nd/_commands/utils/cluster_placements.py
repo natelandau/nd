@@ -184,6 +184,7 @@ class Task:
         return True
 
 
+@log.catch
 def populate_running_jobs(nomad_api_url: str, filter_pattern: str | None = None) -> list[Job]:
     """Populate a list of running Job objects fromm the Nomad API.
 

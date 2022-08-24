@@ -10,7 +10,7 @@ from rich import print
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.prompt import Prompt
 
-from nd._commands.utils import alerts
+from nd._commands.utils import alerts, populate_running_jobs
 from nd._commands.utils.alerts import logger as log
 
 
@@ -175,12 +175,19 @@ def parse_job_file(job_file: Path) -> JobFile | None:
 
 
 @log.catch(exclude=AssertionError)
-def list_valid_jobs(directories: list[Path | str], pattern: str | None = None) -> list[JobFile]:
+def list_valid_jobs(
+    directories: list[Path | str],
+    pattern: str | None = None,
+    filter_running: bool = False,
+    config: dict = {},
+) -> list[JobFile]:
     """Lists valid Nomad job files within a specified directory.
 
     Args:
         directories: Path to directory to search for job files
         pattern: Returned job files will match this string
+        filter_running: If True, only return job files that are not currently running
+        config: Configuration dictionary
 
     Returns:
         List of JobFile class objects for valid Nomad jobs
@@ -189,6 +196,11 @@ def list_valid_jobs(directories: list[Path | str], pattern: str | None = None) -
         AssertionError: If no valid job files are found
     """
     valid_job_files = []
+
+    running_job_names = []
+    if filter_running:
+        for running_job in populate_running_jobs(config["nomad_api_url"]):
+            running_job_names.append(running_job.job_id)
 
     for directory in directories:
 
@@ -207,6 +219,7 @@ def list_valid_jobs(directories: list[Path | str], pattern: str | None = None) -
                     job_file is not None
                     and job_file.validate()
                     and (pattern is None or pattern.lower() in job_file.name.lower())
+                    and (not filter_running or job_file.name not in running_job_names)
                 ):
                     valid_job_files.append(job_file)
 

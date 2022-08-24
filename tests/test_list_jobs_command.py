@@ -30,8 +30,10 @@ def test_list_jobs_many(capsys, mocker):
             "job_files_locations": [
                 "tests/resources/job_files/valid",
                 "tests/resources/job_files/invalid",
-            ]
+            ],
+            "nomad_api_url": "http://nomad-servers.service.consul:4646/v1",
         },
+        filter_running=True,
     )
 
     expected1 = "test1 │ tests/resources/job_files/valid/test1.hcl"
@@ -62,9 +64,11 @@ def test_list_jobs_one(capsys, mocker):
             "job_files_locations": [
                 "tests/resources/job_files/valid",
                 "tests/resources/job_files/invalid",
-            ]
+            ],
+            "nomad_api_url": "http://nomad-servers.service.consul:4646/v1",
         },
         job_name="test1",
+        filter_running=False,
     )
 
     expected1 = "test1 │ tests/resources/job_files/valid/test1.hcl"

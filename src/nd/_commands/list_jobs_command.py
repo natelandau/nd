@@ -6,18 +6,18 @@ from rich import box, print
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
-from nd._commands.utils import list_valid_jobs, populate_running_jobs
+from nd._commands.utils import list_valid_jobs
 from nd._commands.utils.alerts import logger as log
 
 
-def show_jobs(  # noqa: C901
+def show_jobs(
     verbosity: int,
     dry_run: bool,
     log_to_file: bool,
     log_file: Path,
     config: dict,
     job_name: str | None = None,
-    not_running: bool = False,
+    filter_running: bool = False,
 ) -> bool:
     """List command."""
     log.trace(config)
@@ -32,26 +32,21 @@ def show_jobs(  # noqa: C901
         ) as progress:
             progress.add_task(description="Processing job files...", total=None)
             try:
-                valid_job_files = list_valid_jobs(directories_to_search, job_name)
+                valid_job_files = list_valid_jobs(
+                    directories_to_search, job_name, filter_running, config
+                )
             except AssertionError as e:
                 progress.stop()
                 log.error(e)  # noqa: TC400
                 return False
     else:
         try:
-            valid_job_files = list_valid_jobs(directories_to_search, job_name)
+            valid_job_files = list_valid_jobs(
+                directories_to_search, job_name, filter_running, config
+            )
         except AssertionError as e:
             log.error(e)  # noqa: TC400
             return False
-
-    if not_running:
-        running_jobs = populate_running_jobs(config["nomad_api_url"])
-        if len(running_jobs) > 0:
-            for running_job in running_jobs:
-                for job in valid_job_files:
-                    if job.name in running_job.job_id:
-                        valid_job_files.remove(job)
-                        break
 
     table = Table(
         caption=f"{len(valid_job_files)} valid Nomad jobs found.",

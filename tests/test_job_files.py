@@ -195,6 +195,22 @@ def test_list_valid_jobs():
     )
 
 
+def test_list_valid_jobs_filter_running(mock_whoogle, mocker):
+    """Test filtering out running jobs."""
+    mocker.patch("nd._commands.utils.job_files.populate_running_jobs", return_value=mock_whoogle)
+
+    config = {"nomad_api_url": "http://junk.url"}
+    jobs_dir_list = [
+        Path("tests/resources/job_files/valid"),
+        Path("tests/resources/job_files/invalid"),
+    ]
+    valid_jobs = job_files.list_valid_jobs(jobs_dir_list, filter_running=True, config=config)
+
+    assert len(valid_jobs) == 3
+    for job in valid_jobs:
+        assert job.name != "whoogle"
+
+
 def test_parse_job_file():
     """Test parse_job_file function."""
     job = job_files.parse_job_file(Path("tests/resources/job_files/valid/sonarr.hcl"))
