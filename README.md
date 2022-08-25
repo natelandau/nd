@@ -38,7 +38,7 @@ Requires a valid configuration file for use at one of these locations:
 
 ```toml
 job_files_locations = [
-    '/path/to/job/files/',
+    '~/path/to/job/files/',
     '/another/path/to/job/files/',
   ]
 nomad_api_url = 'http://localhost:4646/v1'

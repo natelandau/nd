@@ -1,3 +1,9 @@
+## v0.0.2 (2022-08-25)
+
+### Fix
+
+- expand user directory if specified as '~'
+
 ## v0.0.1 (2022-08-25)
 
 ### Feat
