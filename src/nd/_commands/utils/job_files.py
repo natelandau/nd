@@ -204,7 +204,7 @@ def list_valid_jobs(
 
     for directory in directories:
 
-        directory = Path(directory)
+        directory = Path(directory).expanduser()
         if not directory.is_dir():
             continue
         else:
