@@ -10,6 +10,20 @@ A highly personalized CLI wrapper for Nomad providing quick shortcuts to commonl
 -   List valid nomad job files
 -   Stop, Plan, Run, and Rebuild job placements
 
+## Install
+
+Pip
+
+```bash
+pip install git+https://github.com/natelandau/nd
+```
+
+[PIPX](https://pypa.github.io/pipx/)
+
+```bash
+pipx install git+https://github.com/natelandau/nd
+```
+
 ## Usage
 
 Run `nd --help` for usage
