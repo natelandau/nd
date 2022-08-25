@@ -25,6 +25,7 @@ services:
       - ~/.gitconfig:/etc/gitconfig
       - ~/.ssh/known_hosts:/home/app/.ssh/known_hosts
       - ${SSH_AGENT_AUTH_SOCK:-/run/host-services/ssh-auth.sock}:/run/host-services/ssh-auth.sock
+      - ~/repos/nomad_jobs:/nomad_jobs
   app:
     build:
       context: .
