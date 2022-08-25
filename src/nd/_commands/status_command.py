@@ -53,7 +53,10 @@ def show_cluster_status(
         )
         node_table.add_column("key", justify="right", style="bold")
         node_table.add_column("value")
-        node_table.add_row("Node Name:", node.name)
+        node_table.add_row(
+            "Node Name:",
+            f"[link={config['nomad_web_url']}/clients/{node.id_num}]{node.name}[/link]",
+        )
         node_table.add_row("Node ID:", node.id_short)
         node_table.add_row("IP Address:", node.address)
         node_table.add_row("Status:", node.status)
@@ -73,6 +76,7 @@ def show_cluster_status(
         task_table.add_column("Runtime", header_style="bold")
         task_table.add_column("State", header_style="bold")
         task_table.add_column("Healthy", header_style="bold")
+        task_table.add_column("Logs", header_style="bold")
         i = 0
         for job in sorted(jobs, key=lambda x: x.job_id):
             for task in job.tasks:
@@ -85,10 +89,11 @@ def show_cluster_status(
 
                     task_table.add_row(
                         str(i),
-                        task.name,
+                        f"[link={config['nomad_web_url']}/allocations/{task.allocation}/{task.name}]{task.name}[/link]",
                         runtime,
                         task.state,
                         str(task.healthy),
+                        f"[link={config['nomad_web_url']}/allocations/{task.allocation}/{task.name}/logs]Logs[/link]",
                     )
         if i == 0:
             task_table.add_row(

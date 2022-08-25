@@ -23,6 +23,7 @@ def test_show_cluster_status(mock_nodes, mock_jobs, mocker, capsys):
                 "tests/resources/job_files/invalid",
             ],
             "nomad_api_url": "http://junk.url",
+            "nomad_web_url": "http://junk.url",
         },
     )
     output = capsys.readouterr().out
@@ -31,7 +32,7 @@ def test_show_cluster_status(mock_nodes, mock_jobs, mocker, capsys):
     assert "IP Address:  10.0.0.4" in output
     assert "IP Address:  10.0.0.5" in output
     assert "╔═" in output
-    assert output == Regex(r"^║ 1 +mock_task1 +.*running +True +║$", re.MULTILINE)
+    assert output == Regex(r"^║ 1 +mock_task1 +.*running +True +Logs +║$", re.MULTILINE)
     assert "No running jobs" in output
 
 
@@ -50,6 +51,7 @@ def test_show_cluster_status_with_no_nodes(mocker):
                     "tests/resources/job_files/invalid",
                 ],
                 "nomad_api_url": "http://junk.url",
+                "nomad_web_url": "http://junk.url",
             },
         )
         is False
@@ -72,6 +74,7 @@ def test_show_cluster_status_with_no_jobs(mocker, mock_nodes):
                     "tests/resources/job_files/invalid",
                 ],
                 "nomad_api_url": "http://junk.url",
+                "nomad_web_url": "http://junk.url",
             },
         )
         is False
