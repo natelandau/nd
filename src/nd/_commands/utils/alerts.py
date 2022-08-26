@@ -21,9 +21,29 @@ def success(msg: str) -> None:
     print(f"[green]SUCCESS  | {msg}[/green]")
 
 
+def warning(msg: str) -> None:
+    """Print a warning message without using logging."""
+    print(f"[yellow]WARNING  | {msg}[/yellow]")
+
+
 def error(msg: str) -> None:
     """Print an error message without using logging."""
     print(f"[red]ERROR    | {msg}[/red]")
+
+
+def notice(msg: str) -> None:
+    """Print a notice message without using logging."""
+    print(f"[bold]NOTICE   | {msg}[/bold]")
+
+
+def info(msg: str) -> None:
+    """Print a notice message without using logging."""
+    print(f"INFO     | {msg}")
+
+
+def dim(msg: str) -> None:
+    """Print a message in dimmed color."""
+    print(f"[dim]{msg}[/dim]")
 
 
 def _log_formatter(record: dict) -> str:

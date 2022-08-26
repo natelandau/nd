@@ -30,6 +30,34 @@ def test_error(capsys):
     assert captured.out == "ERROR    | This prints in error\n"
 
 
+def test_warning(capsys):
+    """Test warning."""
+    alerts.warning("This prints in warning")
+    captured = capsys.readouterr()
+    assert captured.out == "WARNING  | This prints in warning\n"
+
+
+def test_notice(capsys):
+    """Test notice."""
+    alerts.notice("This prints in notice")
+    captured = capsys.readouterr()
+    assert captured.out == "NOTICE   | This prints in notice\n"
+
+
+def test_info(capsys):
+    """Test info."""
+    alerts.info("This prints in info")
+    captured = capsys.readouterr()
+    assert captured.out == "INFO     | This prints in info\n"
+
+
+def test_dim(capsys):
+    """Test info."""
+    alerts.dim("This prints in dim")
+    captured = capsys.readouterr()
+    assert captured.out == "This prints in dim\n"
+
+
 @pytest.mark.parametrize(
     ("verbosity", "log_to_file"),
     [(0, False), (1, False), (2, True), (3, True)],
