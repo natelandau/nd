@@ -40,10 +40,10 @@ validators = "^0.20.0"
 # TODO: Split in `tool.poetry.group.dev` and `tool.poetry.group.test` when Poetry 1.2.0 is released.
 [tool.poetry.dev-dependencies]
 absolufy-imports = "*"
-bandit = { extras = ["toml"], version = "^1.7.4" }
+bandit = { extras = ["toml"], version = "*" }
 black = "*"
 commitizen = "*"
-coverage = { extras = ["toml"], version = "^6.4.1" }
+coverage = { extras = ["toml"], version = "*" }
 cruft = "^2.11.0"
 darglint = "*"
 flake8 = "*"
@@ -59,14 +59,14 @@ flake8-return = "*"
 flake8-rst-docstrings = "*"
 flake8-simplify = "*"
 flake8-tidy-imports = "*"
-icecream = "^2.1.3"
+icecream = "*"
 isort = "*"
 mypy = "*"
 pdoc = "*"
 pep8-naming = "*"
 poethepoet = "*"
 pre-commit = "*"
-pydocstyle = { extras = ["toml"], version = "^6.1.1" }
+pydocstyle = { extras = ["toml"], version = "*" }
 pytest = "^7.1.2"
 pytest-clarity = "*"
 pytest-mock = "^3.8.1"
