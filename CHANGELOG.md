@@ -1,3 +1,17 @@
+## v0.1.0 (2022-08-27)
+
+### Feat
+
+- **status**: add links to Nomad web URLs within status
+
+### Fix
+
+- logs and execute commands now interact directly with Nomad
+
+### Refactor
+
+- **alerts**: add warning, info, notice, and dim classes to alerts utility
+
 ## v0.0.2 (2022-08-25)
 
 ### Fix
