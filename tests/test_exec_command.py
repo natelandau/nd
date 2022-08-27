@@ -1,15 +1,16 @@
 # type: ignore
 """Test the exec command."""
-import re
+
 from pathlib import Path
 
 from nd._commands import exec_in_container
-from tests.helpers import Regex
 
 
-def test_single_command(mock_job, capsys, mocker):
+def test_single_command(mock_job, mocker):
     """Test that a single command is executed."""
     mocker.patch("nd._commands.exec_command.populate_running_jobs", return_value=mock_job)
+
+    mocker.patch("nd._commands.utils.cluster_placements.Task.execute", return_value=True)
 
     assert (
         exec_in_container(
@@ -29,17 +30,13 @@ def test_single_command(mock_job, capsys, mocker):
         )
         is True
     )
-    output = capsys.readouterr().out
-
-    assert output == Regex(
-        r".*-task.*mock_task1.*36be6d11.*echo.*'hello.*world'",
-        re.DOTALL + re.MULTILINE,
-    )
 
 
-def test_no_command(mock_job, capsys, mocker):
+def test_failed_commandd(mock_job, mocker):
     """Test that a single command is executed."""
     mocker.patch("nd._commands.exec_command.populate_running_jobs", return_value=mock_job)
+
+    mocker.patch("nd._commands.utils.cluster_placements.Task.execute", return_value=False)
 
     assert (
         exec_in_container(
@@ -57,13 +54,7 @@ def test_no_command(mock_job, capsys, mocker):
             task_name="mock_task1",
             exec_command=None,
         )
-        is True
-    )
-    output = capsys.readouterr().out
-
-    assert output == Regex(
-        r".*omad alloc exec.*-i.*-t.*-task.*mock_task1.*36be6d11.*/bin/sh",
-        re.DOTALL + re.MULTILINE,
+        is False
     )
 
 

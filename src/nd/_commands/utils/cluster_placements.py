@@ -2,11 +2,11 @@
 
 import time
 
-import pyperclip
 import rich.repr
+from plumbum import FG, CommandNotFound, ProcessExecutionError, local
 from rich.progress import track
 
-from nd._commands.utils import alerts, make_nomad_api_call
+from nd._commands.utils import make_nomad_api_call
 from nd._commands.utils.alerts import logger as log
 
 
@@ -157,13 +157,16 @@ class Task:
             cmd = "/bin/sh"
         else:
             cmd = command
-        exec_command = f"nomad alloc exec -i -t -task {self.name} {self.allocation_short} {cmd}"
+
         try:
-            pyperclip.copy(exec_command)
-        except pyperclip.PyperclipException:
-            alerts.success(f"{exec_command}")
-        else:
-            alerts.success(f"Command copied to clipboard: {exec_command}")
+            nomad = local["nomad"]
+            nomad["alloc", "exec", "-i", "-t", "-task", self.name, self.allocation_short, cmd] & FG
+        except CommandNotFound:
+            log.error("Nomad binary is not installed")  # noqa: TC400
+            return False
+        except ProcessExecutionError as e:
+            log.error(e)  # noqa: TC400
+            return False
 
         return True
 
@@ -173,13 +176,15 @@ class Task:
         Returns:
             True if the command was copied to the clipboard.
         """
-        exec_command = f"nomad alloc logs -f -n 50 {self.allocation_short} {self.name}"
         try:
-            pyperclip.copy(exec_command)
-        except pyperclip.PyperclipException:
-            alerts.success(f"{exec_command}")
-        else:
-            alerts.success(f"Command copied to clipboard: {exec_command}")
+            nomad = local["nomad"]
+            nomad["alloc", "logs", "-f", "-n", "50", self.allocation_short, self.name] & FG
+        except CommandNotFound:
+            log.error("Nomad binary is not installed")  # noqa: TC400
+            return False
+        except ProcessExecutionError as e:
+            log.error(e)  # noqa: TC400
+            return False
 
         return True
 

@@ -40,9 +40,10 @@ def view_logs(
     elif len(matching_tasks) > 1:
         print(f"Multiple tasks found matching {task_name}")
         task = select_one(matching_tasks)
-        task.logs()
     else:
         task = matching_tasks[0]
-        task.logs()
 
-    return True
+    if task.logs():
+        return True
+    else:
+        return False

@@ -32,9 +32,10 @@ def exec_in_container(
     elif len(matching_tasks) > 1:
         print(f"Multiple tasks found matching {task_name}")
         task = select_one(matching_tasks)
-        task.execute(exec_command)
-        return True
     else:
         task = matching_tasks[0]
-        task.execute(exec_command)
+
+    if task.execute(exec_command):
         return True
+    else:
+        return False
