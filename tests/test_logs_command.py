@@ -6,7 +6,7 @@ from pathlib import Path
 from nd._commands import view_logs
 
 
-def test_works(mock_job, capsys, mocker):
+def test_works(mock_job, mocker):
     """Test that a single command is executed."""
     mocker.patch("nd._commands.logs_command.populate_running_jobs", return_value=mock_job)
 
@@ -31,7 +31,7 @@ def test_works(mock_job, capsys, mocker):
     )
 
 
-def test_fails(mock_job, capsys, mocker):
+def test_fails(mock_job, mocker):
     """Test that a single command is executed."""
     mocker.patch("nd._commands.logs_command.populate_running_jobs", return_value=mock_job)
 

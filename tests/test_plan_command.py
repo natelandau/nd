@@ -3,7 +3,6 @@
 from pathlib import Path
 
 from nd._commands import plan_nomad_job
-from nd._commands.utils.job_files import JobFile
 
 
 def test_plan_nomad_job_no_jobs():
@@ -26,10 +25,10 @@ def test_plan_nomad_job_no_jobs():
     )
 
 
-def test_plan_nomad_job_one_job(capsys, monkeypatch):
+def test_plan_nomad_job_one_job(capsys, mocker):
     """Test plan_nomad_job when one matching job found."""
-    monkeypatch.setattr(JobFile, "validate", lambda x: True)
-    monkeypatch.setattr(JobFile, "plan", lambda x: "123456")
+    mocker.patch("nd._commands.utils.job_files.JobFile.validate", return_value=True)
+    mocker.patch("nd._commands.utils.job_files.JobFile.plan", return_value="123456")
 
     plan_nomad_job(
         verbosity=0,
@@ -49,10 +48,10 @@ def test_plan_nomad_job_one_job(capsys, monkeypatch):
     assert expected in captured.out
 
 
-def test_plan_nomad_job_many_jobs(capsys, monkeypatch):
+def test_plan_nomad_job_many_jobs(capsys, mocker):
     """Test plan_nomad_job when many matching jobs found."""
-    monkeypatch.setattr(JobFile, "validate", lambda x: True)
-    monkeypatch.setattr(JobFile, "plan", lambda x: "123456")
+    mocker.patch("nd._commands.utils.job_files.JobFile.validate", return_value=True)
+    mocker.patch("nd._commands.utils.job_files.JobFile.plan", return_value="123456")
 
     plan_nomad_job(
         verbosity=0,
