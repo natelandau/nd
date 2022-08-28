@@ -3,7 +3,7 @@
 
 import re
 
-from nd._commands.utils.cluster_placements import Job, populate_running_jobs
+from nd._utils.cluster_placements import Job, populate_running_jobs
 
 mock_jobs_response = [
     {

@@ -1,8 +1,8 @@
 """Clean command."""
 from pathlib import Path
 
-from nd._commands.utils import make_nomad_api_call
-from nd._commands.utils.alerts import logger as log
+from nd._utils import make_nomad_api_call
+from nd._utils.alerts import logger as log
 
 
 def run_garbage_collection(

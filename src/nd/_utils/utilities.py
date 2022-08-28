@@ -5,8 +5,8 @@ from typing import Any
 
 from rich.prompt import Prompt
 
-from nd._commands.utils.cluster_placements import Allocation, Job, Task
-from nd._commands.utils.job_files import JobFile
+from nd._utils.cluster_placements import Allocation, Job, Task
+from nd._utils.job_files import JobFile
 
 
 def select_one(items: list) -> Any:

@@ -3,8 +3,8 @@
 import io
 from pathlib import Path
 
-from nd._commands.utils import utilities
-from nd._commands.utils.job_files import JobFile
+from nd._utils import utilities
+from nd._utils.job_files import JobFile
 
 
 def test_select_one_jobfile(monkeypatch, mock_jobs) -> None:

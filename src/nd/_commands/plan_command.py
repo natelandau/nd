@@ -4,8 +4,8 @@ from pathlib import Path
 from rich import print
 from rich.table import Table
 
-from nd._commands.utils import list_valid_jobs
-from nd._commands.utils.alerts import logger as log
+from nd._utils import list_valid_jobs
+from nd._utils.alerts import logger as log
 
 
 def plan_nomad_job(

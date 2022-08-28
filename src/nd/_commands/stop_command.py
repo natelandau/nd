@@ -3,8 +3,8 @@ from pathlib import Path
 
 from rich import print
 
-from nd._commands.utils import alerts, populate_running_jobs, select_one
-from nd._commands.utils.alerts import logger as log
+from nd._utils import alerts, populate_running_jobs, select_one
+from nd._utils.alerts import logger as log
 
 
 def stop_job(

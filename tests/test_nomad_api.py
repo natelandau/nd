@@ -4,7 +4,7 @@
 import pytest
 import requests
 
-from nd._commands.utils.call_nomad_api import make_nomad_api_call
+from nd._utils.call_nomad_api import make_nomad_api_call
 
 valid_json = {
     "Address": "10.138.0.5",

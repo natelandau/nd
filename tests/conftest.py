@@ -3,7 +3,7 @@
 
 import pytest
 
-from nd._commands.utils import Job, Node
+from nd._utils import Job, Node
 
 
 @pytest.fixture()
@@ -71,7 +71,7 @@ def mock_job(mocker):
     ]
 
     mocker.patch(
-        "nd._commands.utils.cluster_placements.make_nomad_api_call",
+        "nd._utils.cluster_placements.make_nomad_api_call",
         return_value=mock_allocation_response,
     )
 
@@ -124,7 +124,7 @@ def mock_jobs(mocker):
     ]
 
     mocker.patch(
-        "nd._commands.utils.cluster_placements.make_nomad_api_call",
+        "nd._utils.cluster_placements.make_nomad_api_call",
         return_value=mock_allocation_response,
     )
 
@@ -178,7 +178,7 @@ def mock_whoogle(mocker):
     ]
 
     mocker.patch(
-        "nd._commands.utils.cluster_placements.make_nomad_api_call",
+        "nd._utils.cluster_placements.make_nomad_api_call",
         return_value=mock_allocation_response,
     )
 

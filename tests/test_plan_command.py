@@ -27,8 +27,8 @@ def test_plan_nomad_job_no_jobs():
 
 def test_plan_nomad_job_one_job(capsys, mocker):
     """Test plan_nomad_job when one matching job found."""
-    mocker.patch("nd._commands.utils.job_files.JobFile.validate", return_value=True)
-    mocker.patch("nd._commands.utils.job_files.JobFile.plan", return_value="123456")
+    mocker.patch("nd._utils.job_files.JobFile.validate", return_value=True)
+    mocker.patch("nd._utils.job_files.JobFile.plan", return_value="123456")
 
     plan_nomad_job(
         verbosity=0,
@@ -50,8 +50,8 @@ def test_plan_nomad_job_one_job(capsys, mocker):
 
 def test_plan_nomad_job_many_jobs(capsys, mocker):
     """Test plan_nomad_job when many matching jobs found."""
-    mocker.patch("nd._commands.utils.job_files.JobFile.validate", return_value=True)
-    mocker.patch("nd._commands.utils.job_files.JobFile.plan", return_value="123456")
+    mocker.patch("nd._utils.job_files.JobFile.validate", return_value=True)
+    mocker.patch("nd._utils.job_files.JobFile.plan", return_value="123456")
 
     plan_nomad_job(
         verbosity=0,

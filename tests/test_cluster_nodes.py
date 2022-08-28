@@ -1,7 +1,7 @@
 # type: ignore
 """Test Nomad job functions and classes."""
 
-from nd._commands.utils.cluster_nodes import Node, populate_nodes
+from nd._utils.cluster_nodes import Node, populate_nodes
 
 mock_response = [
     {
@@ -57,7 +57,7 @@ def test_node_class() -> None:
 
 def test_populate_nodes(mocker) -> None:
     """Test the populate_nodes function."""
-    mocker.patch("nd._commands.utils.cluster_nodes.make_nomad_api_call", return_value=mock_response)
+    mocker.patch("nd._utils.cluster_nodes.make_nomad_api_call", return_value=mock_response)
 
     nodes = populate_nodes("http://junk.url")
     assert nodes[0].name == "node1"

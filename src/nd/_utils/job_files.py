@@ -10,18 +10,19 @@ from rich import print
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.prompt import Prompt
 
-from nd._commands.utils import alerts, populate_running_jobs
-from nd._commands.utils.alerts import logger as log
+from nd._utils import alerts, populate_running_jobs
+from nd._utils.alerts import logger as log
 
 
 @rich.repr.auto
 class JobFile:
     """Class defining Nomad job files on the filesystem.
 
-    Methods:
-        plan() - Plan a job
-        validate() - Validate a job
-        run() - Run a job
+    Attributes:
+        name (str): The name of the job file.
+        file (Path): The path to the job file.
+        directory (Path): The directory containing the job file.
+        local_backup (bool): Whether or not the job creates backup the job file on the local filesystem.
     """
 
     def __init__(
@@ -37,15 +38,17 @@ class JobFile:
         """Validate a nomad job file using 'nomad validate [job]'.
 
         Returns:
-            True if validation is successful
-            False if validation is not successful
+            bool: Whether or not the job file is valid.
+
 
         Raises:
             exit: If Nomad binary is not installed on the system
 
-        Usage:
-            if job.validate():
-                do something
+        Examples:
+            Usage as a validator:
+
+                if job.validate():
+                    do something
         """
         command = ["nomad", "job", "validate", "-no-color", str(self.file)]
         log.trace(f"Running command: {' '.join(command)}")
@@ -68,14 +71,16 @@ class JobFile:
         """Plan Nomad job using 'nomad plan [job]' and returns the modify-index number to be used with 'nomad job run'.
 
         Returns:
-            Nomad modify-index ID
+            str: The modify-index number to be used with 'nomad job run'.
 
         Raises:
             exit: If job file is not valid
             exit: If Nomad binary is not installed on the system
 
         Usage:
-            modify_index = job.plan()
+            Grab the modify index from the job file:
+
+                modify_index = job.plan()
 
         """
         if not self.validate():
@@ -112,7 +117,15 @@ class JobFile:
 
     @log.catch
     def run(self) -> bool:
-        """Run a Nomad job."""
+        """Run a Nomad job.
+
+        Returns:
+            bool: Whether or not the job was successfully run.
+
+        Raises:
+            exit: If Nomad binary is not installed on the system
+
+        """
         modify_index = self.plan()
         if modify_index != "0":
             print(f"'{self.name}' is already running.  New modify index: '{modify_index}'")
@@ -154,7 +167,7 @@ def parse_job_file(job_file: Path) -> JobFile | None:
         job_file: Path to Nomad job file
 
     Returns:
-        JobFile object
+        JobFile: JobFile object if job file is valid, None otherwise.
     """
     with job_file.open(mode="r") as file:
         creates_backup = False
@@ -184,13 +197,13 @@ def list_valid_jobs(
     """Lists valid Nomad job files within a specified directory.
 
     Args:
-        directories: Path to directory to search for job files
-        pattern: Returned job files will match this string
-        filter_running: If True, only return job files that are not currently running
-        config: Configuration dictionary
+        directories: List of directories to search for job files.
+        pattern: Optional regex pattern to match job files against.
+        filter_running: Whether or not to filter out running jobs.
+        config: Dictionary of config values.
 
     Returns:
-        List of JobFile class objects for valid Nomad jobs
+        list[JobFile]: List of valid job files
 
     Raises:
         AssertionError: If no valid job files are found

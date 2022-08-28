@@ -5,8 +5,8 @@ from pathlib import Path
 from rich import print
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from nd._commands.utils import alerts, list_valid_jobs, select_one
-from nd._commands.utils.alerts import logger as log
+from nd._utils import alerts, list_valid_jobs, select_one
+from nd._utils.alerts import logger as log
 
 
 def run_nomad_job(

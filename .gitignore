@@ -1,6 +1,9 @@
 # Scratch folder for temporary files
 scratch/
 
+# Do not commit documentation
+docs/
+
 # config file for development
 nd.toml
 .nd.toml

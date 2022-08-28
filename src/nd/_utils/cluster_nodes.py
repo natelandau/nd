@@ -2,13 +2,26 @@
 
 import rich.repr
 
-from nd._commands.utils import make_nomad_api_call
-from nd._commands.utils.alerts import logger as log
+from nd._utils import make_nomad_api_call
+from nd._utils.alerts import logger as log
 
 
 @rich.repr.auto
 class Node:
-    """Class for a Nomad client node."""
+    """Class for a Nomad client node.
+
+    Attributes:
+        name (str): The name of the node.
+        id_num (str): The ID of the node.
+        id_short (str): The short ID of the node.
+        address (str): The IP address of the node.
+        status (str): The status of the node.
+        eligible (str): Whether or not the node is eligible to be used.
+        datacenter (str): The datacenter the node is in.
+        node_class (str): The node class of the node.
+        version (str): The version of Nomad running on the node.
+
+    """
 
     def __init__(
         self,

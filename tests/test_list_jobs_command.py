@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from nd._commands.list_jobs_command import show_jobs
-from nd._commands.utils.job_files import JobFile
+from nd._utils.job_files import JobFile
 
 
 def test_list_jobs_many(capsys, mocker):

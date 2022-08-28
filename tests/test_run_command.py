@@ -27,9 +27,9 @@ def test_plan_nomad_job_no_jobs():
 
 def test_plan_nomad_job_one_job(capsys, mocker):
     """Test plan_nomad_job when one matching job found."""
-    mocker.patch("nd._commands.utils.job_files.JobFile.validate", return_value=True)
-    mocker.patch("nd._commands.utils.job_files.JobFile.plan", return_value="123456")
-    mocker.patch("nd._commands.utils.job_files.JobFile.run", return_value=True)
+    mocker.patch("nd._utils.job_files.JobFile.validate", return_value=True)
+    mocker.patch("nd._utils.job_files.JobFile.plan", return_value="123456")
+    mocker.patch("nd._utils.job_files.JobFile.run", return_value=True)
 
     assert (
         run_nomad_job(
@@ -54,9 +54,9 @@ def test_plan_nomad_job_one_job(capsys, mocker):
 
 def test_plan_nomad_job_failed_start(mocker):
     """Test plan_nomad_job when job.run fails."""
-    mocker.patch("nd._commands.utils.job_files.JobFile.validate", return_value=True)
-    mocker.patch("nd._commands.utils.job_files.JobFile.plan", return_value="123456")
-    mocker.patch("nd._commands.utils.job_files.JobFile.run", return_value=False)
+    mocker.patch("nd._utils.job_files.JobFile.validate", return_value=True)
+    mocker.patch("nd._utils.job_files.JobFile.plan", return_value="123456")
+    mocker.patch("nd._utils.job_files.JobFile.run", return_value=False)
 
     assert (
         run_nomad_job(

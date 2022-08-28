@@ -4,8 +4,8 @@ import re
 
 import pytest
 
-from nd._commands.utils import alerts
-from nd._commands.utils.alerts import logger as log
+from nd._utils import alerts
+from nd._utils.alerts import logger as log
 from tests.helpers import Regex
 
 

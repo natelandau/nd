@@ -1382,7 +1382,7 @@ tokenize-rt = ">=2.1"
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.10"
-content-hash = "cf044438b620599fb46c44b407a0c5d1d59a821c899036190e6184073e987c7d"
+content-hash = "b754f89f09902057ba1348d7fdf48923d571527687815ab8b6c932683ce68dd9"
 
 [metadata.files]
 absolufy-imports = [

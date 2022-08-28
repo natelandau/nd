@@ -6,16 +6,22 @@ import rich.repr
 from plumbum import FG, CommandNotFound, ProcessExecutionError, local
 from rich.progress import track
 
-from nd._commands.utils import make_nomad_api_call
-from nd._commands.utils.alerts import logger as log
+from nd._utils import make_nomad_api_call
+from nd._utils.alerts import logger as log
 
 
 @rich.repr.auto
 class Job:
     """Class defining a running Nomad job.
 
-    Methods:
-        stop() - Stop a job
+    Attributes:
+        api_url (str): The URL of the Nomad HTTP API.
+        job_id (str): The ID of the job.
+        job_type (str): The type of the job.
+        status (str): The status of the job.
+        allocations (list[Allocation]): The allocations of the job.
+        tasks (list[Task]): The tasks of the job.
+        create_backup (bool): Whether or not the job creates a backup when stopped.
     """
 
     def __init__(
@@ -44,11 +50,11 @@ class Job:
         """Stop a job.
 
         Args:
-            no_clean: Do not garbage collect the job after stopping, but save its state.
-            dry_run: Do not actually stop the job, but print what would be done.
+            no_clean (bool): Whether or not to clean up the job after stopping.
+            dry_run (bool): Whether or not to actually stop the job.
 
         Returns:
-            bool: True if job was stopped, False otherwise.
+            bool: Whether or not the job was stopped.
         """
         log.info(f"Stopping job {self.job_id}")
 
@@ -88,8 +94,14 @@ class Job:
 class Allocation:
     """Class for a Nomad allocation.
 
-    Methods:
-        None
+    Attributes:
+        id_num (str): The ID of the allocation.
+        id_short (str): The short ID of the allocation.
+        node_name (str): The name of the node.
+        node_id (str): The ID of the node.
+        node_id_short (str): The short ID of the node.
+        alloc_type (str): The type of the allocation.
+        healthy (bool): Whether or not the allocation is healthy.
     """
 
     def __init__(
@@ -113,9 +125,17 @@ class Allocation:
 class Task:
     """Class for a Nomad Task.
 
-    Methods:
-        execute() - Execute a command in a container
-        logs() - View logs from a container
+    Attributes:
+        name (str): The name of the task.
+        allocation (str): The allocation of the task.
+        node_name (str): The name of the node.
+        node_id (str): The ID of the node.
+        started (str): The time the task started.
+        state (str): The state of the task.
+        failed (str): The time the task failed.
+        restarts (int): The number of restarts the task has had.
+        healthy (bool): Whether or not the task is healthy.
+        job_id (str): The ID of the job.
     """
 
     def __init__(
@@ -148,10 +168,10 @@ class Task:
         """Generate a command to execute in a container and copy it to the users's clipboard.
 
         Args:
-            command: Optional command to execute in the task. Defaults to /bin/sh
+            command (str | None): The command to execute. (Defaults to `/bin/sh`)
 
         Returns:
-            True if the command was copied to the clipboard.
+            bool: Whether or not the command was executed.
         """
         if command is None:
             cmd = "/bin/sh"
@@ -174,7 +194,7 @@ class Task:
         """Generate a command to execute view logs in a container and copy the command to the users's clipboard.
 
         Returns:
-            True if the command was copied to the clipboard.
+            bool: Whether or not the command was executed to display logs.
         """
         try:
             nomad = local["nomad"]
@@ -194,11 +214,11 @@ def populate_running_jobs(nomad_api_url: str, filter_pattern: str | None = None)
     """Populate a list of running Job objects fromm the Nomad API.
 
     Args:
-        nomad_api_url (str): The URL of the Nomad HTTP API.
-        filter_pattern (str): A regex pattern to filter the jobs by
+        nomad_api_url (str): The URL of the Nomad API.
+        filter_pattern (str | None): The pattern to filter jobs by. (Defaults to None)
 
     Returns:
-        List of Job objects
+        list[Job]: A list of Job objects.
     """
     params = {"filter": f'ID contains "{filter_pattern}"'} if filter_pattern else None
     url = f"{nomad_api_url}/jobs"
@@ -214,7 +234,15 @@ def populate_running_jobs(nomad_api_url: str, filter_pattern: str | None = None)
 
 @log.catch
 def populate_allocations(job_id: str, nomad_api_url: str) -> tuple[list[Allocation], list[Task]]:
-    """Populate list of running allocations."""
+    """Populate list of running allocations.
+
+    Args:
+        job_id (str): The ID of the job.
+        nomad_api_url (str): The URL of the Nomad API.
+
+    Returns:
+        tuple[list[Allocation], list[Task]]: A tuple of lists of Allocation and Task objects.
+    """
     url = f"{nomad_api_url}/job/{job_id}/allocations"
     response = make_nomad_api_call(url, "GET")
     allocations = []

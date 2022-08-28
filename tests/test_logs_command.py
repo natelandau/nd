@@ -10,7 +10,7 @@ def test_works(mock_job, mocker):
     """Test that a single command is executed."""
     mocker.patch("nd._commands.logs_command.populate_running_jobs", return_value=mock_job)
 
-    mocker.patch("nd._commands.utils.cluster_placements.Task.logs", return_value=True)
+    mocker.patch("nd._utils.cluster_placements.Task.logs", return_value=True)
 
     assert (
         view_logs(
@@ -35,7 +35,7 @@ def test_fails(mock_job, mocker):
     """Test that a single command is executed."""
     mocker.patch("nd._commands.logs_command.populate_running_jobs", return_value=mock_job)
 
-    mocker.patch("nd._commands.utils.cluster_placements.Task.logs", return_value=False)
+    mocker.patch("nd._utils.cluster_placements.Task.logs", return_value=False)
 
     assert (
         view_logs(

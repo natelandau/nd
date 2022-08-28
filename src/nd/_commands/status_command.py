@@ -7,8 +7,8 @@ from rich import box, print
 from rich.columns import Columns
 from rich.table import Table
 
-from nd._commands.utils import populate_nodes, populate_running_jobs
-from nd._commands.utils.alerts import logger as log
+from nd._utils import populate_nodes, populate_running_jobs
+from nd._utils.alerts import logger as log
 
 
 def show_cluster_status(

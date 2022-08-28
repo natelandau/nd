@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from nd._commands.utils import populate_running_jobs, select_one
-from nd._commands.utils.alerts import logger as log
+from nd._utils import populate_running_jobs, select_one
+from nd._utils.alerts import logger as log
 
 
 def view_logs(

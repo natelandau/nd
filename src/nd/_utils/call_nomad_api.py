@@ -4,8 +4,8 @@ from urllib.parse import urlencode
 
 import requests
 
-from nd._commands.utils import alerts
-from nd._commands.utils.alerts import logger as log
+from nd._utils import alerts
+from nd._utils.alerts import logger as log
 
 
 def make_nomad_api_call(
@@ -23,11 +23,16 @@ def make_nomad_api_call(
         dry_run (bool): Do not actually make the call, but print what would be done.
 
     Examples:
-        nomad_api_call("/jobs")
-        nomad_api_call("/jobs", {"prefix": "sonarr"})
+        Without data:
+
+            make_nomad_api_call("/jobs", "GET")
+
+        With data:
+
+            make_nomad_api_call("/jobs", "DELETE", {"prefix": "sonarr"})
 
     Returns:
-        list: The response from the Nomad API.
+        list | bool: The response from the API.
 
     Raises:
         exit: If the Nomad API is not available.

@@ -7,8 +7,8 @@ from subprocess import CompletedProcess
 
 import pytest
 
-from nd._commands.utils import job_files
-from nd._commands.utils.job_files import JobFile
+from nd._utils import job_files
+from nd._utils.job_files import JobFile
 
 
 def test_validate(monkeypatch):
@@ -197,7 +197,7 @@ def test_list_valid_jobs():
 
 def test_list_valid_jobs_filter_running(mock_whoogle, mocker):
     """Test filtering out running jobs."""
-    mocker.patch("nd._commands.utils.job_files.populate_running_jobs", return_value=mock_whoogle)
+    mocker.patch("nd._utils.job_files.populate_running_jobs", return_value=mock_whoogle)
 
     config = {"nomad_api_url": "http://junk.url"}
     jobs_dir_list = [

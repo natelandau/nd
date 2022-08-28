@@ -6,8 +6,8 @@ from rich import box, print
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
-from nd._commands.utils import list_valid_jobs
-from nd._commands.utils.alerts import logger as log
+from nd._utils import list_valid_jobs
+from nd._utils.alerts import logger as log
 
 
 def show_jobs(
@@ -19,7 +19,7 @@ def show_jobs(
     job_name: str | None = None,
     filter_running: bool = False,
 ) -> bool:
-    """List command."""
+    """Displays all valid Nomad job files."""
     log.trace(config)
 
     directories_to_search = config["job_files_locations"]

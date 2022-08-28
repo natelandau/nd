@@ -12,8 +12,8 @@ import rich.repr
 import typer
 import validators
 
-from nd import _commands
-from nd._commands.utils.alerts import logger as log
+from nd import _commands, _utils
+from nd._utils.alerts import logger as log
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, rich_markup_mode="rich")
 
@@ -371,7 +371,7 @@ def main(
         ]
 
     # Instantiate logger manager
-    _commands.utils.alerts.LoggerManager(  # pragma: no cover
+    _utils.alerts.LoggerManager(  # pragma: no cover
         log_file,
         verbosity,
         log_to_file,
