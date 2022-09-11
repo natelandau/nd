@@ -142,7 +142,9 @@ class JobFile:
             TextColumn("[progress.description]{task.description}"),
             transient=True,
         ) as progress:
-            progress.add_task(description=f"Attempting to start {self.name}...", total=None)
+            progress.add_task(
+                description=f"Starting {self.name} (this may take a while)...", total=None
+            )
             try:
                 result = subprocess.run(command, capture_output=True, text=True)  # nosec
             except FileNotFoundError as e:  # pragma: no cover
