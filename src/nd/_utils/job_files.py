@@ -6,8 +6,8 @@ import sys
 from pathlib import Path
 
 import rich.repr
+from plumbum import FG, CommandNotFound, ProcessExecutionError, local
 from rich import print
-from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.prompt import Prompt
 
 from nd._utils import alerts, populate_running_jobs
@@ -121,10 +121,6 @@ class JobFile:
 
         Returns:
             bool: Whether or not the job was successfully run.
-
-        Raises:
-            exit: If Nomad binary is not installed on the system
-
         """
         modify_index = self.plan()
         if modify_index != "0":
@@ -134,31 +130,17 @@ class JobFile:
                 print(f"{self.name}: Run aborted")
                 return False
 
-        command = ["nomad", "job", "run", "-check-index", modify_index, str(self.file)]
-        log.trace(f"Running command: {' '.join(command)}")
-
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            transient=True,
-        ) as progress:
-            progress.add_task(
-                description=f"Starting {self.name} (this may take a while)...", total=None
-            )
-            try:
-                result = subprocess.run(command, capture_output=True, text=True)  # nosec
-            except FileNotFoundError as e:  # pragma: no cover
-                progress.stop()
-                print("Nomad binary not found. Please install Nomad.")
-                raise sys.exit(1) from e
-
-        if result.returncode == 0:
-            return True
-        else:
-            alerts.error(
-                f"Nomad job plan failed for '{self.name}' with return code: '{result.returncode}'\n{result.stderr}"
-            )
+        try:
+            nomad = local["nomad"]
+            nomad["job", "run", "-check-index", modify_index, str(self.file)] & FG
+        except CommandNotFound:
+            log.error("Nomad binary is not installed")  # noqa: TC400
             return False
+        except ProcessExecutionError as e:
+            alerts.error(f"Nomad job plan failed for '{self.name}'.\n{e}")  # noqa: TC400
+            return False
+        else:
+            return True
 
 
 @log.catch
