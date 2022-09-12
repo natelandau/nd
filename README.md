@@ -32,9 +32,11 @@ Run `nd --help` for usage
 
 Requires a valid configuration file for use at one of these locations:
 
--   `~/.nd.toml`
--   `~/.config/nd.toml`
--   `~/.nd/nd.toml`
+```bash
+~/.nd.toml
+~/.config/nd.toml
+~/.nd/nd.toml
+```
 
 ```toml
 job_files_locations = [
