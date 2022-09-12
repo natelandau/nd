@@ -1,3 +1,17 @@
+## v0.2.0 (2022-09-12)
+
+### Feat
+
+- **run**: show output from nomad when running a job
+
+### Fix
+
+- **run**: update message when starting a job
+
+### Refactor
+
+- **utils**: move utils folder up a dir level
+
 ## v0.1.0 (2022-08-27)
 
 ### Feat
