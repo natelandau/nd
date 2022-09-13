@@ -31,7 +31,7 @@ WORKDIR /app/
 COPY poetry.lock* pyproject.toml /app/
 RUN --mount=type=cache,target=/root/.cache/ \
   mkdir -p src/nd/ && touch src/nd/__init__.py && touch README.md && \
-  poetry install --no-dev --no-interaction
+  poetry install --without test,dev --no-interaction
 
 # Create a non-root user.
 ARG UID=1000
