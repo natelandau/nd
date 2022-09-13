@@ -8,7 +8,7 @@ ENV PYTHONFAULTHANDLER 1
 ENV PYTHONUNBUFFERED 1
 
 # Install Poetry.
-ENV POETRY_VERSION 1.1.13
+ENV POETRY_VERSION 1.2.0
 RUN --mount=type=cache,target=/root/.cache/ \
   pip install poetry==$POETRY_VERSION
 
