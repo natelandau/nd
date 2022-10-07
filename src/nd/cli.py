@@ -197,7 +197,7 @@ def stop(
 
 
 @app.command(short_help="Stop, garbage collect, and rerun selected Nomad Job.")
-def rebuild(
+def update(
     job_name: str = typer.Argument(
         ...,
         help="Name or partial name of a Nomad job to rebuild.",
@@ -206,7 +206,7 @@ def rebuild(
 ) -> None:
     """[bold]Stop, garbage collect, and run selected Nomad Job[/bold].
 
-    [blue]rebuild[/blue] command automates a common task of:
+    [blue]update[/blue] command automates a common task of:
 
     1. Stopping a running job
     2. Garbage collecting the job
