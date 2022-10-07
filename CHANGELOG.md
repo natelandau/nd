@@ -1,3 +1,9 @@
+## v0.2.1 (2022-10-07)
+
+### Fix
+
+- rename 'rebuild' command to 'update'
+
 ## v0.2.0 (2022-09-12)
 
 ### Feat
