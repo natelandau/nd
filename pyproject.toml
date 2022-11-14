@@ -179,22 +179,10 @@ verbose = false
   help = "Generate this package's docs"
   cmd = """
     pdoc
-      --docformat $docformat
-      --output-directory $outputdirectory
+      --docformat google
+      --output-directory docs
       nd
     """
-
-    [[tool.poe.tasks.docs.args]]
-    help = "The docstring style (default: google)"
-    name = "docformat"
-    options = ["--docformat"]
-    default = "google"
-
-    [[tool.poe.tasks.docs.args]]
-    help = "The output directory (default: docs)"
-    name = "outputdirectory"
-    options = ["--output-directory"]
-    default = "docs"
 
   [tool.poe.tasks.lint]
   help = "Lint this package"
