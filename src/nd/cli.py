@@ -66,7 +66,7 @@ def load_configuration(paths: list[Path]) -> dict:
                     raise typer.Exit(code=1) from e
             break
 
-    if not config:
+    if not config:  # noqa: R506
         log.error("No configuration found. Please create a config file.")
         raise typer.Exit(code=1)
     elif config.get("job_files_locations") is None:

@@ -62,9 +62,9 @@ class JobFile:
         if result.returncode == 0:
             log.debug(f"Nomad validated job file: {self.file}")
             return True
-        else:
-            log.debug(f"Error from 'nomad job validate {self.file}:\n{result.stderr}")
-            return False
+
+        log.debug(f"Error from 'nomad job validate {self.file}:\n{result.stderr}")
+        return False
 
     @log.catch
     def plan(self) -> str:
@@ -204,21 +204,21 @@ def list_valid_jobs(
         directory = Path(directory).expanduser()
         if not directory.is_dir():
             continue
-        else:
-            files = [
-                f
-                for f in directory.rglob("*")
-                if f.is_file() and (f.suffix == ".nomad" or f.suffix == ".hcl")
-            ]
-            for f in files:
-                job_file = parse_job_file(f)
-                if (
-                    job_file is not None
-                    and job_file.validate()
-                    and (pattern is None or pattern.lower() in job_file.name.lower())
-                    and (not filter_running or job_file.name not in running_job_names)
-                ):
-                    valid_job_files.append(job_file)
+
+        files = [
+            f
+            for f in directory.rglob("*")
+            if f.is_file() and (f.suffix == ".nomad" or f.suffix == ".hcl")
+        ]
+        for f in files:
+            job_file = parse_job_file(f)
+            if (
+                job_file is not None
+                and job_file.validate()
+                and (pattern is None or pattern.lower() in job_file.name.lower())
+                and (not filter_running or job_file.name not in running_job_names)
+            ):
+                valid_job_files.append(job_file)
 
     if pattern is None:
         assert (

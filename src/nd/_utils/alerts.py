@@ -17,32 +17,56 @@ def dryrun(msg: str) -> None:
 
 
 def success(msg: str) -> None:
-    """Print a success message without using logging."""
+    """Print a success message without using logging.
+
+    Args:
+        msg: Message to print
+    """
     print(f"[green]SUCCESS  | {msg}[/green]")
 
 
 def warning(msg: str) -> None:
-    """Print a warning message without using logging."""
+    """Print a warning message without using logging.
+
+    Args:
+        msg: Message to print
+    """
     print(f"[yellow]WARNING  | {msg}[/yellow]")
 
 
 def error(msg: str) -> None:
-    """Print an error message without using logging."""
+    """Print an error message without using logging.
+
+    Args:
+        msg: Message to print
+    """
     print(f"[red]ERROR    | {msg}[/red]")
 
 
 def notice(msg: str) -> None:
-    """Print a notice message without using logging."""
+    """Print a notice message without using logging.
+
+    Args:
+        msg: Message to print
+    """
     print(f"[bold]NOTICE   | {msg}[/bold]")
 
 
 def info(msg: str) -> None:
-    """Print a notice message without using logging."""
+    """Print a notice message without using logging.
+
+    Args:
+        msg: Message to print
+    """
     print(f"INFO     | {msg}")
 
 
 def dim(msg: str) -> None:
-    """Print a message in dimmed color."""
+    """Print a message in dimmed color.
+
+    Args:
+        msg: Message to print
+    """
     print(f"[dim]{msg}[/dim]")
 
 
@@ -54,8 +78,8 @@ def _log_formatter(record: dict) -> str:
         or record["level"].name == "WARNING"
     ):
         return "<level>{level: <8}</level> | <level>{message}</level>\n{exception}"
-    else:
-        return "<level>{level: <8}</level> | <level>{message}</level> <fg #c5c5c5>({name}:{function}:{line})</fg #c5c5c5>\n{exception}"
+
+    return "<level>{level: <8}</level> | <level>{message}</level> <fg #c5c5c5>({name}:{function}:{line})</fg #c5c5c5>\n{exception}"
 
 
 @rich.repr.auto
@@ -70,20 +94,20 @@ class LoggerManager:
         - CRITICAL: Usage: log.critical("")
         - EXCEPTION: Usage: log.exception("")
 
-    Args:
-        verbosity (int): Integer value representing the verbosity level.
-        log_to_file (bool): Boolean value representing whether or not to output to a file
-        log_file (Path): Path object representing the log file. Defaults to ~/logs/[scriptname].log
+    Attributes:
+        log_file (Path): Path to the log file.
+        verbosity (int): Verbosity level.
+        log_to_file (bool): Whether to log to a file.
+        log_level (int): Default log level (verbosity overrides this)
 
-    Methods:
-        is_trace(): True if the current log level is TRACE or lower, False otherwise.
-        is_debug(): True if the current log level is DEBUG or lower, False otherwise.
-        is_info(): True if the current log level is INFO or lower, False otherwise.
-        is_default(): True if the current log level is default level or lower, False otherwise.
+    Examples:
+        Instantiate the logger:
 
-    Usage:
-        # Instantiate logging
-        log = Log(verbosity, log_to_file, log_file, log_level)
+            logging = _utils.alerts.LoggerManager(
+                verbosity,
+                log_to_file,
+                log_file,
+                log_level)
     """
 
     def __init__(
@@ -169,8 +193,7 @@ class LoggerManager:
             if msg:
                 print(msg)
             return True
-        else:
-            return False
+        return False
 
     def is_debug(self, msg: str | None = None) -> bool:
         """Check if the current log level is DEBUG.
@@ -185,8 +208,7 @@ class LoggerManager:
             if msg:
                 print(msg)
             return True
-        else:
-            return False
+        return False
 
     def is_info(self, msg: str | None = None) -> bool:
         """Check if the current log level is INFO.
@@ -201,8 +223,7 @@ class LoggerManager:
             if msg:
                 print(msg)
             return True
-        else:
-            return False
+        return False
 
     def is_default(self, msg: str | None = None) -> bool:
         """Check if the current log level is default level (SUCCESS or WARNING).
@@ -217,5 +238,4 @@ class LoggerManager:
             if msg:
                 print(msg)
             return True
-        else:
-            return False
+        return False  # pragma: no cover

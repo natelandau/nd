@@ -72,5 +72,5 @@ def populate_nodes(nomad_api_url: str) -> list[Node]:
             )
             for node in response
         ]
-    else:
-        return []
+
+    return []

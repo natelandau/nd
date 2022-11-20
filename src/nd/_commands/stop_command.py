@@ -27,7 +27,8 @@ def stop_job(
     if len(matching_jobs) == 0:
         log.error(f"No jobs found matching {job_name}")
         return False
-    elif len(matching_jobs) > 1:  # pragma: no cover
+
+    if len(matching_jobs) > 1:  # pragma: no cover
         print(f"Multiple jobs found matching {job_name}")
         job = select_one(matching_jobs)
     else:
@@ -37,6 +38,6 @@ def stop_job(
         if not dry_run:
             alerts.success(f"Stopped job: {job.job_id}")
         return True
-    else:
-        alerts.error(f"Failed to stop job: {job.job_id}")
-        return False
+
+    alerts.error(f"Failed to stop job: {job.job_id}")
+    return False

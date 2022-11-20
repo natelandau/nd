@@ -38,7 +38,8 @@ def run_nomad_job(
     if len(valid_job_files) == 0:
         log.error(f"No jobs files found matching {job_name}")
         return False
-    elif len(valid_job_files) > 1:
+
+    if len(valid_job_files) > 1:
         print(f"Multiple jobs files found matching {job_name}")
         job = select_one(valid_job_files)
     else:
@@ -47,5 +48,5 @@ def run_nomad_job(
     if job.run():
         alerts.success(f"{job.name} has been started.")
         return True
-    else:
-        return False
+
+    return False

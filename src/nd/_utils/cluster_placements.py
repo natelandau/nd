@@ -86,8 +86,8 @@ class Job:
                         time.sleep(0.01)
 
             return True
-        else:
-            return False
+
+        return False
 
 
 @rich.repr.auto
@@ -228,8 +228,8 @@ def populate_running_jobs(nomad_api_url: str, filter_pattern: str | None = None)
 
     if type(response) is list:
         return [Job(nomad_api_url, job["ID"], job["Type"], job["Status"]) for job in response]
-    else:
-        return []
+
+    return []
 
 
 @log.catch
@@ -308,5 +308,5 @@ def populate_allocations(job_id: str, nomad_api_url: str) -> tuple[list[Allocati
                     )
 
         return allocations, tasks
-    else:
-        return [], []
+
+    return [], []

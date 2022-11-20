@@ -17,6 +17,6 @@ def run_garbage_collection(
     if make_nomad_api_call(api_url, "put") is True:
         log.success("Garbage collection complete")
         return True
-    else:
-        log.error("Garbage collection failed")
-        return False
+
+    log.error("Garbage collection failed")
+    return False

@@ -43,7 +43,8 @@ def make_nomad_api_call(
     if dry_run and type(data) == dict:
         alerts.dryrun(f"API call: {method} {url}?{urlencode(data)}")
         return True
-    elif dry_run:
+
+    if dry_run:
         alerts.dryrun(f"API call: {method} {url}")
         return True
 
@@ -65,6 +66,6 @@ def make_nomad_api_call(
             raise sys.exit(1) from e
     elif response.ok and not response.text:
         return True
-    else:
-        log.error(f"Nomad API returned {response.status_code}")
-        raise sys.exit(1)
+
+    log.error(f"Nomad API returned {response.status_code}")
+    raise sys.exit(1)

@@ -29,7 +29,8 @@ def exec_in_container(
     if len(matching_tasks) == 0:
         log.error(f"No tasks found matching {task_name}")
         return False
-    elif len(matching_tasks) > 1:
+
+    if len(matching_tasks) > 1:
         print(f"Multiple tasks found matching {task_name}")
         task = select_one(matching_tasks)
     else:
@@ -37,5 +38,5 @@ def exec_in_container(
 
     if task.execute(exec_command):
         return True
-    else:
-        return False
+
+    return False

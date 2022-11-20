@@ -23,15 +23,15 @@ def show_cluster_status(
     if len(nodes) == 0:
         log.error("No Nomad nodes found")
         return False
-    else:
-        log.info(f"Found {len(nodes)} nodes in the cluster.")
+
+    log.info(f"Found {len(nodes)} nodes in the cluster.")
 
     jobs = populate_running_jobs(config["nomad_api_url"])
     if len(jobs) == 0:
         log.error("No running jobs found")
         return False
-    else:
-        log.info(f"Found {len(jobs)} jobs in the cluster.")
+
+    log.info(f"Found {len(jobs)} jobs in the cluster.")
 
     status_tables = []
     for node in sorted(nodes, key=lambda x: x.name):
