@@ -339,7 +339,7 @@ def main(
         show_default=True,
     ),
     log_file: Path = typer.Option(
-        Path(Path.home() / "logs" / "halp.log"),
+        Path(Path.home() / "logs" / "nd.log"),
         help="Path to log file",
         show_default=True,
         dir_okay=False,
