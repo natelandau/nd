@@ -1,4 +1,4 @@
-[![Test](https://github.com/natelandau/nd/actions/workflows/test.yml/badge.svg)](https://github.com/natelandau/nd/actions/workflows/test.yml)
+[![Python Code Checker](https://github.com/natelandau/nd/actions/workflows/python-code-checker.yml/badge.svg)](https://github.com/natelandau/nd/actions/workflows/python-code-checker.yml) [![codecov](https://codecov.io/github/natelandau/nd/branch/main/graph/badge.svg?token=TXHNQ55UZ9)](https://codecov.io/github/natelandau/nd)
 
 # nd
 

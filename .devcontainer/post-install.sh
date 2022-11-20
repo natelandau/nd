@@ -27,6 +27,7 @@ _mainScript_() {
         p7zip-full
         python3-pip
         shellcheck
+        software-properties-common
         unzip
         yamllint
         wget
@@ -129,6 +130,13 @@ _mainScript_() {
     else
         warning "pre-commit is not installed"
     fi
+
+    echo ""
+    header "Installing Hashicorp Nomad"
+    _execute_ -pv "curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -"
+    _execute_ -pv "sudo apt-add-repository \"deb [arch=$(dpkg --print-architecture)] https://apt.releases.hashicorp.com $(lsb_release -cs) main\""
+    _execute_ -pv "sudo apt-get update"
+    _execute_ -pv "sudo apt-get install nomad"
 
 }
 # end _mainScript_
