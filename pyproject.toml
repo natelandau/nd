@@ -51,6 +51,7 @@
         flake8-rst-docstrings = "^0.3.0"
         flake8-simplify       = "^0.19.3"
         flake8-tidy-imports   = "^4.8.0"
+        interrogate           = "^1.5.0"
         isort                 = "^5.10.1"
         mypy                  = "^0.991"
         pdoc                  = "^12.3.0"
@@ -113,6 +114,12 @@
 
 [tool.coverage.xml] # https://coverage.readthedocs.io/en/latest/config.html#xml
     output = "reports/coverage.xml"
+
+[tool.interrogate]
+    exclude            = ["build", "docs", "tests"]
+    fail-under         = 90
+    ignore-init-method = true
+    verbose            = 2
 
 [tool.isort] # https://pycqa.github.io/isort/docs/configuration/options.html
     color_output = true
@@ -198,6 +205,9 @@
 
         [[tool.poe.tasks.lint.sequence]]
             shell = "yamllint ."
+
+        [[tool.poe.tasks.lint.sequence]]
+            shell = "interrogate -c pyproject.toml ."
 
 [tool.poe.tasks.test]
     help = "Test this package"
