@@ -65,6 +65,7 @@
         typeguard             = "^2.13.3"
         types-requests        = "^2.28.8"
         vulture               = "^2.6"
+        yamllint              = "^1.28.0"
         yesqa                 = "^1.4.0"
 
 [tool.bandit] # https://bandit.readthedocs.io/en/latest/config.html
@@ -172,14 +173,31 @@
         help = "Lint this package"
 
         [[tool.poe.tasks.lint.sequence]]
-            shell = "vulture"
+            shell = "vulture src/ tests/"
 
         [[tool.poe.tasks.lint.sequence]]
-            cmd = """
-      pre-commit run
-        --all-files
-        --color always
-      """
+            shell = "flake8 src/ tests/"
+
+        [[tool.poe.tasks.lint.sequence]]
+            shell = "isort --check-only --diff src/ tests/"
+
+        [[tool.poe.tasks.lint.sequence]]
+            shell = "black --check src/ tests/"
+
+        [[tool.poe.tasks.lint.sequence]]
+            shell = "poetry check"
+
+        [[tool.poe.tasks.lint.sequence]]
+            shell = "bandit --configfile pyproject.toml -r src/ tests/"
+
+        [[tool.poe.tasks.lint.sequence]]
+            shell = "pydocstyle --config=pyproject.toml src/ tests/"
+
+        [[tool.poe.tasks.lint.sequence]]
+            shell = "mypy --config-file pyproject.toml src/"
+
+        [[tool.poe.tasks.lint.sequence]]
+            shell = "yamllint ."
 
 [tool.poe.tasks.test]
     help = "Test this package"
