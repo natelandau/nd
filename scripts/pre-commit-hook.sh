@@ -1,157 +1,78 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2317
 
 _mainScript_() {
 
-    APT_PACKAGES=(
-        bat
-        bc
-        build-essential
-        coreutils
-        curl
-        dnsutils
-        exa
-        fzf
-        git
-        git-extras
-        iftop
-        iotop
-        jq
-        less
-        libmagickwand-dev
-        libxml2-utils
-        lnav
-        lsof
-        nano
-        net-tools
-        openssh-server
-        p7zip-full
-        python3-pip
-        shellcheck
-        software-properties-common
-        unzip
-        yamllint
-        wget
-        zsh
-    )
+    _customStopWords_() {
+        #   DESC:  Check if any specified stop words are in the commit diff.  If found, the pre-commit hook will exit with a non-zero exit code.
+        # ARGS:
+        #	    $1 (Required):  Path to file
+        # OUTS:
+        #	    0:  Success
+        #	    1:  Failure
+        # USAGE:
+        #       _customStopWords_ "/path/to/file.sh"
+        # NOTE:
+        #        Requires a plaintext stopword file located at
+        #       `~/.git_stop_words` containing one stopword per line.
 
-    echo ""
-    header "Installing apt packages"
-    _execute_ "sudo apt-get update"
-    _execute_ "sudo apt-get upgrade -y"
-    for package in "${APT_PACKAGES[@]}"; do
-        _execute_ -p "sudo apt-get install -y \"${package}\""
-    done
+        [[ $# == 0 ]] && fatal "Missing required argument to ${FUNCNAME[0]}"
 
-    if [ -d "${WORKSPACE_DIR}/.venv" ]; then
-        echo ""
-        header "Remove existing virtual environment"
-        _execute_ -pv "rm -rf ${WORKSPACE_DIR}/.venv"
-    fi
+        local _gitDiffTmp
+        local FILE_TO_CHECK="${1}"
 
-    if command -v batcat &>/dev/null; then
-        echo ""
-        header "Favor bat over cat"
-        _execute_ -p "mkdir -p /home/vscode/.local/bin && ln -s /usr/bin/batcat /home/vscode/.local/bin/bat"
-    fi
+        _gitDiffTmp="${TMP_DIR}/${RANDOM}.${RANDOM}.${RANDOM}.diff.txt"
 
-    echo ""
-    header "Installing shfmt"
-    if ! command -v shfmt &>/dev/null; then
-        _execute_ "curl -sS https://webi.sh/shfmt | sh"
-    fi
+        if [ -f "${STOP_WORD_FILE}" ]; then
 
-    REPOS=(
-        "\"https://github.com/natelandau/dotfiles.git\" \"${HOME}/repos/dotfiles\""
-    )
-    header "Configuring Terminal environment"
-    mkdir -p "${HOME}/repos"
-    for r in "${REPOS[@]}"; do
-        REPO_DIR="$(echo "${r}" | awk 'BEGIN { FS = "\"" } ; { print $4 }')"
-        if [ -d "${REPO_DIR}" ]; then
-            info "${REPO_DIR} already exists"
+            if [[ $(basename "${STOP_WORD_FILE}") == "$(basename "${FILE_TO_CHECK}")" ]]; then
+                debug "$(basename "${1}"): Don't check stop words file for stop words."
+                return 0
+            fi
+            debug "$(basename "${FILE_TO_CHECK}"): Checking for stop words..."
+
+            # remove blank lines from stopwords file
+            sed '/^$/d' "${STOP_WORD_FILE}" >"${TMP_DIR}/pattern_file.txt"
+
+            # Check for stopwords
+            if git diff --cached -- "${FILE_TO_CHECK}" | grep –i -q "new file mode"; then
+                if grep -i --file="${TMP_DIR}/pattern_file.txt" "${FILE_TO_CHECK}"; then
+                    return 1
+                else
+                    return 0
+                fi
+            else
+                # Add diff to a temporary file
+                git diff --cached -- "${FILE_TO_CHECK}" | grep '^+' >"${_gitDiffTmp}"
+                if grep -i --file="${TMP_DIR}/pattern_file.txt" "${_gitDiffTmp}"; then
+                    return 1
+                else
+                    return 0
+                fi
+            fi
+
         else
-            _execute_ -p "git clone ${r}"
+
+            notice "Could not find git stopwords file expected at '${STOP_WORD_FILE}'. Continuing..."
+            return 0
         fi
-    done
+    }
 
-    if [ -e "${HOME}/repos/dotfiles/install.sh" ]; then
-        _execute_ -pvs "${HOME}/repos/dotfiles/install.sh"
-    else
-        warning "Dotfiles install script not found"
+    # Don;t lint binary files
+    if [[ ${ARGS[0]} =~ \.(jpg|jpeg|gif|png|exe|zip|gzip|tiff|tar|dmg|ttf|otf|m4a|mp3|mkv|mov|avi|eot|svg|woff2?|aac|wav|flac|pdf|doc|xls|ppt|7z|bin|dmg|dat|sql|ico|mpe?g)$ ]]; then
+        _safeExit_ 0
     fi
 
-    echo ""
-    header "Configuring UTF8 locale"
-    _execute_ "sudo locale-gen en_US.UTF-8"
-    {
-        echo ""
-        echo "export LANG=en_US.UTF-8"
-        echo "export LANGUAGE=en_US.UTF-8"
-        echo "export LC_ALL=en_US.UTF-8"
-    } >>"${HOME}/.zshrc"
-    {
-        echo ""
-        echo "export LANG=en_US.UTF-8"
-        echo "export LANGUAGE=en_US.UTF-8"
-        echo "export LC_ALL=en_US.UTF-8"
-    } >>"${HOME}/.bash_profile"
-
-    echo ""
-    header "Configuring Python environment"
-    if command -v python3 &>/dev/null; then
-        _execute_ -pv "pip install --upgrade pip"
-        _execute_ -pv "pip install -U \
-            black \
-            commitizen \
-            pre-commit \
-            yamllint \
-            detect-secrets \
-            ruff \
-            mypy"
-    else
-        warning "python 3 is not installed"
+    if ! _customStopWords_ "${ARGS[0]}"; then
+        error "Stop words found in ${ARGS[0]}"
+        _safeExit_ 1
     fi
-
-    echo ""
-    header "Install virtual environment with poetry"
-    if command -v poetry &>/dev/null; then
-        pushd "${WORKSPACE_DIR}" &>/dev/null
-        _execute_ -pv "poetry install"
-        venv_path="$(poetry env info --path)"
-        echo "" >>"/home/vscode/.zshrc"
-        echo "source ${venv_path}/bin/activate" >>"/home/vscode/.zshrc"
-        echo "" >>"/home/vscode/.bash_profile"
-        echo "source ${venv_path}/bin/activate" >>"/home/vscode/.bash_profile"
-
-        popd
-    else
-        warning "poetry is not installed"
-    fi
-
-    echo ""
-    header "Initialize pre-commit"
-    if command -v pre-commit &>/dev/null; then
-        pushd "${WORKSPACE_DIR}" &>/dev/null
-        _execute_ -pv "pre-commit install --install-hooks"
-        _execute_ -pv "pre-commit autoupdate"
-        popd
-    else
-        warning "pre-commit is not installed"
-    fi
-
-    echo ""
-    header "Installing Hashicorp Nomad"
-    _execute_ -pv "curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -"
-    _execute_ -pv "sudo apt-add-repository \"deb [arch=$(dpkg --print-architecture)] https://apt.releases.hashicorp.com $(lsb_release -cs) main\""
-    _execute_ -pv "sudo apt-get update"
-    _execute_ -pv "sudo apt-get install nomad"
-
 }
 # end _mainScript_
 
 # ################################## Flags and defaults
 # Required variables
-LOGFILE="/home/vscode/logs/$(basename "$0").log"
+LOGFILE="${HOME}/logs/$(basename "$0").log"
 QUIET=false
 LOGLEVEL=ERROR
 VERBOSE=false
@@ -160,132 +81,10 @@ DRYRUN=false
 declare -a ARGS=()
 
 # Script specific
-WORKSPACE_DIR="/workspaces/nd"
-
+LOGLEVEL=NONE
+STOP_WORD_FILE="${HOME}/.git_stop_words"
+shopt -s nocasematch
 # ################################## Custom utility functions (Pasted from repository)
-_execute_() {
-    # DESC:
-    #         Executes commands while respecting global DRYRUN, VERBOSE, LOGGING, and QUIET flags
-    # ARGS:
-    #         $1 (Required) - The command to be executed.  Quotation marks MUST be escaped.
-    #         $2 (Optional) - String to display after command is executed
-    # OPTS:
-    #         -v    Always print output from the execute function to STDOUT
-    #         -n    Use NOTICE level alerting (default is INFO)
-    #         -p    Pass a failed command with 'return 0'.  This effectively bypasses set -e.
-    #         -e    Bypass _alert_ functions and use 'printf RESULT'
-    #         -s    Use '_alert_ success' for successful output. (default is 'info')
-    #         -q    Do not print output (QUIET mode)
-    # OUTS:
-    #         stdout: Configurable output
-    # USE :
-    #         _execute_ "cp -R \"~/dir/somefile.txt\" \"someNewFile.txt\"" "Optional message"
-    #         _execute_ -sv "mkdir \"some/dir\""
-    # NOTE:
-    #         If $DRYRUN=true, no commands are executed and the command that would have been executed
-    #         is printed to STDOUT using dryrun level alerting
-    #         If $VERBOSE=true, the command's native output is printed to stdout. This can be forced
-    #         with '_execute_ -v'
-
-    local _localVerbose=false
-    local _passFailures=false
-    local _echoResult=false
-    local _echoSuccessResult=false
-    local _quietMode=false
-    local _echoNoticeResult=false
-    local opt
-
-    local OPTIND=1
-    while getopts ":vVpPeEsSqQnN" opt; do
-        case ${opt} in
-            v | V) _localVerbose=true ;;
-            p | P) _passFailures=true ;;
-            e | E) _echoResult=true ;;
-            s | S) _echoSuccessResult=true ;;
-            q | Q) _quietMode=true ;;
-            n | N) _echoNoticeResult=true ;;
-            *)
-                {
-                    error "Unrecognized option '$1' passed to _execute_. Exiting."
-                    _safeExit_
-                }
-                ;;
-        esac
-    done
-    shift $((OPTIND - 1))
-
-    [[ $# == 0 ]] && fatal "Missing required argument to ${FUNCNAME[0]}"
-
-    local _command="${1}"
-    local _executeMessage="${2:-$1}"
-
-    local _saveVerbose=${VERBOSE}
-    if "${_localVerbose}"; then
-        VERBOSE=true
-    fi
-
-    if "${DRYRUN-}"; then
-        if "${_quietMode}"; then
-            VERBOSE=${_saveVerbose}
-            return 0
-        fi
-        if [ -n "${2-}" ]; then
-            dryrun "${1} (${2})" "$(caller)"
-        else
-            dryrun "${1}" "$(caller)"
-        fi
-    elif ${VERBOSE-}; then
-        if eval "${_command}"; then
-            if "${_quietMode}"; then
-                VERBOSE=${_saveVerbose}
-            elif "${_echoResult}"; then
-                printf "%s\n" "${_executeMessage}"
-            elif "${_echoSuccessResult}"; then
-                success "${_executeMessage}"
-            elif "${_echoNoticeResult}"; then
-                notice "${_executeMessage}"
-            else
-                info "${_executeMessage}"
-            fi
-        else
-            if "${_quietMode}"; then
-                VERBOSE=${_saveVerbose}
-            elif "${_echoResult}"; then
-                printf "%s\n" "warning: ${_executeMessage}"
-            else
-                warning "${_executeMessage}"
-            fi
-            VERBOSE=${_saveVerbose}
-            "${_passFailures}" && return 0 || return 1
-        fi
-    else
-        if eval "${_command}" >/dev/null 2>&1; then
-            if "${_quietMode}"; then
-                VERBOSE=${_saveVerbose}
-            elif "${_echoResult}"; then
-                printf "%s\n" "${_executeMessage}"
-            elif "${_echoSuccessResult}"; then
-                success "${_executeMessage}"
-            elif "${_echoNoticeResult}"; then
-                notice "${_executeMessage}"
-            else
-                info "${_executeMessage}"
-            fi
-        else
-            if "${_quietMode}"; then
-                VERBOSE=${_saveVerbose}
-            elif "${_echoResult}"; then
-                printf "%s\n" "error: ${_executeMessage}"
-            else
-                warning "${_executeMessage}"
-            fi
-            VERBOSE=${_saveVerbose}
-            "${_passFailures}" && return 0 || return 1
-        fi
-    fi
-    VERBOSE=${_saveVerbose}
-    return 0
-}
 
 # ################################## Functions required for this template to work
 
@@ -363,11 +162,11 @@ _alert_() {
 
     [[ $# -lt 2 ]] && fatal 'Missing required argument to _alert_'
 
-    if [[ -n ${_line} && ${_alertType} =~ ^(fatal|error) && ${FUNCNAME[2]} != "_trapCleanup_" ]]; then
+    if [[ -n ${_line} && ${_alertType} =~ ^fatal && ${FUNCNAME[2]} != "_trapCleanup_" ]]; then
         _message="${_message} ${gray}(line: ${_line}) $(_printFuncStack_)"
     elif [[ -n ${_line} && ${FUNCNAME[2]} != "_trapCleanup_" ]]; then
         _message="${_message} ${gray}(line: ${_line})"
-    elif [[ -z ${_line} && ${_alertType} =~ ^(fatal|error) && ${FUNCNAME[2]} != "_trapCleanup_" ]]; then
+    elif [[ -z ${_line} && ${_alertType} =~ ^fatal && ${FUNCNAME[2]} != "_trapCleanup_" ]]; then
         _message="${_message} ${gray}$(_printFuncStack_)"
     fi
 
@@ -657,7 +456,7 @@ _setPATH_() {
     #         1: Failure
     #         Adds items to $PATH
     # USAGE:
-    #         _setPATH_ "/usr/local/bin" "/home/vscode/bin" "$(npm bin)"
+    #         _setPATH_ "/usr/local/bin" "${HOME}/bin" "$(npm bin)"
 
     [[ $# == 0 ]] && fatal "Missing required argument to ${FUNCNAME[0]}"
 
@@ -944,12 +743,12 @@ _usage_() {
 
   ${bold}$(basename "$0") [OPTION]... [FILE]...${reset}
 
-  This is a script template.  Edit this description to print help to users.
+  Custom pre-commit hook script. This script is intended to be used as part of the pre-commit pipeline managed within .pre-commit-config.yaml.
 
   ${bold}${underline}Options:${reset}
 $(_columns_ -b -- '-h, --help' "Display this help and exit" 2)
 $(_columns_ -b -- "--loglevel [LEVEL]" "One of: FATAL, ERROR (default), WARN, INFO, NOTICE, DEBUG, ALL, OFF" 2)
-$(_columns_ -b -- "--logfile [FILE]" "Full PATH to logfile.  (Default is '\/home/vscode/logs/$(basename "$0").log')" 2)
+$(_columns_ -b -- "--logfile [FILE]" "Full PATH to logfile.  (Default is '\${HOME}/logs/$(basename "$0").log')" 2)
 $(_columns_ -b -- "-n, --dryrun" "Non-destructive. Makes no permanent changes." 2)
 $(_columns_ -b -- "-q, --quiet" "Quiet (no output)" 2)
 $(_columns_ -b -- "-v, --verbose" "Output more information. (Items echoed to 'verbose')" 2)
@@ -1004,7 +803,7 @@ set -o nounset
 _parseOptions_ "$@"
 
 # Create a temp directory '$TMP_DIR'
-# _makeTempDir_ "$(basename "$0")"
+_makeTempDir_ "$(basename "$0")"
 
 # Acquire script lock
 # _acquireScriptLock_

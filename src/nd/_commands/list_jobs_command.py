@@ -19,7 +19,7 @@ def show_jobs(
     job_name: str | None = None,
     filter_running: bool = False,
 ) -> bool:
-    """Displays all valid Nomad job files."""
+    """Display all valid Nomad job files."""
     log.trace(config)
 
     directories_to_search = config["job_files_locations"]
@@ -37,7 +37,7 @@ def show_jobs(
                 )
             except AssertionError as e:
                 progress.stop()
-                log.error(e)  # noqa: TC400
+                log.error(e)
                 return False
     else:
         try:
@@ -45,7 +45,7 @@ def show_jobs(
                 directories_to_search, job_name, filter_running, config
             )
         except AssertionError as e:
-            log.error(e)  # noqa: TC400
+            log.error(e)
             return False
 
     table = Table(

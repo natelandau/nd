@@ -82,10 +82,11 @@ def show_cluster_status(
             for task in job.tasks:
                 if task.node_id == node.id_num and task.state.lower() == "running":
                     i += 1
-                    if task.started == "":
-                        runtime = "-"
-                    else:
-                        runtime = arrow.get(task.started).humanize(only_distance=True)
+                    runtime = (
+                        "-"
+                        if task.started == ""
+                        else arrow.get(task.started).humanize(only_distance=True)
+                    )
 
                     task_table.add_row(
                         str(i),

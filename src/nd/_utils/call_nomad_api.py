@@ -52,17 +52,17 @@ def make_nomad_api_call(
         log.trace(f"Making {method} request to {url} with params: {data}")
         response = requests.request(method, url, params=data)
     except requests.exceptions.RequestException as e:
-        log.error("Could not connect to Nomad API")  # noqa: TC400
+        log.error("Could not connect to Nomad API")
         raise sys.exit(1) from e
 
     if response.ok and response.text:
         try:
             return response.json()
         except ValueError as e:
-            log.error("Nomad API did not return valid JSON")  # noqa: TC400
+            log.error("Nomad API did not return valid JSON")
             raise sys.exit(1) from e
         except requests.exceptions.JSONDecodeError as e:
-            log.error("Could not decode JSON response from Nomad API")  # noqa: TC400
+            log.error("Could not decode JSON response from Nomad API")
             raise sys.exit(1) from e
     elif response.ok and not response.text:
         return True

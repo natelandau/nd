@@ -99,7 +99,7 @@ class JobFile:
         if result.returncode <= 1:
             for line in result.stdout.splitlines():
                 if re.match(r"^Job Modify Index: (\d+)$", line):
-                    modify_index = re.match(r"^Job Modify Index: (\d+)$", line).group(1)  # type: ignore [union-attr]
+                    modify_index = re.match(r"^Job Modify Index: (\d+)$", line).group(1)
                     break
 
             try:
@@ -134,10 +134,10 @@ class JobFile:
             nomad = local["nomad"]
             nomad["job", "run", "-check-index", modify_index, str(self.file)] & FG
         except CommandNotFound:
-            log.error("Nomad binary is not installed")  # noqa: TC400
+            log.error("Nomad binary is not installed")
             return False
         except ProcessExecutionError as e:
-            alerts.error(f"Nomad job plan failed for '{self.name}'.\n{e}")  # noqa: TC400
+            alerts.error(f"Nomad job plan failed for '{self.name}'.\n{e}")
             return False
         else:
             return True
@@ -178,7 +178,7 @@ def list_valid_jobs(
     filter_running: bool = False,
     config: dict = {},
 ) -> list[JobFile]:
-    """Lists valid Nomad job files within a specified directory.
+    """List valid Nomad job files within a specified directory.
 
     Args:
         directories: List of directories to search for job files.

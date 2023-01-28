@@ -26,13 +26,13 @@ def run_nomad_job(
                 valid_job_files = list_valid_jobs(directories_to_search, job_name)
             except AssertionError as e:
                 progress.stop()
-                log.error(e)  # noqa: TC400
+                log.error(e)
                 return False
     else:
         try:  # pragma: no cover
             valid_job_files = list_valid_jobs(directories_to_search, job_name)
         except AssertionError as e:
-            log.error(e)  # noqa: TC400
+            log.error(e)
             return False
 
     if len(valid_job_files) == 0:

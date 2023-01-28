@@ -1,3 +1,4 @@
+"""Logging and alerts."""
 import sys
 from pathlib import Path
 

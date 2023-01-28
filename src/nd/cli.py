@@ -66,22 +66,25 @@ def load_configuration(paths: list[Path]) -> dict:
                     raise typer.Exit(code=1) from e
             break
 
-    if not config:  # noqa: R506
+    if not config:
         log.error("No configuration found. Please create a config file.")
         raise typer.Exit(code=1)
-    elif config.get("job_files_locations") is None:
+
+    if config.get("job_files_locations") is None:
         log.error(
             "Configuration file is missing 'job_files_locations' key. "
             "Please check your configuration file."
         )
         raise typer.Exit(code=1)
-    elif config.get("nomad_api_url") is None:
+
+    if config.get("nomad_api_url") is None:
         log.error(
             "Configuration file is missing 'nomad_api_url' key. "
             "Please check your configuration file."
         )
         raise typer.Exit(code=1)
-    elif not validators.url(config["nomad_api_url"]):
+
+    if not validators.url(config["nomad_api_url"]):
         log.error(
             "Configuration file 'nomad_api_url' is not a valid URL. "
             "Please check your configuration file."
@@ -355,20 +358,21 @@ def main(
         exists=True,
     ),
 ) -> None:
-    """A highly customized light wrapper around common Nomad API commands and tasks.
+    """Light wrapper around common Nomad API commands and tasks.
 
     Full usage and help: https://github.com/natelandau/nd
     """
-    if config_file:  # pragma: no cover
-        possible_config_locations = [config_file]
-    else:
-        possible_config_locations = [
+    possible_config_locations = (
+        [config_file]
+        if config_file
+        else [
             Path.home() / ".config" / "nd.toml",
             Path.home() / ".nd" / "nd.toml",
             Path.home() / ".nd.toml",
             Path.cwd() / "nd.toml",
             Path.cwd() / ".nd.toml",
         ]
+    )
 
     # Instantiate logger manager
     _utils.alerts.LoggerManager(  # pragma: no cover

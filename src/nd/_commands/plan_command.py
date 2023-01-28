@@ -17,7 +17,7 @@ def plan_nomad_job(
     try:
         valid_job_files = list_valid_jobs(directories_to_search, job_name)
     except AssertionError as e:
-        log.error(e)  # noqa: TC400
+        log.error(e)
         return False
 
     table = Table(title="Planned jobs", caption=f"{len(valid_job_files)} jobs planned")

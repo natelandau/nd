@@ -59,10 +59,7 @@ class Job:
         log.info(f"Stopping job {self.job_id}")
 
         api_url = f"{self.api_url}/job/{self.job_id}"
-        if no_clean:
-            params = None
-        else:
-            params = {"purge": "true"}
+        params = None if no_clean else {"purge": "true"}
 
         if make_nomad_api_call(api_url, "DELETE", data=params, dry_run=dry_run):
             if not dry_run:
@@ -173,19 +170,16 @@ class Task:
         Returns:
             bool: Whether or not the command was executed.
         """
-        if command is None:
-            cmd = "/bin/sh"
-        else:
-            cmd = command
+        cmd = "/bin/sh" if command is None else command
 
         try:
             nomad = local["nomad"]
             nomad["alloc", "exec", "-i", "-t", "-task", self.name, self.allocation_short, cmd] & FG
         except CommandNotFound:
-            log.error("Nomad binary is not installed")  # noqa: TC400
+            log.error("Nomad binary is not installed")
             return False
         except ProcessExecutionError as e:
-            log.error(e)  # noqa: TC400
+            log.error(e)
             return False
 
         return True
@@ -200,10 +194,10 @@ class Task:
             nomad = local["nomad"]
             nomad["alloc", "logs", "-f", "-n", "50", self.allocation_short, self.name] & FG
         except CommandNotFound:
-            log.error("Nomad binary is not installed")  # noqa: TC400
+            log.error("Nomad binary is not installed")
             return False
         except ProcessExecutionError as e:
-            log.error(e)  # noqa: TC400
+            log.error(e)
             return False
 
         return True
