@@ -1,3 +1,18 @@
+## v0.3.0 (2023-03-16)
+
+### Feat
+
+- major refactor of entire package
+
+### Fix
+
+- logfile has correct name
+- logfile has correct name
+
+### Refactor
+
+- remove unnecessary `else` and `elif` statements
+
 ## v0.2.1 (2022-10-07)
 
 ### Fix
