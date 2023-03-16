@@ -4,39 +4,25 @@ _mainScript_() {
 
     APT_PACKAGES=(
         bat
-        bc
         build-essential
         coreutils
         curl
-        dnsutils
         exa
-        fzf
         git
         git-extras
-        iftop
-        iotop
         jq
         less
-        libmagickwand-dev
-        libxml2-utils
-        lnav
-        lsof
         nano
-        net-tools
-        openssh-server
-        p7zip-full
         python3-pip
         shellcheck
-        software-properties-common
         unzip
-        yamllint
         wget
         zsh
     )
 
     echo ""
-    header "Installing apt packages"
-    _execute_ "sudo apt-get update"
+    header "Install apt packages"
+    _execute_ "sudo apt-get update -y"
     _execute_ "sudo apt-get upgrade -y"
     for package in "${APT_PACKAGES[@]}"; do
         _execute_ -p "sudo apt-get install -y \"${package}\""
@@ -123,7 +109,7 @@ _mainScript_() {
         echo "" >>"/home/vscode/.bash_profile"
         echo "source ${venv_path}/bin/activate" >>"/home/vscode/.bash_profile"
 
-        popd
+        popd &>/dev/null
     else
         warning "poetry is not installed"
     fi
@@ -131,10 +117,14 @@ _mainScript_() {
     echo ""
     header "Initialize pre-commit"
     if command -v pre-commit &>/dev/null; then
-        pushd "${WORKSPACE_DIR}" &>/dev/null
-        _execute_ -pv "pre-commit install --install-hooks"
-        _execute_ -pv "pre-commit autoupdate"
-        popd
+        if [ -d "${WORKSPACE_DIR}/.git" ]; then
+            pushd "${WORKSPACE_DIR}" &>/dev/null
+            _execute_ -pv "pre-commit install --install-hooks"
+            _execute_ -pv "pre-commit autoupdate"
+            popd &>/dev/null
+        else
+            warning "Git repository not found in ${WORKSPACE_DIR}. Initialize pre-commit manually."
+        fi
     else
         warning "pre-commit is not installed"
     fi
@@ -143,8 +133,8 @@ _mainScript_() {
     header "Installing Hashicorp Nomad"
     _execute_ -pv "curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -"
     _execute_ -pv "sudo apt-add-repository \"deb [arch=$(dpkg --print-architecture)] https://apt.releases.hashicorp.com $(lsb_release -cs) main\""
-    _execute_ -pv "sudo apt-get update"
-    _execute_ -pv "sudo apt-get install nomad"
+    _execute_ -pv "sudo apt-get update -y"
+    _execute_ -pv "sudo apt-get install nomad -y"
 
 }
 # end _mainScript_

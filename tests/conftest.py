@@ -1,192 +1,851 @@
 # type: ignore
-"""Shared fixtures and helpers for tests."""
+"""Fixtures for tests."""
+
+import shutil
+from pathlib import Path
 
 import pytest
 
-from nd._utils import Job, Node
+from nd.config.config import Config
 
 
 @pytest.fixture()
-def mock_nodes():
-    """Create list of mock nodes."""
-    node1 = Node(
-        name="node1",
-        id_num="e8b7be25-d438-7ed3-3440-235e6940403f",
-        address="10.0.0.4",
-        status="ready",
-        eligible="eligible",
-        datacenter="ny-east",
-        node_class="linux",
-        version="1.3.3",
-    )
-    node2 = Node(
-        name="node2",
-        id_num="e8b7be25-d438-7ed3-3440-l23465jk678k2",
-        address="10.0.0.5",
-        status="ready",
-        eligible="eligible",
-        datacenter="ny-east",
-        node_class="linux",
-        version="1.3.3",
-    )
-    return [node1, node2]
+def mock_api_responses():
+    """Return a tuple of mock API responses.
 
-
-@pytest.fixture()
-def mock_job(mocker):
-    """Create list of one mock job."""
-    mock_allocation_response = [
+    0 = nodes_response
+    1 = jobs_response
+    2 = allocations_response job 1
+    3 = allocations_response job 2
+    """
+    nodes_response = [
         {
-            "ID": "36be6d11-cabe-b70f-2a5e-8ddf9a9079fc",
-            "EvalID": "233c1977-34e4-e150-2071-cd1dca442823",
-            "Name": "mock_job",
-            "Namespace": "default",
-            "NodeID": "e8b7be25-d438-7ed3-3440-235e6940403f",
-            "NodeName": "node1",
-            "JobID": "job1",
-            "JobType": "service",
-            "JobVersion": 0,
-            "TaskGroup": "mock_job",
-            "TaskStates": {
-                "mock_task1": {
-                    "State": "running",
-                    "Failed": False,
-                    "Restarts": 0,
-                    "StartedAt": "2022-06-17T12:52:50.059724591Z",
-                },
-                "mock_task2": {
-                    "State": "running",
-                    "Failed": False,
-                    "Restarts": 0,
-                    "StartedAt": "2022-06-17T12:52:50.059724591Z",
-                },
-            },
-            "DeploymentStatus": {
-                "Healthy": True,
-                "Timestamp": "2022-06-17T08:53:13.918227419-04:00",
-                "Canary": False,
-                "ModifyIndex": 853045,
-            },
-        }
-    ]
-
-    mocker.patch(
-        "nd._utils.cluster_placements.make_nomad_api_call",
-        return_value=mock_allocation_response,
-    )
-
-    job1 = Job(
-        job_id="job1",
-        job_type="service",
-        status="running",
-        create_backup=False,
-    )
-
-    return [job1]
-
-
-@pytest.fixture()
-def mock_jobs(mocker):
-    """Create list of two mock jobs."""
-    mock_allocation_response = [
-        {
-            "ID": "36be6d11-cabe-b70f-2a5e-8ddf9a9079fc",
-            "EvalID": "233c1977-34e4-e150-2071-cd1dca442823",
-            "Name": "mock_job",
-            "Namespace": "default",
-            "NodeID": "e8b7be25-d438-7ed3-3440-235e6940403f",
-            "NodeName": "node1",
-            "JobID": "job1",
-            "JobType": "service",
-            "JobVersion": 0,
-            "TaskGroup": "mock_job",
-            "TaskStates": {
-                "mock_task1": {
-                    "State": "running",
-                    "Failed": False,
-                    "Restarts": 0,
-                    "StartedAt": "2022-06-17T12:52:50.059724591Z",
-                },
-                "mock_task2": {
-                    "State": "running",
-                    "Failed": False,
-                    "Restarts": 0,
-                    "StartedAt": "2022-06-17T12:52:50.059724591Z",
-                },
-            },
-            "DeploymentStatus": {
-                "Healthy": True,
-                "Timestamp": "2022-06-17T08:53:13.918227419-04:00",
-                "Canary": False,
-                "ModifyIndex": 853045,
-            },
-        }
-    ]
-
-    mocker.patch(
-        "nd._utils.cluster_placements.make_nomad_api_call",
-        return_value=mock_allocation_response,
-    )
-
-    job1 = Job(
-        job_id="job1",
-        job_type="service",
-        status="running",
-        create_backup=False,
-    )
-
-    job2 = Job(
-        job_id="job2",
-        job_type="service",
-        status="running",
-        create_backup=True,
-    )
-
-    return [job1, job2]
-
-
-@pytest.fixture()
-def mock_whoogle(mocker):
-    """Create list of one mock job."""
-    mock_allocation_response = [
-        {
-            "ID": "36be6d11-cabe-b70f-2a5e-8ddf9a9079fc",
-            "EvalID": "233c1977-34e4-e150-2071-cd1dca442823",
-            "Name": "whoogle",
-            "Namespace": "default",
-            "NodeID": "e8b7be25-d438-7ed3-3440-235e6940403f",
-            "NodeName": "node1",
-            "JobID": "job1",
-            "JobType": "service",
-            "JobVersion": 0,
-            "TaskGroup": "whoogle_group",
-            "TaskStates": {
-                "whoogle": {
-                    "State": "running",
-                    "Failed": False,
-                    "Restarts": 0,
-                    "StartedAt": "2022-06-17T12:52:50.059724591Z",
+            "Address": "192.168.1.1",
+            "ID": "057f9654-0656-073c-8798-fa6204569d2a",
+            "Attributes": None,
+            "Datacenter": "dc1",
+            "Name": "node1",
+            "NodeClass": "",
+            "Version": "1.4.6",
+            "Drain": False,
+            "SchedulingEligibility": "eligible",
+            "Status": "ready",
+            "StatusDescription": "",
+            "Drivers": {
+                "docker": {
+                    "Attributes": {
+                        "driver.docker.os_type": "linux",
+                        "driver.docker": "true",
+                        "driver.docker.version": "23.0.1",
+                        "driver.docker.privileged.enabled": "true",
+                        "driver.docker.volumes.enabled": "true",
+                        "driver.docker.bridge_ip": "172.17.0.1",
+                        "driver.docker.runtimes": "io.containerd.runc.v2,runc",
+                    },
+                    "Detected": True,
+                    "Healthy": True,
+                    "HealthDescription": "Healthy",
+                    "UpdateTime": "2023-03-15T13:14:32.458629957-04:00",
                 }
             },
+            "HostVolumes": None,
+            "NodeResources": None,
+            "ReservedResources": None,
+            "LastDrain": None,
+            "CreateIndex": 994348,
+            "ModifyIndex": 1327994,
+        },
+        {
+            "Address": "192.168.1.2",
+            "ID": "057f9654-0656-073c-8798-fa6204569d2a",
+            "Attributes": None,
+            "Datacenter": "dc1",
+            "Name": "node2",
+            "NodeClass": "",
+            "Version": "1.4.6",
+            "Drain": False,
+            "SchedulingEligibility": "eligible",
+            "Status": "ready",
+            "StatusDescription": "",
+            "Drivers": {
+                "docker": {
+                    "Attributes": {
+                        "driver.docker.os_type": "linux",
+                        "driver.docker": "true",
+                        "driver.docker.version": "23.0.1",
+                        "driver.docker.privileged.enabled": "true",
+                        "driver.docker.volumes.enabled": "true",
+                        "driver.docker.bridge_ip": "172.17.0.1",
+                        "driver.docker.runtimes": "io.containerd.runc.v2,runc",
+                    },
+                    "Detected": True,
+                    "Healthy": True,
+                    "HealthDescription": "Healthy",
+                    "UpdateTime": "2023-03-15T13:14:32.458629957-04:00",
+                }
+            },
+            "HostVolumes": None,
+            "NodeResources": None,
+            "ReservedResources": None,
+            "LastDrain": None,
+            "CreateIndex": 994348,
+            "ModifyIndex": 1327994,
+        },
+    ]
+    running_jobs_response = [
+        {
+            "ID": "job1",
+            "ParentID": "",
+            "Name": "job1",
+            "Namespace": "default",
+            "Datacenters": ["dc1"],
+            "Multiregion": None,
+            "Type": "service",
+            "Priority": 50,
+            "Periodic": False,
+            "ParameterizedJob": False,
+            "Stop": False,
+            "Status": "running",
+            "StatusDescription": "",
+            "JobSummary": {
+                "JobID": "job1",
+                "Namespace": "default",
+                "Summary": {
+                    "radarrGroup": {
+                        "Queued": 0,
+                        "Complete": 0,
+                        "Failed": 0,
+                        "Running": 1,
+                        "Starting": 0,
+                        "Lost": 0,
+                        "Unknown": 0,
+                    }
+                },
+                "Children": {"Pending": 0, "Running": 0, "Dead": 0},
+                "CreateIndex": 1329935,
+                "ModifyIndex": 1329942,
+            },
+            "CreateIndex": 1329935,
+            "ModifyIndex": 1329947,
+            "JobModifyIndex": 1329935,
+            "SubmitTime": 1678984359652938453,
+            "Meta": None,
+        },
+        {
+            "ID": "job2",
+            "ParentID": "",
+            "Name": "job2",
+            "Namespace": "default",
+            "Datacenters": ["dc1"],
+            "Multiregion": None,
+            "Type": "service",
+            "Priority": 50,
+            "Periodic": False,
+            "ParameterizedJob": False,
+            "Stop": False,
+            "Status": "running",
+            "StatusDescription": "",
+            "JobSummary": {
+                "JobID": "job2",
+                "Namespace": "default",
+                "Summary": {
+                    "radarrGroup": {
+                        "Queued": 0,
+                        "Complete": 0,
+                        "Failed": 0,
+                        "Running": 1,
+                        "Starting": 0,
+                        "Lost": 0,
+                        "Unknown": 0,
+                    }
+                },
+                "Children": {"Pending": 0, "Running": 0, "Dead": 0},
+                "CreateIndex": 1329935,
+                "ModifyIndex": 1329942,
+            },
+            "CreateIndex": 1329935,
+            "ModifyIndex": 1329947,
+            "JobModifyIndex": 1329935,
+            "SubmitTime": 1678984359652938453,
+            "Meta": None,
+        },
+    ]
+    allocation_response1 = [
+        {
+            "ID": "4f32c690-75ca-b55c-eb4a-4012dd93cb57",
+            "EvalID": "feadbf28-38e8-335d-92ee-a7f1792ff072",
+            "Name": "job1.job1Group[0]",
+            "Namespace": "default",
+            "NodeID": "ebd78455-3ffb-4678-b569-a2b813c31981",
+            "NodeName": "node1",
+            "JobID": "job1",
+            "JobType": "service",
+            "JobVersion": 0,
+            "TaskGroup": "job1Group",
+            "AllocatedResources": None,
+            "DesiredStatus": "run",
+            "DesiredDescription": "",
+            "ClientStatus": "running",
+            "ClientDescription": "Tasks are running",
+            "DesiredTransition": {
+                "Migrate": None,
+                "Reschedule": None,
+                "ForceReschedule": None,
+                "NoShutdownDelay": None,
+            },
+            "TaskStates": {
+                "create_filesystem": {
+                    "State": "dead",
+                    "Failed": False,
+                    "Restarts": 0,
+                    "LastRestart": None,
+                    "StartedAt": "2023-03-16T16:32:39.926826659Z",
+                    "FinishedAt": "2023-03-16T16:32:40.573796601Z",
+                    "Events": [
+                        {
+                            "Type": "Received",
+                            "Time": 1678984359711481006,
+                            "Message": "",
+                            "DisplayMessage": "Task received by client",
+                            "Details": {},
+                            "FailsTask": False,
+                            "RestartReason": "",
+                            "SetupError": "",
+                            "DriverError": "",
+                            "ExitCode": 0,
+                            "Signal": 0,
+                            "KillTimeout": 0,
+                            "KillError": "",
+                            "KillReason": "",
+                            "StartDelay": 0,
+                            "DownloadError": "",
+                            "ValidationError": "",
+                            "DiskLimit": 0,
+                            "FailedSibling": "",
+                            "VaultError": "",
+                            "TaskSignalReason": "",
+                            "TaskSignal": "",
+                            "DriverMessage": "",
+                            "GenericSource": "",
+                        },
+                        {
+                            "Type": "Task Setup",
+                            "Time": 1678984359719907763,
+                            "Message": "Building Task Directory",
+                            "DisplayMessage": "Building Task Directory",
+                            "Details": {"message": "Building Task Directory"},
+                            "FailsTask": False,
+                            "RestartReason": "",
+                            "SetupError": "",
+                            "DriverError": "",
+                            "ExitCode": 0,
+                            "Signal": 0,
+                            "KillTimeout": 0,
+                            "KillError": "",
+                            "KillReason": "",
+                            "StartDelay": 0,
+                            "DownloadError": "",
+                            "ValidationError": "",
+                            "DiskLimit": 0,
+                            "FailedSibling": "",
+                            "VaultError": "",
+                            "TaskSignalReason": "",
+                            "TaskSignal": "",
+                            "DriverMessage": "",
+                            "GenericSource": "",
+                        },
+                        {
+                            "Type": "Started",
+                            "Time": 1678984359926814993,
+                            "Message": "",
+                            "DisplayMessage": "Task started by client",
+                            "Details": {},
+                            "FailsTask": False,
+                            "RestartReason": "",
+                            "SetupError": "",
+                            "DriverError": "",
+                            "ExitCode": 0,
+                            "Signal": 0,
+                            "KillTimeout": 0,
+                            "KillError": "",
+                            "KillReason": "",
+                            "StartDelay": 0,
+                            "DownloadError": "",
+                            "ValidationError": "",
+                            "DiskLimit": 0,
+                            "FailedSibling": "",
+                            "VaultError": "",
+                            "TaskSignalReason": "",
+                            "TaskSignal": "",
+                            "DriverMessage": "",
+                            "GenericSource": "",
+                        },
+                        {
+                            "Type": "Terminated",
+                            "Time": 1678984360546128139,
+                            "Message": "",
+                            "DisplayMessage": "Exit Code: 0",
+                            "Details": {"oom_killed": "false", "exit_code": "0", "signal": "0"},
+                            "FailsTask": False,
+                            "RestartReason": "",
+                            "SetupError": "",
+                            "DriverError": "",
+                            "ExitCode": 0,
+                            "Signal": 0,
+                            "KillTimeout": 0,
+                            "KillError": "",
+                            "KillReason": "",
+                            "StartDelay": 0,
+                            "DownloadError": "",
+                            "ValidationError": "",
+                            "DiskLimit": 0,
+                            "FailedSibling": "",
+                            "VaultError": "",
+                            "TaskSignalReason": "",
+                            "TaskSignal": "",
+                            "DriverMessage": "",
+                            "GenericSource": "",
+                        },
+                    ],
+                    "TaskHandle": None,
+                },
+                "job1": {
+                    "State": "running",
+                    "Failed": False,
+                    "Restarts": 0,
+                    "LastRestart": None,
+                    "StartedAt": "2023-03-16T16:32:59.6818882Z",
+                    "FinishedAt": None,
+                    "Events": [
+                        {
+                            "Type": "Received",
+                            "Time": 1678984359713702888,
+                            "Message": "",
+                            "DisplayMessage": "Task received by client",
+                            "Details": {},
+                            "FailsTask": False,
+                            "RestartReason": "",
+                            "SetupError": "",
+                            "DriverError": "",
+                            "ExitCode": 0,
+                            "Signal": 0,
+                            "KillTimeout": 0,
+                            "KillError": "",
+                            "KillReason": "",
+                            "StartDelay": 0,
+                            "DownloadError": "",
+                            "ValidationError": "",
+                            "DiskLimit": 0,
+                            "FailedSibling": "",
+                            "VaultError": "",
+                            "TaskSignalReason": "",
+                            "TaskSignal": "",
+                            "DriverMessage": "",
+                            "GenericSource": "",
+                        },
+                        {
+                            "Type": "Task Setup",
+                            "Time": 1678984360583576942,
+                            "Message": "Building Task Directory",
+                            "DisplayMessage": "Building Task Directory",
+                            "Details": {"message": "Building Task Directory"},
+                            "FailsTask": False,
+                            "RestartReason": "",
+                            "SetupError": "",
+                            "DriverError": "",
+                            "ExitCode": 0,
+                            "Signal": 0,
+                            "KillTimeout": 0,
+                            "KillError": "",
+                            "KillReason": "",
+                            "StartDelay": 0,
+                            "DownloadError": "",
+                            "ValidationError": "",
+                            "DiskLimit": 0,
+                            "FailedSibling": "",
+                            "VaultError": "",
+                            "TaskSignalReason": "",
+                            "TaskSignal": "",
+                            "DriverMessage": "",
+                            "GenericSource": "",
+                        },
+                        {
+                            "Type": "Driver",
+                            "Time": 1678984360653792901,
+                            "Message": "",
+                            "DisplayMessage": "Downloading image",
+                            "Details": {"image": "ghcr.io/linuxserver/job1:develop"},
+                            "FailsTask": False,
+                            "RestartReason": "",
+                            "SetupError": "",
+                            "DriverError": "",
+                            "ExitCode": 0,
+                            "Signal": 0,
+                            "KillTimeout": 0,
+                            "KillError": "",
+                            "KillReason": "",
+                            "StartDelay": 0,
+                            "DownloadError": "",
+                            "ValidationError": "",
+                            "DiskLimit": 0,
+                            "FailedSibling": "",
+                            "VaultError": "",
+                            "TaskSignalReason": "",
+                            "TaskSignal": "",
+                            "DriverMessage": "Downloading image",
+                            "GenericSource": "",
+                        },
+                        {
+                            "Type": "Started",
+                            "Time": 1678984379681876071,
+                            "Message": "",
+                            "DisplayMessage": "Task started by client",
+                            "Details": {},
+                            "FailsTask": False,
+                            "RestartReason": "",
+                            "SetupError": "",
+                            "DriverError": "",
+                            "ExitCode": 0,
+                            "Signal": 0,
+                            "KillTimeout": 0,
+                            "KillError": "",
+                            "KillReason": "",
+                            "StartDelay": 0,
+                            "DownloadError": "",
+                            "ValidationError": "",
+                            "DiskLimit": 0,
+                            "FailedSibling": "",
+                            "VaultError": "",
+                            "TaskSignalReason": "",
+                            "TaskSignal": "",
+                            "DriverMessage": "",
+                            "GenericSource": "",
+                        },
+                    ],
+                    "TaskHandle": None,
+                },
+                "save_configuration": {
+                    "State": "pending",
+                    "Failed": False,
+                    "Restarts": 0,
+                    "LastRestart": None,
+                    "StartedAt": None,
+                    "FinishedAt": None,
+                    "Events": [
+                        {
+                            "Type": "Received",
+                            "Time": 1678984359714048881,
+                            "Message": "",
+                            "DisplayMessage": "Task received by client",
+                            "Details": {},
+                            "FailsTask": False,
+                            "RestartReason": "",
+                            "SetupError": "",
+                            "DriverError": "",
+                            "ExitCode": 0,
+                            "Signal": 0,
+                            "KillTimeout": 0,
+                            "KillError": "",
+                            "KillReason": "",
+                            "StartDelay": 0,
+                            "DownloadError": "",
+                            "ValidationError": "",
+                            "DiskLimit": 0,
+                            "FailedSibling": "",
+                            "VaultError": "",
+                            "TaskSignalReason": "",
+                            "TaskSignal": "",
+                            "DriverMessage": "",
+                            "GenericSource": "",
+                        }
+                    ],
+                    "TaskHandle": None,
+                },
+            },
             "DeploymentStatus": {
                 "Healthy": True,
-                "Timestamp": "2022-06-17T08:53:13.918227419-04:00",
+                "Timestamp": "2023-03-16T12:33:42.722795231-04:00",
                 "Canary": False,
-                "ModifyIndex": 853045,
+                "ModifyIndex": 1329945,
             },
+            "FollowupEvalID": "",
+            "RescheduleTracker": None,
+            "PreemptedAllocations": None,
+            "PreemptedByAllocation": "",
+            "CreateIndex": 1329936,
+            "ModifyIndex": 1329945,
+            "CreateTime": 1678984359673508970,
+            "ModifyTime": 1678984422931353235,
+        }
+    ]
+    allocation_response2 = [
+        {
+            "ID": "4f32c690-75ca-b55c-eb4a-4012dd93cb57",
+            "EvalID": "feadbf28-38e8-335d-92ee-a7f1792ff072",
+            "Name": "job1.job1Group[0]",
+            "Namespace": "default",
+            "NodeID": "ebd78455-3ffb-4678-b569-a2b813c31981",
+            "NodeName": "node2",
+            "JobID": "job2",
+            "JobType": "service",
+            "JobVersion": 0,
+            "TaskGroup": "job2Group",
+            "AllocatedResources": None,
+            "DesiredStatus": "run",
+            "DesiredDescription": "",
+            "ClientStatus": "running",
+            "ClientDescription": "Tasks are running",
+            "DesiredTransition": {
+                "Migrate": None,
+                "Reschedule": None,
+                "ForceReschedule": None,
+                "NoShutdownDelay": None,
+            },
+            "TaskStates": {
+                "create_filesystem": {
+                    "State": "dead",
+                    "Failed": False,
+                    "Restarts": 0,
+                    "LastRestart": None,
+                    "StartedAt": "2023-03-16T16:32:39.926826659Z",
+                    "FinishedAt": "2023-03-16T16:32:40.573796601Z",
+                    "Events": [
+                        {
+                            "Type": "Received",
+                            "Time": 1678984359711481006,
+                            "Message": "",
+                            "DisplayMessage": "Task received by client",
+                            "Details": {},
+                            "FailsTask": False,
+                            "RestartReason": "",
+                            "SetupError": "",
+                            "DriverError": "",
+                            "ExitCode": 0,
+                            "Signal": 0,
+                            "KillTimeout": 0,
+                            "KillError": "",
+                            "KillReason": "",
+                            "StartDelay": 0,
+                            "DownloadError": "",
+                            "ValidationError": "",
+                            "DiskLimit": 0,
+                            "FailedSibling": "",
+                            "VaultError": "",
+                            "TaskSignalReason": "",
+                            "TaskSignal": "",
+                            "DriverMessage": "",
+                            "GenericSource": "",
+                        },
+                        {
+                            "Type": "Task Setup",
+                            "Time": 1678984359719907763,
+                            "Message": "Building Task Directory",
+                            "DisplayMessage": "Building Task Directory",
+                            "Details": {"message": "Building Task Directory"},
+                            "FailsTask": False,
+                            "RestartReason": "",
+                            "SetupError": "",
+                            "DriverError": "",
+                            "ExitCode": 0,
+                            "Signal": 0,
+                            "KillTimeout": 0,
+                            "KillError": "",
+                            "KillReason": "",
+                            "StartDelay": 0,
+                            "DownloadError": "",
+                            "ValidationError": "",
+                            "DiskLimit": 0,
+                            "FailedSibling": "",
+                            "VaultError": "",
+                            "TaskSignalReason": "",
+                            "TaskSignal": "",
+                            "DriverMessage": "",
+                            "GenericSource": "",
+                        },
+                        {
+                            "Type": "Started",
+                            "Time": 1678984359926814993,
+                            "Message": "",
+                            "DisplayMessage": "Task started by client",
+                            "Details": {},
+                            "FailsTask": False,
+                            "RestartReason": "",
+                            "SetupError": "",
+                            "DriverError": "",
+                            "ExitCode": 0,
+                            "Signal": 0,
+                            "KillTimeout": 0,
+                            "KillError": "",
+                            "KillReason": "",
+                            "StartDelay": 0,
+                            "DownloadError": "",
+                            "ValidationError": "",
+                            "DiskLimit": 0,
+                            "FailedSibling": "",
+                            "VaultError": "",
+                            "TaskSignalReason": "",
+                            "TaskSignal": "",
+                            "DriverMessage": "",
+                            "GenericSource": "",
+                        },
+                        {
+                            "Type": "Terminated",
+                            "Time": 1678984360546128139,
+                            "Message": "",
+                            "DisplayMessage": "Exit Code: 0",
+                            "Details": {"oom_killed": "false", "exit_code": "0", "signal": "0"},
+                            "FailsTask": False,
+                            "RestartReason": "",
+                            "SetupError": "",
+                            "DriverError": "",
+                            "ExitCode": 0,
+                            "Signal": 0,
+                            "KillTimeout": 0,
+                            "KillError": "",
+                            "KillReason": "",
+                            "StartDelay": 0,
+                            "DownloadError": "",
+                            "ValidationError": "",
+                            "DiskLimit": 0,
+                            "FailedSibling": "",
+                            "VaultError": "",
+                            "TaskSignalReason": "",
+                            "TaskSignal": "",
+                            "DriverMessage": "",
+                            "GenericSource": "",
+                        },
+                    ],
+                    "TaskHandle": None,
+                },
+                "job2": {
+                    "State": "running",
+                    "Failed": False,
+                    "Restarts": 0,
+                    "LastRestart": None,
+                    "StartedAt": "2023-03-16T16:32:59.6818882Z",
+                    "FinishedAt": None,
+                    "Events": [
+                        {
+                            "Type": "Received",
+                            "Time": 1678984359713702888,
+                            "Message": "",
+                            "DisplayMessage": "Task received by client",
+                            "Details": {},
+                            "FailsTask": False,
+                            "RestartReason": "",
+                            "SetupError": "",
+                            "DriverError": "",
+                            "ExitCode": 0,
+                            "Signal": 0,
+                            "KillTimeout": 0,
+                            "KillError": "",
+                            "KillReason": "",
+                            "StartDelay": 0,
+                            "DownloadError": "",
+                            "ValidationError": "",
+                            "DiskLimit": 0,
+                            "FailedSibling": "",
+                            "VaultError": "",
+                            "TaskSignalReason": "",
+                            "TaskSignal": "",
+                            "DriverMessage": "",
+                            "GenericSource": "",
+                        },
+                        {
+                            "Type": "Task Setup",
+                            "Time": 1678984360583576942,
+                            "Message": "Building Task Directory",
+                            "DisplayMessage": "Building Task Directory",
+                            "Details": {"message": "Building Task Directory"},
+                            "FailsTask": False,
+                            "RestartReason": "",
+                            "SetupError": "",
+                            "DriverError": "",
+                            "ExitCode": 0,
+                            "Signal": 0,
+                            "KillTimeout": 0,
+                            "KillError": "",
+                            "KillReason": "",
+                            "StartDelay": 0,
+                            "DownloadError": "",
+                            "ValidationError": "",
+                            "DiskLimit": 0,
+                            "FailedSibling": "",
+                            "VaultError": "",
+                            "TaskSignalReason": "",
+                            "TaskSignal": "",
+                            "DriverMessage": "",
+                            "GenericSource": "",
+                        },
+                        {
+                            "Type": "Driver",
+                            "Time": 1678984360653792901,
+                            "Message": "",
+                            "DisplayMessage": "Downloading image",
+                            "Details": {"image": "ghcr.io/linuxserver/job1:develop"},
+                            "FailsTask": False,
+                            "RestartReason": "",
+                            "SetupError": "",
+                            "DriverError": "",
+                            "ExitCode": 0,
+                            "Signal": 0,
+                            "KillTimeout": 0,
+                            "KillError": "",
+                            "KillReason": "",
+                            "StartDelay": 0,
+                            "DownloadError": "",
+                            "ValidationError": "",
+                            "DiskLimit": 0,
+                            "FailedSibling": "",
+                            "VaultError": "",
+                            "TaskSignalReason": "",
+                            "TaskSignal": "",
+                            "DriverMessage": "Downloading image",
+                            "GenericSource": "",
+                        },
+                        {
+                            "Type": "Started",
+                            "Time": 1678984379681876071,
+                            "Message": "",
+                            "DisplayMessage": "Task started by client",
+                            "Details": {},
+                            "FailsTask": False,
+                            "RestartReason": "",
+                            "SetupError": "",
+                            "DriverError": "",
+                            "ExitCode": 0,
+                            "Signal": 0,
+                            "KillTimeout": 0,
+                            "KillError": "",
+                            "KillReason": "",
+                            "StartDelay": 0,
+                            "DownloadError": "",
+                            "ValidationError": "",
+                            "DiskLimit": 0,
+                            "FailedSibling": "",
+                            "VaultError": "",
+                            "TaskSignalReason": "",
+                            "TaskSignal": "",
+                            "DriverMessage": "",
+                            "GenericSource": "",
+                        },
+                    ],
+                    "TaskHandle": None,
+                },
+                "save_configuration": {
+                    "State": "pending",
+                    "Failed": False,
+                    "Restarts": 0,
+                    "LastRestart": None,
+                    "StartedAt": None,
+                    "FinishedAt": None,
+                    "Events": [
+                        {
+                            "Type": "Received",
+                            "Time": 1678984359714048881,
+                            "Message": "",
+                            "DisplayMessage": "Task received by client",
+                            "Details": {},
+                            "FailsTask": False,
+                            "RestartReason": "",
+                            "SetupError": "",
+                            "DriverError": "",
+                            "ExitCode": 0,
+                            "Signal": 0,
+                            "KillTimeout": 0,
+                            "KillError": "",
+                            "KillReason": "",
+                            "StartDelay": 0,
+                            "DownloadError": "",
+                            "ValidationError": "",
+                            "DiskLimit": 0,
+                            "FailedSibling": "",
+                            "VaultError": "",
+                            "TaskSignalReason": "",
+                            "TaskSignal": "",
+                            "DriverMessage": "",
+                            "GenericSource": "",
+                        }
+                    ],
+                    "TaskHandle": None,
+                },
+            },
+            "DeploymentStatus": {
+                "Healthy": True,
+                "Timestamp": "2023-03-16T12:33:42.722795231-04:00",
+                "Canary": False,
+                "ModifyIndex": 1329945,
+            },
+            "FollowupEvalID": "",
+            "RescheduleTracker": None,
+            "PreemptedAllocations": None,
+            "PreemptedByAllocation": "",
+            "CreateIndex": 1329936,
+            "ModifyIndex": 1329945,
+            "CreateTime": 1678984359673508970,
+            "ModifyTime": 1678984422931353235,
         }
     ]
 
-    mocker.patch(
-        "nd._utils.cluster_placements.make_nomad_api_call",
-        return_value=mock_allocation_response,
-    )
+    return nodes_response, running_jobs_response, allocation_response1, allocation_response2
 
-    whoogle = Job(
-        job_id="whoogle",
-        job_type="service",
-        status="running",
-        create_backup=False,
-    )
 
-    return [whoogle]
+@pytest.fixture()
+def job_dir(tmp_path) -> Path:
+    """Fixture for a job directory.
+
+    Creates a directory containing three valid job files and one invalid job file.
+
+    Returns:
+        Path: Path to the job directory.
+    """
+    job_dir = Path(tmp_path / "job_dir")
+    job_dir.mkdir()
+
+    for i in range(1, 4):
+        src_file = Path("tests/fixtures/jobfile_valid.hcl")
+        if src_file.is_file():
+            dest_file = Path(job_dir / f"job{i}.hcl")
+            shutil.copy(src_file, dest_file)
+        else:
+            print(f"File {src_file} does not exist. Skipping copy.")
+
+    shutil.copy(Path("tests/fixtures/jobfile_invalid.hcl"), job_dir / "invalid.hcl")
+
+    return job_dir
+
+
+@pytest.fixture()
+def mock_config(tmp_path) -> Path:
+    """Fixture to create a mock configuration file and mock job directory for testing.
+
+    Paths include a valid and an invalid path
+    Files in the job directory include a valid files, an invalid file, and a file that should be ignored.
+
+
+    Returns:
+        Config: Config object with the mock configuration.
+    """
+    job_dir = Path(tmp_path / "job_dir")
+    job_dir.mkdir()
+
+    for i in range(1, 4):
+        src_file = Path("tests/fixtures/jobfile_valid.hcl")
+        if src_file.is_file():
+            dest_file = Path(job_dir / f"job{i}.hcl")
+            shutil.copy(src_file, dest_file)
+        else:
+            print(f"File {src_file} does not exist. Skipping copy.")
+
+    shutil.copy(Path("tests/fixtures/jobfile_invalid.hcl"), job_dir / "invalid.hcl")
+    shutil.copy(Path("tests/fixtures/jobfile_valid.hcl"), job_dir / "i_am_ignored.hcl")
+
+    config_text = f"""
+file_ignore_strings = ["ignore"]
+job_file_locations = ["{job_dir}", "/path/does/not/exist"]
+nomad_address = 'http://localhost:4646'
+
+    """
+    path_to_config = Path(tmp_path / "config.toml")
+    path_to_config.write_text(config_text)
+    return Config(config_path=path_to_config)

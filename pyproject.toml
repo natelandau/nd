@@ -1,10 +1,13 @@
-[build-system] # https://python-poetry.org/docs/pyproject/#poetry-and-pep-517
+[build-system]
     build-backend = "poetry.core.masonry.api"
     requires      = ["poetry-core>=1.0.0"]
 
-[tool.poetry] # https://python-poetry.org/docs/pyproject/
+[tool.poetry]
     authors     = ["Nate Landau <github@natenate.org>"]
     description = "A highly personalized CLI wrapper for Nomad"
+    homepage    = "https://github.com/natelandau/nd"
+    keywords    = []
+    license     = ""
     name        = "nd"
     readme      = "README.md"
     repository  = "https://github.com/natelandau/nd"
@@ -13,39 +16,40 @@
     [tool.poetry.scripts] # https://python-poetry.org/docs/pyproject/#scripts
         nd = "nd.cli:app"
 
-    [tool.poetry.dependencies] # https://python-poetry.org/docs/dependency-specification/
+    [tool.poetry.dependencies]
         arrow       = "^1.2.3"
         loguru      = "^0.6.0"
-        plumbum     = "^1.8.1"
         python      = "^3.10"
+        questionary = "^1.10.0"
         requests    = "^2.28.2"
         rich        = "^13.3.2"
+        sh          = "^2.0.2"
         shellingham = "^1.5.0.post1"
-        tomlkit     = "^0.11.6"
+        tomli       = "^2.0.1"
         typer       = "^0.7.0"
         validators  = "^0.20.0"
 
     [tool.poetry.group.test.dependencies]
-        pytest                 = "^7.2.2"
+        pytest                 = "^7.2.1"
         pytest-clarity         = "^1.0.1"
         pytest-mock            = "^3.10.0"
         pytest-pretty-terminal = "^1.1.0"
-        pytest-xdist           = "^3.2.0"
-        requests-mock          = "^1.10.0"
+        pytest-xdist           = "^3.1.0"
 
     [tool.poetry.group.dev.dependencies]
         black                 = "^23.1.0"
         commitizen            = "^2.42.1"
-        coverage              = "^7.2.1"
+        coverage              = "^7.1.0"
         interrogate           = "^1.5.0"
         mypy                  = "^1.1.1"
-        pdoc                  = "^13.0.0"
+        pdoc                  = "^12.3.1"
         poethepoet            = "^0.18.1"
         pre-commit            = "^3.1.1"
-        ruff                  = "^0.0.254"
+        pysnooper             = "^1.1.1"
+        ruff                  = "^0.0.256"
+        shellcheck-py         = "^0.9.0.2"
         typeguard             = "^2.13.3"
         types-python-dateutil = "^2.8.19.10"
-        types-pyyaml          = "^6.0.12.8"
         types-requests        = "^2.28.11.15"
         vulture               = "^2.7"
 
@@ -73,12 +77,19 @@
     ]
     ignore-init-module-imports = true
     line-length = 100
-    per-file-ignores = { "cli.py" = ["PLR0912", "PLR0913"], "tests/*.py" = ["PLR0913", "PLR2004"] }
+    per-file-ignores = { "cli.py" = [
+        "PLR0912",
+        "PLR0913",
+    ], "tests/*.py" = [
+        "F401",
+        "PLR0913",
+        "PLR2004",
+    ] }
     select = [
         "A",
         "B",
         "BLE",
-        "C4",
+        "C40",
         "C90",
         "D",
         "E",
@@ -136,12 +147,13 @@
 
 [tool.black]
     line-length = 100
+
 [tool.commitizen]
     bump_message             = "bump(release): v$current_version → v$new_version"
     tag_format               = "v$version"
     update_changelog_on_bump = true
-    version                  = "0.2.0"
-    version_files            = ["pyproject.toml:version", "src/obsidian_metadata/__version__.py:__version__"]
+    version                  = "0.2.1"
+    version_files            = ["pyproject.toml:version", "src/nd/__version__.py:__version__"]
 
 [tool.interrogate]
     exclude            = ["build", "docs", "tests"]
@@ -179,14 +191,13 @@
 [tool.vulture] # https://pypi.org/project/vulture/
     # exclude = ["file*.py", "dir/"]
     # ignore_decorators = ["@app.route", "@require_*"]
-    ignore_names = ["args", "cls", "indentless", "kwargs", "request", "version"]
+    ignore_names = ["args", "ctx", "kwargs", "request", "version"]
     # make_whitelist = true
     min_confidence = 80
     paths          = ["src", "tests"]
     sort_by_size   = true
     verbose        = false
 
-# https://github.com/nat-n/poethepoet
 [tool.poe.tasks]
 
     [tool.poe.tasks.docs]
@@ -202,7 +213,7 @@
         help = "Lint this package"
 
         [[tool.poe.tasks.lint.sequence]]
-            shell = "ruff --extend-ignore=I001,D301,D401,PLR0913 src/"
+            shell = "ruff src/"
 
         [[tool.poe.tasks.lint.sequence]]
             shell = "black --check src/ tests/"
@@ -226,10 +237,10 @@
     help = "Test this package"
 
     [[tool.poe.tasks.test.sequence]]
-        cmd = "coverage run"
+        shell = "coverage run"
 
     [[tool.poe.tasks.test.sequence]]
-        cmd = "coverage report"
+        shell = "coverage report"
 
     [[tool.poe.tasks.test.sequence]]
-        cmd = "coverage xml"
+        shell = "coverage xml"

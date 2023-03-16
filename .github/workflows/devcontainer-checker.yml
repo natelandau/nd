@@ -3,12 +3,17 @@ name: "Dev Container Checker"
 
 on:
     workflow_dispatch:
-    pull_request:
-        types: [opened, reopened]
+    push:
         paths:
             - ".devcontainer/**"
             - ".github/workflows/devcontainer-checker.yml"
-    push:
+        branches:
+            - main
+    pull_request:
+        types:
+            - opened
+            - reopened
+            - synchronize
         paths:
             - ".devcontainer/**"
             - ".github/workflows/devcontainer-checker.yml"
@@ -41,6 +46,9 @@ jobs:
                       nodejs.org:443
                       objects.githubusercontent.com:443
                       pkg-containers.githubusercontent.com:443
+                      releases.hashicorp.com:443
+                      apt.releases.hashicorp.com:443
+                      apt.releases.hashicorp.com:80
                       production.cloudflare.docker.com:443
                       pypi.org:443
                       registry-1.docker.io:443
@@ -56,5 +64,4 @@ jobs:
               uses: devcontainers/ci@v0.2
               with:
                   runCmd: |
-                      poe lint
                       poe test

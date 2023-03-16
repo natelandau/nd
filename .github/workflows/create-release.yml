@@ -1,10 +1,12 @@
 ---
-name: Create Release
+name: "Create Release"
 
 on:
     push:
         tags:
-            - "v*" # Push events to matching v*, i.e. v1.0, v20.15.10
+            - "v*"
+        branches:
+            - main # Push events to matching v*, i.e. v1.0, v20.15.10
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
@@ -30,6 +32,7 @@ jobs:
                       api.github.com:443
                       files.pythonhosted.org:443
                       github.com:443
+                      releases.hashicorp.com:443
                       install.python-poetry.org:443
                       pypi.org:443
                       python-poetry.org:443
@@ -43,6 +46,17 @@ jobs:
             - name: Setup Python and Poetry
               uses: ./.github/actions/setup-poetry
 
+            # ----------------------------------------------
+            #    install Nomad
+            # ----------------------------------------------
+            - name: Install Nomad
+              uses: lucasmelin/setup-nomad@v1
+              with:
+                  version: "1.4.6"
+
+            # ----------------------------------------------
+            #    update version
+            # ----------------------------------------------
             - name: Add version to environment vars
               run: |
                   PROJECT_VERSION=$(poetry version --short)
@@ -58,22 +72,36 @@ jobs:
                   echo $TAG
                   echo $PROJECT_VERSION
                   if [[ "$TAG" != "v$PROJECT_VERSION" ]]; then exit 1; fi
-
-            # ----------------------------------------------
-            # Generate release notes
-            # ----------------------------------------------
-
-            - name: Release Notes
-              run: git log $(git describe HEAD~ --tags --abbrev=0)..HEAD --pretty='format:* %h %s' --no-merges >> ".github/RELEASE-TEMPLATE.md"
+                  echo "current_tag=refs/tags/${TAG}" >> $GITHUB_ENV
 
             # ----------------------------------------------
             # Test and then build the package
             # ----------------------------------------------
+
             - name: run poetry build
               run: |
                   poetry run poetry check
                   poetry run coverage run
                   poetry build
+
+            # ----------------------------------------------
+            # Generate release notes
+            # ----------------------------------------------
+
+            # - name: Release Notes
+            #   run: git log $(git describe HEAD~ --tags --abbrev=0)..HEAD --pretty='format:* %h %s' --no-merges >> ".github/RELEASE-TEMPLATE.md"
+
+            - name: Export tag name to env variable
+              run: |
+                  TAG=$(git describe HEAD --tags --abbrev=0)
+                   echo "CURRENT_TAG=refs/tags/${TAG}" >> $GITHUB_ENV
+
+            - name: Get notes
+              id: generate_notes
+              uses: anmarkoulis/commitizen-changelog-reader@master
+              with:
+                  tag_name: ${{ env.CURRENT_TAG }}
+                  changelog: CHANGELOG.md
 
             # ----------------------------------------------
             # Build draft release (Note: Will need to manually publish)
@@ -82,7 +110,7 @@ jobs:
             - name: Create Release Draft
               uses: softprops/action-gh-release@v1
               with:
-                  body_path: ".github/RELEASE-TEMPLATE.md"
+                  body: ${{join(fromJson(steps.generate_notes.outputs.notes).notes, '')}}
                   draft: true
                   files: |
                       dist/*-${{env.PROJECT_VERSION}}-py3-none-any.whl

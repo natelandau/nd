@@ -1,0 +1,8 @@
+# Job files which include the following strings will be ignored
+file_ignore_strings = ["temp"]
+
+# Locations to the job files on the local filesystem
+job_file_locations = ['/some/path', '~/some/other/path']
+
+# Nomad API address
+nomad_address = 'http://localhost:4646'

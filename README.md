@@ -1,4 +1,4 @@
-[![Python Code Checker](https://github.com/natelandau/nd/actions/workflows/python-code-checker.yml/badge.svg)](https://github.com/natelandau/nd/actions/workflows/python-code-checker.yml) [![codecov](https://codecov.io/github/natelandau/nd/branch/main/graph/badge.svg?token=TXHNQ55UZ9)](https://codecov.io/github/natelandau/nd)
+[![Automated Tests](https://github.com/natelandau/nd/actions/workflows/automated-tests.yml/badge.svg)](https://github.com/natelandau/nd/actions/workflows/automated-tests.yml) [![codecov](https://codecov.io/github/natelandau/nd/branch/main/graph/badge.svg?token=TXHNQ55UZ9)](https://codecov.io/github/natelandau/nd)
 
 # nd
 
@@ -11,6 +11,8 @@ A highly personalized CLI wrapper for Nomad providing quick shortcuts to commonl
 -   Stop, Plan, Run, and Rebuild job placements
 
 ## Install
+
+Requires Python v3.10 or above.
 
 Pip
 
@@ -30,21 +32,17 @@ Run `nd --help` for usage
 
 ## Configuration
 
-Requires a valid configuration file for use at one of these locations:
-
-```bash
-~/.nd.toml
-~/.config/nd.toml
-~/.nd/nd.toml
-```
+Requires a valid configuration file at `~/nd.toml` for use. On first run, the following template will be created for you.
 
 ```toml
-job_files_locations = [
-    '~/path/to/job/files/',
-    '/another/path/to/job/files/',
-  ]
-nomad_api_url = 'http://localhost:4646/v1'
-nomad_web_url = "https://localhost:4646"
+# Job files which include the following strings will be ignored
+file_ignore_strings = ["temp"]
+
+# Locations to the job files on the local filesystem
+job_file_locations = ['/some/path', '~/some/other/path']
+
+# Nomad API address
+nomad_address = 'http://localhost:4646'
 ```
 
 ## Caveats
