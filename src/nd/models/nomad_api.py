@@ -18,10 +18,24 @@ class NomadAPI:  # pragma: no cover
         self.dry_run = dry_run
 
     def _get(self, path: str, params: dict = None) -> dict:
+        """Send a GET request to the Nomad API.
+
+        Args:
+            path (str): The path to the API endpoint.
+            params (dict, optional): Query parameters to send to the API. Defaults to None.
+
+        Returns:
+            dict: The JSON response from the API.
+        """
         headers = {"X-Nomad-Token": self.token} if self.token else None
         try:
-            response = requests.get(f"{self.url}/{path}", headers=headers, params=params)
+            response = requests.get(
+                f"{self.url}/{path}", headers=headers, params=params, timeout=10
+            )
             response.raise_for_status()
+        except requests.exceptions.Timeout as e:
+            log.error(f"Request to {self.url}/{path} timed out\n{e}")
+            raise typer.Exit(1) from e
         except requests.exceptions.HTTPError as e:
             log.error(f"API Response:\n{e}")
             raise typer.Exit(1) from e
@@ -47,12 +61,25 @@ class NomadAPI:  # pragma: no cover
         return response.json()
 
     def _post(self, path: str, data: dict = None, params: dict = None) -> dict:
+        """Send a POST request to the Nomad API.
+
+        Args:
+            path (str): The path to the API endpoint.
+            data (dict, optional): The data to send to the API. Defaults to None.
+            params (dict, optional): Query parameters to send to the API. Defaults to None.
+
+        Returns:
+            dict: The JSON response from the API.
+        """
         headers = {"X-Nomad-Token": self.token} if self.token else None
         try:
             response = requests.post(
-                f"{self.url}/{path}", headers=headers, json=data, params=params
+                f"{self.url}/{path}", headers=headers, json=data, params=params, timeout=10
             )
             response.raise_for_status()
+        except requests.exceptions.Timeout as e:
+            log.error(f"Request to {self.url}/{path} timed out\n{e}")
+            raise typer.Exit(1) from e
         except requests.exceptions.HTTPError as e:
             log.error(f"API Response:\n{e}")
             raise typer.Exit(1) from e
@@ -62,10 +89,25 @@ class NomadAPI:  # pragma: no cover
         return response.json()
 
     def _put(self, path: str, data: dict = None, params: dict = None) -> dict:
+        """Send a PUT request to the Nomad API.
+
+        Args:
+            path (str): The path to the API endpoint.
+            data (dict, optional): The data to send to the API. Defaults to None.
+            params (dict, optional): Query parameters to send to the API. Defaults to None.
+
+        Returns:
+            dict: The JSON response from the API.
+        """
         headers = {"X-Nomad-Token": self.token} if self.token else None
         try:
-            response = requests.put(f"{self.url}/{path}", headers=headers, json=data, params=params)
+            response = requests.put(
+                f"{self.url}/{path}", headers=headers, json=data, params=params, timeout=10
+            )
             response.raise_for_status()
+        except requests.exceptions.Timeout as e:
+            log.error(f"Request to {self.url}/{path} timed out\n{e}")
+            raise typer.Exit(1) from e
         except requests.exceptions.HTTPError as e:
             log.error(f"API Response:\n{e}")
             raise typer.Exit(1) from e
@@ -91,12 +133,25 @@ class NomadAPI:  # pragma: no cover
         return response.json()
 
     def _delete(self, path: str, data: dict = None, params: dict = None) -> dict:
+        """Send a DELETE request to the Nomad API.
+
+        Args:
+            path (str): The path to the API endpoint.
+            data (dict, optional): The data to send to the API. Defaults to None.
+            params (dict, optional): Query parameters to send to the API. Defaults to None.
+
+        Returns:
+            dict: The JSON response from the API.
+        """
         headers = {"X-Nomad-Token": self.token} if self.token else None
         try:
             response = requests.delete(
-                f"{self.url}/{path}", headers=headers, json=data, params=params
+                f"{self.url}/{path}", headers=headers, json=data, params=params, timeout=10
             )
             response.raise_for_status()
+        except requests.exceptions.Timeout as e:
+            log.error(f"Request to {self.url}/{path} timed out\n{e}")
+            raise typer.Exit(1) from e
         except requests.exceptions.HTTPError as e:
             log.error(f"API Response:\n{e}")
             raise typer.Exit(1) from e

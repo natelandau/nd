@@ -232,7 +232,7 @@ def stop(
         help="Name or partial name of a Nomad job to stop.",
         show_default=False,
     ),
-    no_clean: bool = typer.Option(
+    no_clean: bool = typer.Option(  # noqa: ARG001
         False,
         "--no-clean",
         help="Do not garbage collect the job after stopping.",
@@ -297,7 +297,6 @@ def update(
 
 @app.callback()
 def main(
-    ctx: typer.Context,
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
@@ -339,7 +338,7 @@ def main(
         help="""Set verbosity level (0=WARN, 1=INFO, 2=DEBUG, 3=TRACE)""",
         count=True,
     ),
-    version: Optional[bool] = typer.Option(
+    version: Optional[bool] = typer.Option(  # noqa: ARG001
         None, "--version", help="Print version and exit", callback=version_callback, is_eager=True
     ),
 ) -> None:
