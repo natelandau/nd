@@ -32,10 +32,10 @@ jobs:
                       api.github.com:443
                       files.pythonhosted.org:443
                       github.com:443
-                      releases.hashicorp.com:443
                       install.python-poetry.org:443
                       pypi.org:443
                       python-poetry.org:443
+                      releases.hashicorp.com:443
                       uploads.github.com:443
 
             - name: Checkout repository
@@ -43,16 +43,16 @@ jobs:
               with:
                   fetch-depth: 0
 
+            # ----------------------------------------------
+            #    install Dependencies
+            # ----------------------------------------------
             - name: Setup Python and Poetry
               uses: ./.github/actions/setup-poetry
 
-            # ----------------------------------------------
-            #    install Nomad
-            # ----------------------------------------------
             - name: Install Nomad
               uses: lucasmelin/setup-nomad@v1
               with:
-                  version: "1.4.6"
+                  version: "1.5.1"
 
             # ----------------------------------------------
             #    update version
