@@ -59,7 +59,7 @@ def question_selection(
     return answer
 
 
-def select_one(items: list, nd_object: NDObject, search_term: str = None) -> Any:
+def select_one(items: list, nd_object: NDObject, search_term: str | None = None) -> Any:
     """Select one item from a list of items.
 
     Args:

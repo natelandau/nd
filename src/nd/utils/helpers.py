@@ -19,7 +19,7 @@ from nd.utils.console import console
 def find_job_files(
     config: Config,
     api: NomadAPI = None,
-    search_string: str = None,
+    search_string: str | None = None,
 ) -> list[JobFile]:
     """Find all valid Nomad job files in a list of directories.
 
@@ -73,7 +73,7 @@ def find_job_files(
     return sorted(list(set(job_files)), key=lambda x: x.name)
 
 
-def find_nodes(api: NomadAPI, filter_pattern: str = None) -> list[Node]:
+def find_nodes(api: NomadAPI, filter_pattern: str | None = None) -> list[Node]:
     """Find all nodes in a Nomad cluster.
 
     Args:
@@ -110,7 +110,7 @@ def find_nodes(api: NomadAPI, filter_pattern: str = None) -> list[Node]:
 def find_running_jobs(
     api: NomadAPI,
     nomad_address: str,
-    filter_pattern: str = None,
+    filter_pattern: str | None = None,
     dry_run: bool = False,
 ) -> list[Job]:
     """Find all jobs in a Nomad cluster.
@@ -155,8 +155,8 @@ def print_table(
     columns: list[str],
     rows: list[list[str]],
     highlight: bool = False,
-    title: str = None,
-    footer: str = None,
+    title: str | None = None,
+    footer: str | None = None,
 ) -> None:  # pragma: no cover
     """Print a table to the console.
 

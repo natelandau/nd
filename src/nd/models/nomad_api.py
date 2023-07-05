@@ -12,12 +12,12 @@ from nd.utils.alerts import logger as log
 class NomadAPI:  # pragma: no cover
     """Representation of the Nomad API."""
 
-    def __init__(self, url: str, token: str = None, dry_run: bool = False) -> None:
+    def __init__(self, url: str, token: str | None = None, dry_run: bool = False) -> None:
         self.url = url
         self.token = token
         self.dry_run = dry_run
 
-    def _get(self, path: str, params: dict = None) -> dict:
+    def _get(self, path: str, params: dict | None = None) -> dict:
         """Send a GET request to the Nomad API.
 
         Args:
@@ -60,7 +60,7 @@ class NomadAPI:  # pragma: no cover
 
         return response.json()
 
-    def _post(self, path: str, data: dict = None, params: dict = None) -> dict:
+    def _post(self, path: str, data: dict | None = None, params: dict | None = None) -> dict:
         """Send a POST request to the Nomad API.
 
         Args:
@@ -88,7 +88,7 @@ class NomadAPI:  # pragma: no cover
             raise typer.Exit(1) from e
         return response.json()
 
-    def _put(self, path: str, data: dict = None, params: dict = None) -> dict:
+    def _put(self, path: str, data: dict | None = None, params: dict | None = None) -> dict:
         """Send a PUT request to the Nomad API.
 
         Args:
@@ -132,7 +132,7 @@ class NomadAPI:  # pragma: no cover
 
         return response.json()
 
-    def _delete(self, path: str, data: dict = None, params: dict = None) -> dict:
+    def _delete(self, path: str, data: dict | None = None, params: dict | None = None) -> dict:
         """Send a DELETE request to the Nomad API.
 
         Args:
@@ -170,7 +170,7 @@ class NomadAPI:  # pragma: no cover
 
         return True
 
-    def get_allocations(self, job_id: str, data: dict = None) -> dict[Any, Any]:
+    def get_allocations(self, job_id: str, data: dict | None = None) -> dict[Any, Any]:
         """Query the Nomad API for a list of allocations.
 
         Args:
@@ -182,7 +182,7 @@ class NomadAPI:  # pragma: no cover
         """
         return self._get(f"v1/job/{job_id}/allocations", params=data)
 
-    def get_jobs(self, data: dict = None) -> dict[Any, Any]:
+    def get_jobs(self, data: dict | None = None) -> dict[Any, Any]:
         """Query the Nomad API for a list of jobs.
 
         Args:
@@ -193,7 +193,7 @@ class NomadAPI:  # pragma: no cover
         """
         return self._get("v1/jobs", params=data)
 
-    def get_nodes(self, data: dict = None) -> dict[Any, Any]:
+    def get_nodes(self, data: dict | None = None) -> dict[Any, Any]:
         """Query the Nomad API for a list of nodes.
 
         Args:
@@ -204,7 +204,7 @@ class NomadAPI:  # pragma: no cover
         """
         return self._get("v1/nodes", params=data)
 
-    def stop_job(self, job_id: str, params: dict = None) -> bool:
+    def stop_job(self, job_id: str, params: dict | None = None) -> bool:
         """Stop a job.
 
         Args:
