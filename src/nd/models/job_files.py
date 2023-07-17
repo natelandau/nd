@@ -60,7 +60,7 @@ class JobFile:
         for line in content.splitlines():
             if re.match(r'^job +["\'][-\w]+["\'] +\{', line, re.IGNORECASE):
                 valid = True
-                name = re.sub(r'^job +["\']([-\w]+)["\'].*', r"\1", line, re.IGNORECASE)
+                name = re.sub(r'^job +["\']([-\w]+)["\'].*', r"\1", line, flags=re.IGNORECASE)
                 if re.search(r".*create_filesystem.*", content, re.IGNORECASE):
                     creates_backup = True
                 break
