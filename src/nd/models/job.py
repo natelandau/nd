@@ -28,7 +28,7 @@ class Task:
         job_id (str): The ID of the job.
     """
 
-    def __init__(  # noqa: PLR0913
+    def __init__(  # noqa: PLR0917
         self,
         alloc_id: str,
         failed: bool,
@@ -57,7 +57,7 @@ class Task:
         self.started = started
         self.state = state
 
-    def __rich_repr__(self) -> rich.repr.RichReprResult:  # pragma: no cover
+    def __rich_repr__(self) -> rich.repr.RichReprResult:  # pragma: no cover  # noqa: PLW3201
         """Rich representation of the Job object."""
         yield "alloc_id", self.alloc_id
         yield "alloc_short", self.alloc_short
@@ -132,7 +132,7 @@ class Allocation:
         healthy (bool): Whether or not the allocation is healthy.
     """
 
-    def __init__(  # noqa: PLR0913
+    def __init__(  # noqa: PLR0917
         self,
         alloc_name: str,
         id_num: str,
@@ -158,7 +158,7 @@ class Allocation:
         self.node_id_short = node_id.split("-")[0]
         self.tasks = tasks
 
-    def __rich_repr__(self) -> rich.repr.RichReprResult:  # pragma: no cover
+    def __rich_repr__(self) -> rich.repr.RichReprResult:  # pragma: no cover  # noqa: PLW3201
         """Rich representation of the Job object."""
         yield "alloc_name", self.alloc_name
         yield "healthy", self.healthy
@@ -178,7 +178,7 @@ class Allocation:
 class Job:
     """Representation of a job running in Nomad."""
 
-    def __init__(  # noqa: PLR0913
+    def __init__(  # noqa: PLR0917
         self,
         create_index: int,
         dry_run: bool,
@@ -205,12 +205,7 @@ class Job:
         self.type = job_type
         self.allocations = self._get_allocations()
         self.creates_backup = any(
-            [
-                task
-                for alloc in self.allocations
-                for task in alloc.tasks
-                if "filesystem" in task.name
-            ]
+            task for alloc in self.allocations for task in alloc.tasks if "filesystem" in task.name
         )
 
     def __hash__(self) -> int:
@@ -224,7 +219,7 @@ class Job:
 
         return self.id == other.id
 
-    def __rich_repr__(self) -> rich.repr.RichReprResult:  # pragma: no cover
+    def __rich_repr__(self) -> rich.repr.RichReprResult:  # pragma: no cover  # noqa: PLW3201
         """Rich representation of the Job object."""
         yield "allocations", self.allocations
         yield "create_index", self.create_index

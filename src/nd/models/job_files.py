@@ -38,7 +38,7 @@ class JobFile:
 
         return self.path == other.path
 
-    def __rich_repr__(self) -> rich.repr.RichReprResult:  # pragma: no cover
+    def __rich_repr__(self) -> rich.repr.RichReprResult:  # pragma: no cover  # noqa: PLW3201
         """Rich representation of the JobFile object."""
         yield "creates_backup", self.creates_backup
         yield "dry_run", self.dry_run

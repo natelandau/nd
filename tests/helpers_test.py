@@ -70,7 +70,7 @@ def test_find_job_files_4(mock_config, tmp_path):
 def test_find_job_files_5(mock_config, tmp_path):
     """Test find_job_files function.
 
-    GIVEN a direcory containing directories with job files
+    GIVEN a directory containing directories with job files
     WHEN the directory is searched
     THEN return a deduplicated list of JobFile objects from all subdirectories
     """
