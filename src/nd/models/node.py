@@ -7,7 +7,7 @@ import rich.repr
 class Node:
     """Represents a Nomad client (node)."""
 
-    def __init__(  # noqa: PLR0913
+    def __init__(  # noqa: PLR0917
         self,
         address: str = "",
         datacenter: str = "",

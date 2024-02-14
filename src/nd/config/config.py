@@ -31,8 +31,8 @@ class Config:
         """Initialize configuration file."""
         self.config_path = config_path.expanduser().resolve() if config_path else None
         self.context = context
-        self.dry_run = self.context["dry_run"] if "dry_run" in self.context else False
-        self.force = self.context["force"] if "force" in self.context else False
+        self.dry_run = self.context.get("dry_run", False)
+        self.force = self.context.get("force", False)
 
         if not config_path or not self.config_path.exists():
             self._create_config()
@@ -42,7 +42,7 @@ class Config:
         self.job_file_locations = self.config["job_file_locations"]
         self.nomad_address = self.config["nomad_address"]
 
-    def __rich_repr__(self) -> rich.repr.Result:  # pragma: no cover
+    def __rich_repr__(self) -> rich.repr.Result:  # pragma: no cover  # noqa: PLW3201
         """Return the representation of the configuration file."""
         yield "nomad_address", self.nomad_address
         yield "config_path", self.config_path

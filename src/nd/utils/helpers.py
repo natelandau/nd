@@ -47,7 +47,7 @@ def find_job_files(
                 f
                 for f in _dir.glob("**/*")
                 if f.is_file()
-                and (f.suffix == ".nomad" or f.suffix == ".hcl")
+                and (f.suffix in {".nomad", ".hcl"})
                 and not any(s.lower() in f.name.lower() for s in config.file_ignore_strings)
             ]
 
@@ -70,7 +70,7 @@ def find_job_files(
             ]
 
     log.debug(f"Found valid {len(list(set(job_files)))} job files.")
-    return sorted(list(set(job_files)), key=lambda x: x.name)
+    return sorted(set(job_files), key=lambda x: x.name)
 
 
 def find_nodes(api: NomadAPI, filter_pattern: str | None = None) -> list[Node]:
