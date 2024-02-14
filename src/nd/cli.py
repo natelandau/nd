@@ -133,7 +133,7 @@ def logs(
         ...,
         help="Name or partial name of a Nomad job to plan.",
         show_default=False,
-    )
+    ),
 ) -> None:
     """[bold]View the running logs from a task[/bold].
 
@@ -159,7 +159,7 @@ def plan(
         ...,
         help="Name or partial name of a Nomad job to plan.",
         show_default=False,
-    )
+    ),
 ) -> None:
     """[bold]Plan a Nomad job[/bold].
 
@@ -188,7 +188,7 @@ def run(
         ...,
         help="Name or partial name of a Nomad job to run.",
         show_default=False,
-    )
+    ),
 ) -> None:
     """[bold]Run a Nomad job[/bold].
 

@@ -43,8 +43,7 @@ def question_selection(
         any: The selected item value.
     """
     choices.insert(0, questionary.Separator())
-    choices.append(questionary.Separator())
-    choices.append({"name": "Abort", "value": "Abort"})
+    choices.extend((questionary.Separator(), {"name": "Abort", "value": "Abort"}))
     answer = questionary.select(
         question,
         choices=choices,
@@ -78,20 +77,16 @@ def select_one(items: list, nd_object: NDObject, search_term: str | None = None)
     match nd_object:
         case NDObject.JOBFILE:
             description = "job file"
-            for i in items:
-                choices.append({"name": i.name, "value": i})
+            choices.extend([{"name": i.name, "value": i} for i in items])
         case NDObject.RUNNING_JOB:
             description = "running job"
-            for i in items:
-                choices.append({"name": i.name, "value": i})
+            choices.extend([{"name": i.name, "value": i} for i in items])
         case NDObject.TASK:
             description = "task"
-            for i in items:
-                choices.append({"name": i.name, "value": i})
+            choices.extend([{"name": i.name, "value": i} for i in items])
         case _:
             description = "option"
-            for i in items:
-                choices.append({"name": i, "value": i})
+            choices.extend([{"name": i.name, "value": i} for i in items])
 
     if len(items) == 0:
         log.error(

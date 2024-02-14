@@ -5,7 +5,7 @@ default_stages: [commit, manual]
 fail_fast: true
 repos:
     - repo: "https://github.com/commitizen-tools/commitizen"
-      rev: 3.5.3
+      rev: v3.14.1
       hooks:
           - id: commitizen
           - id: commitizen-branch
@@ -26,7 +26,7 @@ repos:
           - id: text-unicode-replacement-char
 
     - repo: "https://github.com/pre-commit/pre-commit-hooks"
-      rev: v4.4.0
+      rev: v4.5.0
       hooks:
           - id: check-added-large-files
           - id: check-ast
@@ -54,37 +54,39 @@ repos:
             types: [python]
 
     - repo: "https://github.com/adrienverge/yamllint.git"
-      rev: v1.32.0
+      rev: v1.34.0
       hooks:
           - id: yamllint
             files: ^.*\.(yaml|yml)$
             entry: yamllint --strict --config-file .yamllint.yml
 
     - repo: "https://github.com/charliermarsh/ruff-pre-commit"
-      rev: "v0.0.278"
+      rev: "v0.2.1"
       hooks:
           - id: ruff
-            args: ["--extend-ignore", "I001,D301,D401"]
+            args: ["--extend-ignore", "I001,D401"]
             exclude: tests/
+          - id: ruff-format
+
+    - repo: "https://github.com/crate-ci/typos"
+      rev: v1.18.2
+      hooks:
+          - id: typos
 
     - repo: "https://github.com/jendrikseipp/vulture"
-      rev: "v2.7"
+      rev: "v2.10"
       hooks:
           - id: vulture
 
     - repo: local
       hooks:
-          - id: custom
-            name: custom pre-commit script
-            entry: scripts/pre-commit-hook.sh
+          - id: stopwords
+            name: stopwords
+            entry: git-stopwords
+            # args: ["-v"]
             language: system
-
-          - id: black
-            name: black
-            entry: black
-            require_serial: true
-            language: system
-            types: [python]
+            pass_filenames: true
+            types: [text]
 
           - id: shellcheck
             name: shellcheck
@@ -97,13 +99,6 @@ repos:
             entry: poetry check
             language: system
             files: pyproject.toml
-            pass_filenames: false
-
-          - id: interrogate
-            name: interrogate check
-            entry: interrogate -c pyproject.toml src/
-            language: system
-            types: [python]
             pass_filenames: false
 
           - id: mypy
