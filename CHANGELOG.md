@@ -1,3 +1,14 @@
+## v0.3.1 (2024-02-15)
+
+### Fix
+
+- remove unnecessary debug statement
+
+### Refactor
+
+- simplify loguru integration (#99)
+- use confz for configuration management (#98)
+
 ## v0.3.0 (2023-03-16)
 
 ### Feat
