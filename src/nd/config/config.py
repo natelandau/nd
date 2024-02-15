@@ -28,7 +28,7 @@ class NDConfig(BaseConfig):  # type: ignore [misc]
 
     file_ignore_strings: tuple[str, ...] = ()
     job_file_locations: tuple[str, ...] = ()
-    nomad_address: str = "http://localhost:4646"
+    nomad_address: str = "https://127.0.0.1:4646/"
     force: OPT_BOOLEAN = False
     dry_run: OPT_BOOLEAN = False
 

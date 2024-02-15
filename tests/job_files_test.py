@@ -27,7 +27,7 @@ job "Test_1234" {
     """
     )
 
-    job = JobFile(job_file, nomad_address="http://localhost:4646")
+    job = JobFile(job_file, nomad_address="https://127.0.0.1:4646/")
     assert job.valid is True
     assert job.name == "Test_1234"
     assert job.creates_backup is False
@@ -59,7 +59,7 @@ job "Test_1234" {
     """
     )
 
-    job = JobFile(job_file, nomad_address="http://localhost:4646")
+    job = JobFile(job_file, nomad_address="https://127.0.0.1:4646/")
     assert job.valid is True
     assert job.name == "Test_1234"
     assert job.creates_backup is True
@@ -74,7 +74,7 @@ def test_job_file_3(tmp_path):
     """
     job_file = Path(tmp_path / "job.hcl")
     job_file.write_text("invalid job 'test' {")
-    job = JobFile(job_file, nomad_address="http://localhost:4646")
+    job = JobFile(job_file, nomad_address="https://127.0.0.1:4646/")
     assert job.valid is False
     assert not job.name
     assert job.creates_backup is False
@@ -87,8 +87,12 @@ def test_job_file_4():
     WHEN the JobFile objects are compared
     THEN the JobFile objects are equal
     """
-    job1 = JobFile(Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="http://localhost:4646")
-    job2 = JobFile(Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="http://localhost:4646")
+    job1 = JobFile(
+        Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="https://127.0.0.1:4646/"
+    )
+    job2 = JobFile(
+        Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="https://127.0.0.1:4646/"
+    )
     assert job1 == job2
 
 
@@ -108,8 +112,10 @@ job "Test_1234" {
     group "group" {
     """
     )
-    job1 = JobFile(job_file, nomad_address="http://localhost:4646")
-    job2 = JobFile(Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="http://localhost:4646")
+    job1 = JobFile(job_file, nomad_address="https://127.0.0.1:4646/")
+    job2 = JobFile(
+        Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="https://127.0.0.1:4646/"
+    )
     assert job1 != job2
 
 
@@ -120,8 +126,12 @@ def test_job_file_6():
     WHEN the list is converted to a set
     THEN the set contains only one element based on the hash of the JobFile object
     """
-    job1 = JobFile(Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="http://localhost:4646")
-    job2 = JobFile(Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="http://localhost:4646")
+    job1 = JobFile(
+        Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="https://127.0.0.1:4646/"
+    )
+    job2 = JobFile(
+        Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="https://127.0.0.1:4646/"
+    )
     test_list = [job1, job2]
     assert len(test_list) == 2
     assert len(set(test_list)) == 1
@@ -152,7 +162,7 @@ job modify index given matches the server-side version. If the index has
 changed, another user has modified the job and the plan's results are
 potentially invalid.
         """
-    job = JobFile(Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="http://localhost:4646")
+    job = JobFile(Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="https://127.0.0.1:4646/")
     mocker.patch("nd.models.job_files.sh.nomad", return_value=result)
     assert job.plan() == "12345678910"
 
@@ -167,7 +177,7 @@ def test_plan_2(mocker):
     result = """\
 Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
         """
-    job = JobFile(Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="http://localhost:4646")
+    job = JobFile(Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="https://127.0.0.1:4646/")
     mocker.patch("nd.models.job_files.sh.nomad", return_value=result)
     assert job.plan() is None
 
@@ -179,7 +189,7 @@ def test_plan_3(mocker):
     WHEN nomad is not installed
     THEN the plan() method exits with an error
     """
-    job = JobFile(Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="http://localhost:4646")
+    job = JobFile(Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="https://127.0.0.1:4646/")
     mocker.patch("nd.models.job_files.sh.nomad", side_effect=sh.CommandNotFound("nomad"))
     with pytest.raises(typer.Exit):
         job.plan()
@@ -192,7 +202,7 @@ def test_plan_4(mocker):
     WHEN `nomad plan` returns an error
     THEN None is returned
     """
-    job = JobFile(Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="http://localhost:4646")
+    job = JobFile(Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="https://127.0.0.1:4646/")
     mocker.patch("nd.models.job_files.sh.nomad", side_effect=sh.ErrorReturnCode_1("", b"", b""))
     assert job.plan() is None
 
@@ -204,7 +214,7 @@ def test_validate_1(mocker):
     WHEN `nomad validate` is run
     THEN validate() returns True
     """
-    job = JobFile(Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="http://localhost:4646")
+    job = JobFile(Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="https://127.0.0.1:4646/")
     mocker.patch("nd.models.job_files.sh.nomad", return_value="Job validation successful")
     assert job.validate() is True
 
@@ -216,7 +226,7 @@ def test_validatte_2(mocker):
     WHEN nomad is not installed
     THEN the validate() method exits with an error
     """
-    job = JobFile(Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="http://localhost:4646")
+    job = JobFile(Path("tests/fixtures/jobfile_valid.hcl"), nomad_address="https://127.0.0.1:4646/")
     mocker.patch("nd.models.job_files.sh.nomad", side_effect=sh.CommandNotFound("nomad"))
     with pytest.raises(typer.Exit):
         job.validate()
@@ -229,6 +239,8 @@ def test_validatte_3(mocker):
     WHEN `nomad validate` returns a non-zero exit code
     THEN the validate() method returns False
     """
-    job = JobFile(Path("tests/fixtures/jobfile_invalid.hcl"), nomad_address="http://localhost:4646")
+    job = JobFile(
+        Path("tests/fixtures/jobfile_invalid.hcl"), nomad_address="https://127.0.0.1:4646/"
+    )
     mocker.patch("nd.models.job_files.sh.nomad", side_effect=sh.ErrorReturnCode_1("", b"", b""))
     assert job.validate() is False

@@ -42,7 +42,7 @@ file_ignore_strings = ["temp"]
 job_file_locations = ['/some/path', '~/some/other/path']
 
 # Nomad API address
-nomad_address = 'http://localhost:4646'
+nomad_address = 'https://127.0.0.1:4646/'
 ```
 
 ## Caveats

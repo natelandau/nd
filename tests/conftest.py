@@ -842,7 +842,7 @@ def mock_config(tmp_path) -> Path:  # noqa: PT004
     config_text = f"""
 file_ignore_strings = ["ignore"]
 job_file_locations = ["{job_dir}", "/path/does/not/exist"]
-nomad_address = 'http://localhost:4646'
+nomad_address = 'https://127.0.0.1:4646/'
 
     """
     path_to_config = Path(tmp_path / "config.toml")
@@ -885,7 +885,7 @@ def mock_specific_config():
         config_text = f"""
     file_ignore_strings = ["ignore"]
     job_file_locations = ["{job_dir}", "/path/does/not/exist"]
-    nomad_address = 'http://localhost:4646'
+    nomad_address = 'https://127.0.0.1:4646/'
 
         """
         path_to_config = Path(tmp_path / "config.toml")
