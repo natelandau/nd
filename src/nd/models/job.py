@@ -8,7 +8,6 @@ from loguru import logger
 from rich.progress import track
 
 from nd.models.nomad_api import NomadAPI
-from nd.utils.console import console
 
 
 @rich.repr.auto
@@ -276,8 +275,7 @@ class Job:
                 for alloc in result
             ]
         except TypeError as e:
-            logger.error(f"Error getting allocations for job {self.id}: {e}")
-            console.print(result)
+            logger.debug(f"Error getting allocations for job {self.id}: {e}")
             return []
 
     def stop(self, no_clean: bool = False) -> bool:  # pragma: no cover
