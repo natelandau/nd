@@ -4,10 +4,10 @@ import time
 import rich.repr
 import sh
 import typer
+from loguru import logger
 from rich.progress import track
 
 from nd.models.nomad_api import NomadAPI
-from nd.utils.alerts import logger as log
 from nd.utils.console import console
 
 
@@ -114,7 +114,7 @@ class Task:
                 _fg=True,
             )
         except sh.ErrorReturnCode as e:
-            log.error(f"Failed to get logs for {self.name} in {self.alloc_short}")
+            logger.error(f"Failed to get logs for {self.name} in {self.alloc_short}")
             raise typer.Exit() from e
 
 
@@ -276,7 +276,7 @@ class Job:
                 for alloc in result
             ]
         except TypeError as e:
-            log.error(f"Error getting allocations for job {self.id}: {e}")
+            logger.error(f"Error getting allocations for job {self.id}: {e}")
             console.print(result)
             return []
 
@@ -311,8 +311,8 @@ class Job:
                     ):
                         time.sleep(0.01)
 
-            log.success(f"Stopped job {self.id}")
+            logger.success(f"Stopped job {self.id}")
             return True
 
-        log.error(f"Failed to stop job {self.id}")
+        logger.error(f"Failed to stop job {self.id}")
         return False

@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import arrow
+from loguru import logger
 from rich import box
 from rich.columns import Columns
 from rich.table import Table
@@ -12,7 +13,6 @@ from nd.models.job import Job
 from nd.models.job_files import JobFile
 from nd.models.node import Node
 from nd.models.nomad_api import NomadAPI
-from nd.utils.alerts import logger as log
 from nd.utils.console import console
 
 
@@ -67,7 +67,7 @@ def find_job_files(
                 if j.valid and (search_string is None or search_string.lower() in j.name.lower())
             ]
 
-    log.debug(f"Found valid {len(list(set(job_files)))} job files.")
+    logger.debug(f"Found valid {len(list(set(job_files)))} job files.")
     return sorted(set(job_files), key=lambda x: x.name)
 
 
@@ -101,7 +101,7 @@ def find_nodes(api: NomadAPI, filter_pattern: str | None = None) -> list[Node]:
             for node in api.get_nodes(data=params)
         ]
 
-    log.debug(f"Found {len(nodes)} nodes.")
+    logger.debug(f"Found {len(nodes)} nodes.")
     return sorted(nodes, key=lambda x: x.name)
 
 
@@ -145,7 +145,7 @@ def find_running_jobs(
             for job in api.get_jobs(data=params)
         ]
 
-    log.debug(f"Found {len(jobs)} running jobs.")
+    logger.debug(f"Found {len(jobs)} running jobs.")
     return sorted(jobs, key=lambda x: x.name)
 
 

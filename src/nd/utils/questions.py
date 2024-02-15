@@ -3,9 +3,9 @@ from typing import Any
 
 import questionary
 import typer
+from loguru import logger
 
 from nd.constants import NDObject
-from nd.utils.alerts import logger as log
 
 # Reset the default style of the questionary prompts qmark
 questionary.prompts.checkbox.DEFAULT_STYLE = questionary.Style([("qmark", "")])
@@ -89,7 +89,7 @@ def select_one(items: list, nd_object: NDObject, search_term: str | None = None)
             choices.extend([{"name": i.name, "value": i} for i in items])
 
     if len(items) == 0:
-        log.error(
+        logger.error(
             f"No {description} found matching '{search_term}' Exiting."
             if search_term
             else f"No {description} found. Exiting."

@@ -18,6 +18,7 @@
 
     [tool.poetry.dependencies]
         arrow       = "^1.2.3"
+        confz       = "^2.0.1"
         loguru      = "^0.7.0"
         python      = "^3.10"
         questionary = "^1.10.0"
@@ -28,7 +29,6 @@
         tomli       = "^2.0.1"
         typer       = "^0.9.0"
         validators  = "^0.20.0"
-    confz = "^2.0.1"
 
     [tool.poetry.group.test.dependencies]
         coverage               = "^7.2.7"
@@ -51,7 +51,7 @@
         types-python-dateutil = "^2.8.19.13"
         types-requests        = "^2.31.0.1"
         typos                 = "^1.18.2"
-        vulture               = "^2.7"
+        vulture               = "^2.11"
 
 [tool.black]
     line-length = 100
@@ -256,10 +256,10 @@
 [tool.vulture] # https://pypi.org/project/vulture/
     # exclude = ["file*.py", "dir/"]
     # ignore_decorators = ["@app.route", "@require_*"]
-    ignore_names = ["args", "ctx", "kwargs", "request", "version"]
+    ignore_names = ["args", "cls", "ctx", "force", "kwargs", "request", "version"]
     # make_whitelist = true
     min_confidence = 80
-    paths          = ["src", "tests"]
+    paths          = ["src"]
     sort_by_size   = true
     verbose        = false
 
@@ -293,7 +293,7 @@
             shell = "typos"
 
         [[tool.poe.tasks.lint.sequence]]
-            shell = "vulture src/ tests/"
+            shell = "vulture src/"
 
         [[tool.poe.tasks.lint.sequence]]
             shell = "yamllint ."
