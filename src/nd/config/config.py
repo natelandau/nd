@@ -1,6 +1,5 @@
 """Instantiate Configuration class and set default values."""
 
-from pathlib import Path
 from typing import Annotated, ClassVar
 
 import validators
@@ -30,16 +29,12 @@ class NDConfig(BaseConfig):  # type: ignore [misc]
     file_ignore_strings: tuple[str, ...] = ()
     job_file_locations: tuple[str, ...] = ()
     nomad_address: str = "http://localhost:4646"
-    log_to_file: OPT_BOOLEAN = False
-    log_file: Path = Path(Path.home() / "logs" / f"{__package__}.log")
     force: OPT_BOOLEAN = False
     dry_run: OPT_BOOLEAN = False
 
     CONFIG_SOURCES: ClassVar[ConfigSources | None] = [
         FileSource(file=CONFIG_PATH),
-        CLArgSource(
-            remap={"log-file": "log_file", "log-to-file": "log_to_file", "dry-run": "dry_run"}
-        ),
+        CLArgSource(remap={"dry-run": "dry_run"}),
     ]
 
     @field_validator("nomad_address")

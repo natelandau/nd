@@ -4,9 +4,9 @@ from typing import Any
 
 import requests
 import typer
+from loguru import logger
 
 from nd.utils import alerts
-from nd.utils.alerts import logger as log
 
 
 class NomadAPI:  # pragma: no cover
@@ -34,26 +34,26 @@ class NomadAPI:  # pragma: no cover
             )
             response.raise_for_status()
         except requests.exceptions.Timeout as e:
-            log.error(f"Request to {self.url}/{path} timed out\n{e}")
+            logger.error(f"Request to {self.url}/{path} timed out\n{e}")
             raise typer.Exit(1) from e
         except requests.exceptions.HTTPError as e:
-            log.error(f"API Response:\n{e}")
+            logger.error(f"API Response:\n{e}")
             raise typer.Exit(1) from e
         except requests.exceptions.ConnectionError as e:
-            log.error(f"Could not connect to Nomad API at {self.url}")
+            logger.error(f"Could not connect to Nomad API at {self.url}")
             raise typer.Exit(1) from e
 
-        log.trace(f"API Response:\n{response}")
+        logger.trace(f"API Response:\n{response}")
 
         if response.ok and response.text:
             try:
                 return response.json()
             except ValueError as e:
-                log.error("Nomad API did not return valid JSON")
+                logger.error("Nomad API did not return valid JSON")
                 raise typer.Exit(1) from e
 
             except requests.exceptions.JSONDecodeError as e:
-                log.error("Could not decode JSON response from Nomad API")
+                logger.error("Could not decode JSON response from Nomad API")
                 raise typer.Exit(1) from e
         elif response.ok and not response.text:
             return None
@@ -78,13 +78,13 @@ class NomadAPI:  # pragma: no cover
             )
             response.raise_for_status()
         except requests.exceptions.Timeout as e:
-            log.error(f"Request to {self.url}/{path} timed out\n{e}")
+            logger.error(f"Request to {self.url}/{path} timed out\n{e}")
             raise typer.Exit(1) from e
         except requests.exceptions.HTTPError as e:
-            log.error(f"API Response:\n{e}")
+            logger.error(f"API Response:\n{e}")
             raise typer.Exit(1) from e
         except requests.exceptions.ConnectionError as e:
-            log.error(f"Could not connect to Nomad API at {self.url}")
+            logger.error(f"Could not connect to Nomad API at {self.url}")
             raise typer.Exit(1) from e
         return response.json()
 
@@ -106,26 +106,26 @@ class NomadAPI:  # pragma: no cover
             )
             response.raise_for_status()
         except requests.exceptions.Timeout as e:
-            log.error(f"Request to {self.url}/{path} timed out\n{e}")
+            logger.error(f"Request to {self.url}/{path} timed out\n{e}")
             raise typer.Exit(1) from e
         except requests.exceptions.HTTPError as e:
-            log.error(f"API Response:\n{e}")
+            logger.error(f"API Response:\n{e}")
             raise typer.Exit(1) from e
         except requests.exceptions.ConnectionError as e:
-            log.error(f"Could not connect to Nomad API at {self.url}")
+            logger.error(f"Could not connect to Nomad API at {self.url}")
             raise typer.Exit(1) from e
 
-        log.trace(f"API Response:\n{response}")
+        logger.trace(f"API Response:\n{response}")
 
         if response.ok and response.text:
             try:
                 return response.json()
             except ValueError as e:
-                log.error("Nomad API did not return valid JSON")
+                logger.error("Nomad API did not return valid JSON")
                 raise typer.Exit(1) from e
 
             except requests.exceptions.JSONDecodeError as e:
-                log.error("Could not decode JSON response from Nomad API")
+                logger.error("Could not decode JSON response from Nomad API")
                 raise typer.Exit(1) from e
         elif response.ok and not response.text:
             return None
@@ -150,13 +150,13 @@ class NomadAPI:  # pragma: no cover
             )
             response.raise_for_status()
         except requests.exceptions.Timeout as e:
-            log.error(f"Request to {self.url}/{path} timed out\n{e}")
+            logger.error(f"Request to {self.url}/{path} timed out\n{e}")
             raise typer.Exit(1) from e
         except requests.exceptions.HTTPError as e:
-            log.error(f"API Response:\n{e}")
+            logger.error(f"API Response:\n{e}")
             raise typer.Exit(1) from e
         except requests.exceptions.ConnectionError as e:
-            log.error(f"Could not connect to Nomad API at {self.url}")
+            logger.error(f"Could not connect to Nomad API at {self.url}")
             raise typer.Exit(1) from e
 
         return response.json()
@@ -219,6 +219,6 @@ class NomadAPI:  # pragma: no cover
             return True
 
         result = self._delete(f"v1/job/{job_id}", params=params)
-        log.trace(f"API Response:\n{result}")
+        logger.trace(f"API Response:\n{result}")
 
         return True

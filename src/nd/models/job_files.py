@@ -6,10 +6,10 @@ from pathlib import Path
 import rich.repr
 import sh
 import typer
+from loguru import logger
 
 from nd.models.nomad_api import NomadAPI
 from nd.utils import alerts
-from nd.utils.alerts import logger as log
 from nd.utils.console import console
 
 
@@ -86,17 +86,17 @@ class JobFile:
                 _ok_code=[0, 1],
             )
         except sh.CommandNotFound as e:
-            log.error("Nomad binary not found. Please install Nomad.")
+            logger.error("Nomad binary not found. Please install Nomad.")
             raise typer.Exit(1) from e
         except sh.ErrorReturnCode as e:
-            log.error(f"Failed to plan job file {self.path}: {e}")
+            logger.error(f"Failed to plan job file {self.path}: {e}")
             return None
 
         try:
             if modify_index := re.search(r"^Job Modify Index: (\d+)$", output, re.MULTILINE).group(
                 1
             ):
-                log.trace(f"{self.path} planned with modify index: {modify_index}")
+                logger.trace(f"{self.path} planned with modify index: {modify_index}")
                 return modify_index
         except AttributeError:
             alerts.notice(f"Failed to parse job plan output for {self.path}")
@@ -128,10 +128,10 @@ class JobFile:
                         self.path,
                     )
                 except sh.CommandNotFound as e:
-                    log.error("Nomad binary not found. Please install Nomad.")
+                    logger.error("Nomad binary not found. Please install Nomad.")
                     raise typer.Exit(1) from e
                 except sh.ErrorReturnCode as e:
-                    log.error(f"Failed to run job file {self.path}: {e}")
+                    logger.error(f"Failed to run job file {self.path}: {e}")
                     return False
                 return True
 
@@ -151,9 +151,9 @@ class JobFile:
                 "job", "validate", f"-address={self.nomad_address}", "-no-color", str(self.path)
             )
         except sh.CommandNotFound as e:
-            log.error("Nomad binary not found. Please install Nomad.")
+            logger.error("Nomad binary not found. Please install Nomad.")
             raise typer.Exit(1) from e
         except sh.ErrorReturnCode as e:
-            log.error(f"Failed to validate job file {self.path}: {e}")
+            logger.error(f"Failed to validate job file {self.path}: {e}")
             return False
         return True

@@ -2,16 +2,17 @@
 
 import shutil
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, Optional
 
 import typer
+from confz import validate_all_configs
+from loguru import logger
 
 from nd.__version__ import __version__
 from nd.config import NDConfig
 from nd.constants import CONFIG_PATH, NDObject
 from nd.models.nomad_api import NomadAPI
-from nd.utils import alerts
-from nd.utils.alerts import logger as log
+from nd.utils import alerts, instantiate_logger
 from nd.utils.console import console
 from nd.utils.helpers import (
     find_job_files,
@@ -50,9 +51,9 @@ def clean() -> None:
     api = NomadAPI(NDConfig().nomad_address)
 
     if api.garbage_collect():
-        log.success("Garbage collection complete")
+        logger.success("Garbage collection complete")
     else:
-        log.error("Garbage collection failed")
+        logger.error("Garbage collection failed")
         raise typer.Exit(1)
 
 
@@ -219,9 +220,9 @@ def run(
         raise typer.Exit(0)
 
     if job_file.run():
-        log.success(f"Job '{job_file.name}' started")
+        logger.success(f"Job '{job_file.name}' started")
     else:
-        log.error(f"Job '{job_file.name}' failed to start")
+        logger.error(f"Job '{job_file.name}' failed to start")
         raise typer.Exit(1)
 
 
@@ -290,74 +291,90 @@ def update(
     job_files = find_job_files(search_string=job_name, api=api)
 
     if len(running_jobs) == 0 or len(job_files) == 0:
-        log.error(f"No running jobs found matching '{job_name}' Exiting.")
+        logger.error(f"No running jobs found matching '{job_name}' Exiting.")
         raise typer.Exit(0)
 
     running_job = select_one(running_jobs, nd_object=NDObject.RUNNING_JOB, search_term=job_name)
 
     if not running_job.stop():
-        log.error(f"Job '{running_job.name}' failed to stop")
+        logger.error(f"Job '{running_job.name}' failed to stop")
         raise typer.Exit(1)
 
     job_file = [x for x in job_files if x.name == running_job.name]
     if len(job_file) == 0 or len(job_file) > 1:
-        log.error(f"Job file not found for '{running_job.name}'")
+        logger.error(f"Job file not found for '{running_job.name}'")
         raise typer.Exit(1)
     if job_file[0].run():
-        log.success(f"Job '{job_file[0].name}' started")
+        logger.success(f"Job '{job_file[0].name}' started")
     else:
-        log.error(f"Job '{job_file[0].name}' failed to start")
+        logger.error(f"Job '{job_file[0].name}' failed to start")
         raise typer.Exit(1)
 
 
 @app.callback()
 def main(
-    dry_run: bool = typer.Option(  # noqa: ARG001
-        False,
-        "--dry-run",
-        help="Dry run - don't actually change anything",
-    ),
-    force: bool = typer.Option(  # noqa: ARG001
-        False,
-        "--force",
-        help="Force changes without prompting for confirmation. Use with caution!",
-        show_default=True,
-    ),
-    log_file: Path = typer.Option(
-        Path(Path.home() / "logs" / f"{__package__}.log"),
-        help="Path to log file",
-        show_default=True,
-        dir_okay=False,
-        file_okay=True,
-        exists=False,
-    ),
-    log_to_file: bool = typer.Option(
-        False,
-        "--log-to-file",
-        help="Log to file",
-        show_default=True,
-    ),
-    verbosity: int = typer.Option(
-        0,
-        "-v",
-        "--verbose",
-        show_default=False,
-        help="""Set verbosity level (0=WARN, 1=INFO, 2=DEBUG, 3=TRACE)""",
-        count=True,
-    ),
-    version: Optional[bool] = typer.Option(  # noqa: ARG001
-        None, "--version", help="Print version and exit", callback=version_callback, is_eager=True
-    ),
+    dry_run: Annotated[  # noqa: ARG001
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Dry run - don't actually change anything",
+            show_default=True,
+        ),
+    ] = False,
+    force: Annotated[  # noqa: ARG001
+        bool,
+        typer.Option(
+            "--force",
+            help="Force changes without prompting for confirmation. Use with caution!",
+            show_default=True,
+        ),
+    ] = False,
+    log_file: Annotated[
+        Path,
+        typer.Option(
+            help="Path to log file",
+            show_default=False,
+            dir_okay=False,
+            file_okay=True,
+            exists=False,
+        ),
+    ] = Path(Path.home() / "logs" / f"{__package__}.log"),
+    log_to_file: Annotated[
+        Optional[bool],
+        typer.Option(
+            "--log-to-file",
+            help="Log to file",
+            show_default=True,
+        ),
+    ] = None,
+    verbosity: Annotated[
+        int,
+        typer.Option(
+            "-v",
+            "--verbose",
+            show_default=True,
+            help="""Set verbosity level(0=INFO, 1=DEBUG, 2=TRACE)""",
+            count=True,
+        ),
+    ] = 0,
+    version: Annotated[  # noqa: ARG001
+        Optional[bool],
+        typer.Option(
+            "--version",
+            is_eager=True,
+            callback=version_callback,
+            help="Print version and exit",
+        ),
+    ] = None,
 ) -> None:
     """Light wrapper around common Nomad API commands and tasks.
 
     Full usage and help: https://github.com/natelandau/nd
     """
-    alerts.LoggerManager(  # pragma: no cover
-        log_file,
-        verbosity,
-        log_to_file,
-    )
+    # Instantiate Logging
+    instantiate_logger(verbosity, log_file, log_to_file)
+
+    validate_all_configs()
 
     if not CONFIG_PATH.exists():
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)

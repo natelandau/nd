@@ -1,9 +1,11 @@
 """Shared utilities."""
 
 from nd.utils import alerts
-from nd.utils.alerts import LoggerManager
+
+from .logging import InterceptHandler, instantiate_logger  # isort:skip
 
 __all__ = [
-    "LoggerManager",
+    "InterceptHandler",
     "alerts",
+    "instantiate_logger",
 ]
