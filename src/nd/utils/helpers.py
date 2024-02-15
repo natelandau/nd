@@ -7,7 +7,7 @@ from rich import box
 from rich.columns import Columns
 from rich.table import Table
 
-from nd.config.config import Config
+from nd.config.config import NDConfig
 from nd.models.job import Job
 from nd.models.job_files import JobFile
 from nd.models.node import Node
@@ -17,7 +17,6 @@ from nd.utils.console import console
 
 
 def find_job_files(
-    config: Config,
     api: NomadAPI = None,
     search_string: str | None = None,
 ) -> list[JobFile]:
@@ -25,7 +24,6 @@ def find_job_files(
 
     Args:
         api (NomadAPI, optional): NomadAPI object. Defaults to None.
-        config (Config): Config object.
         search_string (str, optional): String to search for in job file names. Defaults to None.
 
     Returns:
@@ -37,7 +35,7 @@ def find_job_files(
         "Processing Files...  [dim](Can take a while for large directory trees)[/]",
         spinner="bouncingBall",
     ):
-        for directory in config.job_file_locations:
+        for directory in NDConfig().job_file_locations:
             _dir = Path(directory).expanduser()
 
             if not _dir.is_dir():
@@ -48,7 +46,7 @@ def find_job_files(
                 for f in _dir.glob("**/*")
                 if f.is_file()
                 and (f.suffix in {".nomad", ".hcl"})
-                and not any(s.lower() in f.name.lower() for s in config.file_ignore_strings)
+                and not any(s.lower() in f.name.lower() for s in NDConfig().file_ignore_strings)
             ]
 
             job_files.extend(
@@ -56,8 +54,8 @@ def find_job_files(
                     JobFile(
                         file,
                         nomad_api=api,
-                        dry_run=config.dry_run,
-                        nomad_address=config.nomad_address,
+                        dry_run=NDConfig().dry_run,
+                        nomad_address=NDConfig().nomad_address,
                     )
                     for file in files
                 ]

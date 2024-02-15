@@ -1,13 +1,14 @@
 """nd CLI."""
 
+import shutil
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 import typer
 
 from nd.__version__ import __version__
-from nd.config import Config
-from nd.constants import NDObject
+from nd.config import NDConfig
+from nd.constants import CONFIG_PATH, NDObject
 from nd.models.nomad_api import NomadAPI
 from nd.utils import alerts
 from nd.utils.alerts import logger as log
@@ -21,8 +22,13 @@ from nd.utils.helpers import (
 )
 from nd.utils.questions import select_one
 
-app = typer.Typer(add_completion=False, no_args_is_help=True, rich_markup_mode="rich")
-state: dict[str, Config] = {"config": None}
+app = typer.Typer(
+    add_completion=False,
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
+
 typer.rich_utils.STYLE_HELPTEXT = ""
 
 
@@ -41,8 +47,7 @@ def clean() -> None:
 
     This command bypasses these settings and immediately attempts to garbage collect dead objects regardless of any "threshold" or "interval" server settings. This is useful to quickly free memory on servers running low, but users should prefer tuning periodic garbage collection parameters to meet their needs instead of relying on manually running garbage collection.
     """
-    config = state["config"]
-    api = NomadAPI(config.nomad_address)
+    api = NomadAPI(NDConfig().nomad_address)
 
     if api.garbage_collect():
         log.success("Garbage collection complete")
@@ -79,10 +84,12 @@ def exec_in_container(
        [dim]# Run a command[/dim]
        nd exec webserver "/bin/bash -c 'ls -la'"
     """
-    config = state["config"]
-    api = NomadAPI(config.nomad_address)
+    api = NomadAPI(NDConfig().nomad_address)
     running_jobs = find_running_jobs(
-        api, filter_pattern=job_name, dry_run=config.dry_run, nomad_address=config.nomad_address
+        api,
+        filter_pattern=job_name,
+        dry_run=NDConfig().dry_run,
+        nomad_address=NDConfig().nomad_address,
     )
     job = select_one(running_jobs, nd_object=NDObject.RUNNING_JOB, search_term=job_name)
 
@@ -102,13 +109,15 @@ def list_job_files(
     ),
 ) -> None:
     """List all valid Nomad job files."""
-    config = state["config"]
-    api = NomadAPI(config.nomad_address)
+    api = NomadAPI(NDConfig().nomad_address)
 
     running_jobs = find_running_jobs(
-        api, filter_pattern=job_name, dry_run=config.dry_run, nomad_address=config.nomad_address
+        api,
+        filter_pattern=job_name,
+        dry_run=NDConfig().dry_run,
+        nomad_address=NDConfig().nomad_address,
     )
-    job_files = find_job_files(config=config, search_string=job_name)
+    job_files = find_job_files(search_string=job_name)
     print_table(
         title=f"Valid Nomad Job Files matching '{job_name}'"
         if job_name
@@ -139,10 +148,12 @@ def logs(
 
     Will print the command to run to view logs and copy it to your clipboard.
     """
-    config = state["config"]
-    api = NomadAPI(config.nomad_address)
+    api = NomadAPI(NDConfig().nomad_address)
     running_jobs = find_running_jobs(
-        api, filter_pattern=job_name, dry_run=config.dry_run, nomad_address=config.nomad_address
+        api,
+        filter_pattern=job_name,
+        dry_run=NDConfig().dry_run,
+        nomad_address=NDConfig().nomad_address,
     )
     job = select_one(running_jobs, nd_object=NDObject.RUNNING_JOB, search_term=job_name)
 
@@ -167,8 +178,7 @@ def plan(
 
     Returns the Nomad Job Run command to start the job.
     """
-    config = state["config"]
-    job_files = find_job_files(config=config, search_string=job_name)
+    job_files = find_job_files(search_string=job_name)
 
     print_table(
         title="Nomad Run Commands",
@@ -194,12 +204,14 @@ def run(
 
     If the allocation is already running, you will be prompted before replacing the allocation with a new instance.
     """
-    config = state["config"]
-    api = NomadAPI(config.nomad_address)
+    api = NomadAPI(NDConfig().nomad_address)
     running_jobs = find_running_jobs(
-        api, filter_pattern=job_name, dry_run=config.dry_run, nomad_address=config.nomad_address
+        api,
+        filter_pattern=job_name,
+        dry_run=NDConfig().dry_run,
+        nomad_address=NDConfig().nomad_address,
     )
-    job_files = find_job_files(config=config, search_string=job_name, api=api)
+    job_files = find_job_files(search_string=job_name, api=api)
     job_file = select_one(job_files, nd_object=NDObject.JOBFILE, search_term=job_name)
 
     if job_file.name in [j.name for j in running_jobs]:
@@ -216,13 +228,12 @@ def run(
 @app.command(short_help="Show status of Nomad cluster.")
 def status() -> None:
     """Show status of Nomad cluster."""
-    config = state["config"]
-    api = NomadAPI(config.nomad_address)
+    api = NomadAPI(NDConfig().nomad_address)
     running_jobs = find_running_jobs(
-        api, dry_run=config.dry_run, nomad_address=config.nomad_address
+        api, dry_run=NDConfig().dry_run, nomad_address=NDConfig().nomad_address
     )
     nodes = find_nodes(api)
-    print_status_table(nodes, running_jobs, nomad_address=config.nomad_address)
+    print_status_table(nodes, running_jobs, nomad_address=NDConfig().nomad_address)
 
 
 @app.command(short_help="Stop a running job.")
@@ -242,10 +253,12 @@ def stop(
 
     If the specified job is running, the job will be stopped and garbage collected. To prevent garbage collection, use the [bold]--no-clean[/bold] flag.
     """
-    config = state["config"]
-    api = NomadAPI(config.nomad_address, dry_run=config.dry_run)
+    api = NomadAPI(NDConfig().nomad_address, dry_run=NDConfig().dry_run)
     running_jobs = find_running_jobs(
-        api, filter_pattern=job_name, dry_run=config.dry_run, nomad_address=config.nomad_address
+        api,
+        filter_pattern=job_name,
+        dry_run=NDConfig().dry_run,
+        nomad_address=NDConfig().nomad_address,
     )
 
     select_one(running_jobs, nd_object=NDObject.RUNNING_JOB, search_term=job_name).stop()
@@ -297,20 +310,12 @@ def update(
 
 @app.callback()
 def main(
-    dry_run: bool = typer.Option(
+    dry_run: bool = typer.Option(  # noqa: ARG001
         False,
         "--dry-run",
-        "-n",
         help="Dry run - don't actually change anything",
     ),
-    config_file: Path = typer.Option(
-        Path(Path.home() / f".{__package__}.toml"),
-        help="Specify a custom path to configuration file.",
-        show_default=False,
-        dir_okay=False,
-        file_okay=True,
-    ),
-    force: bool = typer.Option(
+    force: bool = typer.Option(  # noqa: ARG001
         False,
         "--force",
         help="Force changes without prompting for confirmation. Use with caution!",
@@ -351,18 +356,14 @@ def main(
         verbosity,
         log_to_file,
     )
-    context: dict[str, Any] = {
-        "dry_run": dry_run,
-        "force": force,
-    }
-    log.trace(f"Context: {context}")
 
-    state["config"] = Config(
-        config_path=config_file,
-        context=context,
-    )
-    log.debug(f"Loaded config: {config_file}")
-    log.trace(state["config"])
+    if not CONFIG_PATH.exists():
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        default_config_file = Path(__file__).parent.resolve() / "default_config.toml"
+        shutil.copy(default_config_file, CONFIG_PATH)
+        alerts.success(f"Created default configuration file at {CONFIG_PATH}")
+        alerts.notice(f"Please edit {CONFIG_PATH} before continuing")
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":
