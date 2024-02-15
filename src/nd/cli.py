@@ -7,7 +7,7 @@ import typer
 
 from nd.__version__ import __version__
 from nd.config import Config
-from nd.models.enums import NDObject
+from nd.constants import NDObject
 from nd.models.nomad_api import NomadAPI
 from nd.utils import alerts
 from nd.utils.alerts import logger as log

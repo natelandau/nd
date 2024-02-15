@@ -1,4 +1,5 @@
-"""Enums for the nd package."""
+"""Constants for the nd package."""
+
 from enum import Enum
 
 
