@@ -7,15 +7,6 @@ from loguru import logger
 
 from nd.constants import NDObject
 
-# Reset the default style of the questionary prompts qmark
-questionary.prompts.checkbox.DEFAULT_STYLE = questionary.Style([("qmark", "")])
-questionary.prompts.common.DEFAULT_STYLE = questionary.Style([("qmark", "")])
-questionary.prompts.confirm.DEFAULT_STYLE = questionary.Style([("qmark", "")])
-questionary.prompts.confirm.DEFAULT_STYLE = questionary.Style([("qmark", "")])
-questionary.prompts.path.DEFAULT_STYLE = questionary.Style([("qmark", "")])
-questionary.prompts.select.DEFAULT_STYLE = questionary.Style([("qmark", "")])
-questionary.prompts.text.DEFAULT_STYLE = questionary.Style([("qmark", "")])
-
 STYLE = questionary.Style(
     [
         ("qmark", "bold"),
