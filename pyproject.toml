@@ -28,6 +28,7 @@
         tomli       = "^2.0.1"
         typer       = "^0.9.0"
         validators  = "^0.20.0"
+    confz = "^2.0.1"
 
     [tool.poetry.group.test.dependencies]
         coverage               = "^7.2.7"

@@ -5,8 +5,9 @@ import shutil
 from pathlib import Path
 
 import pytest
+from confz import DataSource, FileSource
 
-from nd.config.config import Config
+from nd.config import NDConfig
 
 
 @pytest.fixture()
@@ -816,7 +817,7 @@ def job_dir(tmp_path) -> Path:
 
 
 @pytest.fixture()
-def mock_config(tmp_path) -> Path:
+def mock_config(tmp_path) -> Path:  # noqa: PT004
     """Fixture to create a mock configuration file and mock job directory for testing.
 
     Paths include a valid and an invalid path
@@ -834,8 +835,6 @@ def mock_config(tmp_path) -> Path:
         if src_file.is_file():
             dest_file = Path(job_dir / f"job{i}.hcl")
             shutil.copy(src_file, dest_file)
-        else:
-            print(f"File {src_file} does not exist. Skipping copy.")
 
     shutil.copy(Path("tests/fixtures/jobfile_invalid.hcl"), job_dir / "invalid.hcl")
     shutil.copy(Path("tests/fixtures/jobfile_valid.hcl"), job_dir / "i_am_ignored.hcl")
@@ -848,4 +847,50 @@ nomad_address = 'http://localhost:4646'
     """
     path_to_config = Path(tmp_path / "config.toml")
     path_to_config.write_text(config_text)
-    return Config(config_path=path_to_config)
+
+    with NDConfig.change_config_sources([FileSource(path_to_config)]):
+        yield
+
+
+@pytest.fixture()
+def mock_specific_config():
+    """Mock specific configuration data for use in tests."""
+
+    def _inner(
+        tmp_path,
+        file_ignore_strings: list[str] | None = None,
+        job_file_locations: list[str] | None = None,
+        nomad_address: str | None = None,
+    ):
+        override_data = {}
+        if file_ignore_strings:
+            override_data["file_ignore_strings"] = file_ignore_strings
+        if job_file_locations:
+            override_data["job_file_locations"] = job_file_locations
+        if nomad_address:
+            override_data["nomad_address"] = nomad_address
+
+        job_dir = Path(tmp_path / "job_dir")
+        job_dir.mkdir()
+
+        for i in range(1, 4):
+            src_file = Path("tests/fixtures/jobfile_valid.hcl")
+            if src_file.is_file():
+                dest_file = Path(job_dir / f"job{i}.hcl")
+                shutil.copy(src_file, dest_file)
+
+        shutil.copy(Path("tests/fixtures/jobfile_invalid.hcl"), job_dir / "invalid.hcl")
+        shutil.copy(Path("tests/fixtures/jobfile_valid.hcl"), job_dir / "i_am_ignored.hcl")
+
+        config_text = f"""
+    file_ignore_strings = ["ignore"]
+    job_file_locations = ["{job_dir}", "/path/does/not/exist"]
+    nomad_address = 'http://localhost:4646'
+
+        """
+        path_to_config = Path(tmp_path / "config.toml")
+        path_to_config.write_text(config_text)
+
+        return [FileSource(path_to_config), DataSource(data=override_data)]
+
+    return _inner

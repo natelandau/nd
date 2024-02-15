@@ -4,7 +4,7 @@ from typing import Any
 import questionary
 import typer
 
-from nd.models.enums import NDObject
+from nd.constants import NDObject
 from nd.utils.alerts import logger as log
 
 # Reset the default style of the questionary prompts qmark

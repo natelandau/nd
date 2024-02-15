@@ -1,5 +1,5 @@
 """Configuration module."""
 
-from nd.config.config import Config
+from nd.config.config import NDConfig
 
-__all__ = ["Config"]
+__all__ = ["NDConfig"]

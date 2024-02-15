@@ -1,5 +1,9 @@
-"""Enums for the nd package."""
+"""Constants for the nd package."""
+
 from enum import Enum
+from pathlib import Path
+
+CONFIG_PATH = Path.home() / ".nd.toml"
 
 
 class NDObject(Enum):
