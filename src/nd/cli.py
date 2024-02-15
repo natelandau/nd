@@ -280,12 +280,14 @@ def update(
     2. Garbage collecting the job
     3. Running the job again
     """
-    config = state["config"]
-    api = NomadAPI(config.nomad_address, dry_run=config.dry_run)
+    api = NomadAPI(NDConfig().nomad_address, dry_run=NDConfig().dry_run)
     running_jobs = find_running_jobs(
-        api, filter_pattern=job_name, dry_run=config.dry_run, nomad_address=config.nomad_address
+        api,
+        filter_pattern=job_name,
+        dry_run=NDConfig().dry_run,
+        nomad_address=NDConfig().nomad_address,
     )
-    job_files = find_job_files(config=config, search_string=job_name, api=api)
+    job_files = find_job_files(search_string=job_name, api=api)
 
     if len(running_jobs) == 0 or len(job_files) == 0:
         log.error(f"No running jobs found matching '{job_name}' Exiting.")
