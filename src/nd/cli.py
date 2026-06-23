@@ -9,7 +9,8 @@ import typer
 from nclutils import pp
 
 from nd import __version__
-from nd.commands import clean, status, stop
+from nd.commands import clean, plan, run, status, stop
+from nd.commands import list as list_cmd
 from nd.nomad import (
     NomadAuthError,
     NomadConfigError,
@@ -25,6 +26,9 @@ app = typer.Typer(
 app.add_typer(status.app, name="status")
 app.add_typer(stop.app, name="stop")
 app.add_typer(clean.app, name="clean")
+app.add_typer(list_cmd.app, name="list")
+app.add_typer(plan.app, name="plan")
+app.add_typer(run.app, name="run")
 
 
 @dataclass

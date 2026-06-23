@@ -1,0 +1,265 @@
+"""Tests for the nd run command."""
+
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from typer.testing import CliRunner
+
+import nd.commands.run as run_mod
+from nd.cli import app
+from nd.commands.run import deploy_phase
+from nd.jobfiles import JobFile, candidates_for
+from nd.nomad import NomadClient, NomadConfig
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
+    from typing import Any
+
+    import pytest
+    import respx
+
+_ADDR = "http://nomad.test:4646"
+
+# Reusable deployment list stub shape for mocking /v1/job/:id/deployments
+_DEPLOY_LIST_STUB = {
+    "ID": "d1",
+    "JobID": "web",
+    "Status": "running",
+    "CreateIndex": 1,
+    "ModifyIndex": 2,
+}
+
+# Reusable allocation stub shape matching AllocListStub required fields
+_ALLOC_STUB = {
+    "ID": "a1",
+    "Name": "batch.batch[0]",
+    "Namespace": "default",
+    "NodeID": "n1",
+    "JobID": "batch",
+    "TaskGroup": "batch",
+    "ClientStatus": "complete",
+    "DesiredStatus": "run",
+    "CreateIndex": 1,
+    "ModifyIndex": 2,
+}
+
+
+def _async_return(value: object) -> Callable[..., Coroutine[Any, Any, object]]:
+    async def _inner(*args: object, **kwargs: object) -> object:
+        return value
+
+    return _inner
+
+
+def test_candidates_for_excludes_running() -> None:
+    """Verify already-running job names are filtered out of run candidates."""
+    # Given two job files, one whose job is already running
+    files = [
+        JobFile(path=Path("/j/a.hcl"), job_names=["web", "worker"]),
+        JobFile(path=Path("/j/b.hcl"), job_names=["db"]),
+    ]
+
+    # When computing candidates excluding running names
+    cands = candidates_for(files, exclude_names={"web"})
+
+    # Then only the not-running job names are returned
+    assert sorted(c.name for c in cands) == ["db", "worker"]
+
+
+def test_deploy_phase_reports_health() -> None:
+    """Verify the deploy phase summarizes healthy/desired allocations."""
+
+    # Given a fake deployment with two task groups
+    class _TG:
+        def __init__(self, healthy: int, desired: int) -> None:
+            self.healthy_allocs = healthy
+            self.desired_total = desired
+
+    class _Dep:
+        status = "running"
+        task_groups: dict = {"app": _TG(1, 2), "sidecar": _TG(0, 1)}  # noqa: RUF012
+
+    # When computing the deploy phase string
+    result = deploy_phase(_Dep())  # type: ignore[arg-type]
+
+    # Then the string summarizes totals across all task groups
+    assert result == "running: 1/3 healthy"
+
+
+def test_task_lifecycle_orders_tasks_and_excludes_poststop() -> None:
+    """Verify lifecycle parsing orders prestart, main, sidecar and drops poststop."""
+    import msgspec
+
+    from nd.commands.run import task_lifecycle
+
+    # Given a compiled job with prestart, main, poststart-sidecar, and poststop tasks
+    body = msgspec.json.encode(
+        {
+            "Job": {
+                "TaskGroups": [
+                    {
+                        "Name": "cartlog-group",
+                        "Tasks": [
+                            {"Name": "cartlog", "Lifecycle": None},
+                            {
+                                "Name": "create_filesystem",
+                                "Lifecycle": {"Hook": "prestart", "Sidecar": False},
+                            },
+                            {
+                                "Name": "cartlog_ezbak_sidecar",
+                                "Lifecycle": {"Hook": "poststart", "Sidecar": True},
+                            },
+                            {
+                                "Name": "poststop-ezbak",
+                                "Lifecycle": {"Hook": "poststop", "Sidecar": False},
+                            },
+                        ],
+                    }
+                ]
+            }
+        }
+    )
+
+    # When parsing the compiled spec
+    group = task_lifecycle(body)["cartlog-group"]
+
+    # Then poststop is excluded and the rest order prestart < main < sidecar with labels
+    assert "poststop-ezbak" not in group
+    assert sorted(group, key=lambda n: group[n][0]) == [
+        "create_filesystem",
+        "cartlog",
+        "cartlog_ezbak_sidecar",
+    ]
+    assert group["create_filesystem"][1] == "prestart"
+    assert group["cartlog"][1] == "main"
+    assert group["cartlog_ezbak_sidecar"][1] == "sidecar"
+
+
+def test_run_no_candidates_exits_clean(monkeypatch) -> None:
+    """Verify run exits 0 with a message when no deployable files exist."""
+    # Given no job directories and no running jobs
+    monkeypatch.setattr(run_mod, "load_job_directories", list)
+    monkeypatch.setattr(run_mod, "discover_job_files", lambda dirs: [])
+    # Avoid a real Nomad call: stub the cluster job listing to empty.
+    monkeypatch.setattr(run_mod, "_running_job_names", _async_return(set()))
+
+    # When invoking the run command
+    result = CliRunner().invoke(app, ["run"])
+
+    # Then it exits cleanly with code 0
+    assert result.exit_code == 0
+
+
+def test_watch_service_success_reports_deployed(httpx2_mock: respx.Router) -> None:
+    """Verify a service job whose deployment reads back as successful returns DEPLOYED."""
+    # Given a job with one running deployment that then resolves to successful
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/deployments").respond(json=[_DEPLOY_LIST_STUB])
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[])
+    httpx2_mock.get(f"{_ADDR}/v1/deployment/d1").respond(
+        json={
+            "ID": "d1",
+            "JobID": "web",
+            "Status": "successful",
+            "StatusDescription": "Deployment completed successfully",
+            "TaskGroups": {"app": {"DesiredTotal": 1, "HealthyAllocs": 1}},
+        }
+    )
+
+    # When watching the deployment to completion
+    async def go() -> run_mod.DeployOutcome:
+        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+            return await run_mod._watch(
+                client, "web", node_names={}, lifecycle={}, update=lambda *_a: None
+            )
+
+    outcome = asyncio.run(go())
+
+    # Then the outcome status is DEPLOYED
+    assert outcome.status is run_mod.DeployStatus.DEPLOYED
+    assert outcome.name == "web"
+
+
+def test_watch_service_failure_reports_failed(httpx2_mock: respx.Router) -> None:
+    """Verify a service job whose deployment reads back as failed returns FAILED with detail."""
+    # Given a job with one running deployment that then resolves to failed
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/deployments").respond(json=[_DEPLOY_LIST_STUB])
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[])
+    httpx2_mock.get(f"{_ADDR}/v1/deployment/d1").respond(
+        json={
+            "ID": "d1",
+            "JobID": "web",
+            "Status": "failed",
+            "StatusDescription": "Rollout timed out",
+            "TaskGroups": {"app": {"DesiredTotal": 1, "HealthyAllocs": 0}},
+        }
+    )
+
+    # When watching the deployment to completion
+    async def go() -> run_mod.DeployOutcome:
+        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+            return await run_mod._watch(
+                client, "web", node_names={}, lifecycle={}, update=lambda *_a: None
+            )
+
+    outcome = asyncio.run(go())
+
+    # Then the outcome status is FAILED and carries the status description
+    assert outcome.status is run_mod.DeployStatus.FAILED
+    assert outcome.detail == "Rollout timed out"
+
+
+def test_watch_batch_all_allocs_complete_reports_deployed(httpx2_mock: respx.Router) -> None:
+    """Verify a batch job with no deployments and all allocs complete returns DEPLOYED."""
+    # Given a batch job with no deployments and one allocation in complete status
+    httpx2_mock.get(f"{_ADDR}/v1/job/batch/deployments").respond(json=[])
+    httpx2_mock.get(f"{_ADDR}/v1/job/batch/allocations").respond(json=[_ALLOC_STUB])
+
+    # When watching the job allocations to completion
+    async def go() -> run_mod.DeployOutcome:
+        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+            return await run_mod._watch(
+                client, "batch", node_names={}, lifecycle={}, update=lambda *_a: None
+            )
+
+    outcome = asyncio.run(go())
+
+    # Then the outcome status is DEPLOYED
+    assert outcome.status is run_mod.DeployStatus.DEPLOYED
+    assert outcome.name == "batch"
+
+
+def test_watch_times_out_when_never_terminal(
+    httpx2_mock: respx.Router, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify _watch returns TIMEOUT when the deployment never reaches a terminal state."""
+    # Given zero-duration timeout and poll interval so the test completes instantly
+    monkeypatch.setattr(run_mod, "DEPLOY_TIMEOUT_SECONDS", 0.0)
+    monkeypatch.setattr(run_mod, "POLL_INTERVAL_SECONDS", 0.0)
+
+    # Given a deployment that perpetually stays in running state
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/deployments").respond(json=[_DEPLOY_LIST_STUB])
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[])
+    httpx2_mock.get(f"{_ADDR}/v1/deployment/d1").respond(
+        json={
+            "ID": "d1",
+            "JobID": "web",
+            "Status": "running",
+            "StatusDescription": "",
+            "TaskGroups": {"app": {"DesiredTotal": 1, "HealthyAllocs": 0}},
+        }
+    )
+
+    # When watching a job that never becomes terminal
+    async def go() -> run_mod.DeployOutcome:
+        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+            return await run_mod._watch(
+                client, "web", node_names={}, lifecycle={}, update=lambda *_a: None
+            )
+
+    outcome = asyncio.run(go())
+
+    # Then the outcome is TIMEOUT, not a hang
+    assert outcome.status is run_mod.DeployStatus.TIMEOUT
