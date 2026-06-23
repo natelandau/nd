@@ -9,7 +9,7 @@ uv sync
 uv run nd --help
 ```
 
-The `nd plan` and `nd run` commands also need the [`nomad` CLI binary](https://developer.hashicorp.com/nomad/install) on your `PATH`. The HTTP API can't parse HCL2, so `nd` uses the local binary to validate your job files and compile them to JSON before deploying. The other commands talk to the API directly and don't need it.
+The `nd plan`, `nd run`, `nd exec`, and `nd logs` commands also need the [`nomad` CLI binary](https://developer.hashicorp.com/nomad/install) on your `PATH`. `nd plan` and `nd run` use it because the HTTP API can't parse HCL2, so the local binary validates your job files and compiles them to JSON before deploying. `nd exec` and `nd logs` use it for the interactive shell session and log streaming, which the binary handles natively. The remaining commands (`status`, `stop`, `list`, `clean`) talk to the API directly and don't need it.
 
 ## Configuration
 
@@ -38,7 +38,7 @@ Every key is optional. Set only the ones you need.
 
 ### `[nomad]` table
 
-These keys control how `nd` connects to the Nomad HTTP API. Each one maps to a standard Nomad environment variable, except `timeout`, which has no variable.
+These keys control how `nd` connects to the Nomad HTTP API. They also apply to the bundled `nomad` binary that `plan`, `run`, `exec`, and `logs` call, so a config-file override points both the API client and the binary at the same cluster. Each key maps to a standard Nomad environment variable, except `timeout`, which has no variable.
 
 | Key | What it sets | Default | Environment variable |
 | --- | --- | --- | --- |
@@ -136,3 +136,38 @@ uv run nd clean
 ```
 
 Both operations are safe and idempotent (they only remove or correct already-terminal state), so the command takes no arguments and no confirmation. Add `-v` to name each `PUT` request or `-vv` to also show its elapsed time.
+
+The next two commands act on a single task inside a running allocation.
+
+### `nd exec`
+
+Open an interactive shell inside a running task.
+
+```bash
+uv run nd exec [JOB] [--task/-t TASK] [--shell/-s SHELL]
+```
+
+- **`JOB`** — optional. Matches any running job whose name starts with the given text. One match selects it; several open a prompt to pick one.
+- **no `JOB`** — opens a prompt to pick from every running job.
+- **`--task` / `-t`** — the task to enter, skipping the task prompt. Needed only when the allocation runs more than one task.
+- **`--shell` / `-s`** — the shell to launch. By default `nd` runs `bash` when the container has it and falls back to `sh`, so it works on minimal images too.
+
+`nd` walks you from the job to one of its running allocations to one of its running tasks, picking automatically whenever there's only one and prompting when there are several. The session inherits your terminal, so it's fully interactive. Type `exit` or press `Ctrl-D` to leave.
+
+### `nd logs`
+
+Stream, tail, or export a task's logs. Unlike `nd exec`, this also reaches dead, completed, and failed tasks, so you can read the logs of a job that already crashed.
+
+```bash
+uv run nd logs [JOB] [--task/-t TASK] [--stdout/-o] [--stderr/-e] [--tail/-n N] [--export PATH]
+```
+
+- **`JOB`** — optional. Matches any job whose name starts with the given text, running or not. One match selects it; several open a prompt to pick one.
+- **no `JOB`** — opens a prompt to pick from every job.
+- **`--task` / `-t`** — the task to read, skipping the task prompt.
+- **`--stdout` / `-o`** — show only the stdout stream.
+- **`--stderr` / `-e`** — show only the stderr stream.
+- **`--tail` / `-n N`** — print the last `N` lines and exit, instead of following the live stream.
+- **`--export PATH`** — write the current logs to `PATH`, then exit.
+
+By default `nd logs` follows both stdout and stderr, interleaved, until you press `Ctrl-C`. Pass `--stdout` or `--stderr` to limit it to one stream.

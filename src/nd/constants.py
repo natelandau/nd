@@ -32,3 +32,12 @@ JOB_FILE_GLOBS = ["*.hcl", "*.nomad"]
 # How long to wait for a registered job's deployment (or allocations, for batch/system
 # jobs that create no deployment) to reach a terminal state before warning.
 DEPLOY_TIMEOUT_SECONDS = 300.0
+
+# --- Allocation exec / logs ------------------------------------------------------------
+# The POSIX shell guaranteed to exist; used as the `-c` interpreter for the probe
+# below and as the final fallback.
+DEFAULT_EXEC_SHELL = "/bin/sh"
+# With no --shell, `nd exec` prefers an interactive bash but falls back to sh in
+# minimal images that lack it. The choice is probed inside the container (via
+# `sh -c`) so it reflects what the container actually ships, not the local host.
+EXEC_SHELL_PROBE = "command -v bash >/dev/null 2>&1 && exec bash || exec sh"

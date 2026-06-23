@@ -51,7 +51,7 @@ Public surface is re-exported from `nd.nomad`: `from nd.nomad import NomadClient
 
 The CLI entry point is `nd:main` (per `pyproject.toml`), implemented in `src/nd/cli.py`:
 
-- A root `typer.Typer()` registers subcommands via `app.add_typer()` (`status`, `stop`, `clean`, `list`, `plan`, `run`).
+- A root `typer.Typer()` registers subcommands via `app.add_typer()` (`status`, `stop`, `clean`, `list`, `plan`, `run`, `logs`, `exec`).
 - The root `@app.callback()` wires `-v`/`-vv` into `pp.configure()` and stores an `AppState` on `ctx.obj`; `--version` prints and exits.
 - `main()` wraps `app()` to translate `KeyboardInterrupt` into a clean exit 130 and the `NomadError` subclasses into non-zero exits with a friendly message (no traceback).
 - Each subcommand module exports its own `typer.Typer()` instance and uses `@app.callback(invoke_without_command=True)` to allow future sub-subcommands.
@@ -69,11 +69,11 @@ directories = ["/path/to/nomad-jobs", "~/homelab/jobs"]
 
 `load_job_directories()` in `jobfiles.py` reads this list (expanding `~`) and returns an empty list if the section is absent. Job files are discovered by the globs `*.hcl` and `*.nomad` (from `JOB_FILE_GLOBS` in `constants.py`). Each file's job names are parsed by regex matching the top-level `job "<name>" {` block opener; interpolated names (containing `${`) are skipped. Results come back as `JobFile(path, job_names)` dataclass instances, sorted deterministically by path.
 
-**Binary wrappers** - `src/nd/jobspec.py` wraps three `nomad` binary invocations. The Nomad HTTP API cannot parse HCL2, so the local `nomad` binary is required as the HCL2-to-JSON compiler and validator; only registration and monitoring go through the API client.
+**Binary wrappers** - `src/nd/jobspec.py` wraps three `nomad` binary invocations. The Nomad HTTP API cannot parse HCL2, so the local `nomad` binary is required as the HCL2-to-JSON compiler and validator; only registration and monitoring go through the API client. Each wrapper takes the resolved `NomadConfig` and runs the binary with `env=binary_env(config)` so it targets the same cluster as the API client (picking up nd config-file overrides, not just ambient `NOMAD_*` env). `binary_env(config)` is the shared env-overlay helper, reused by `allocio.py`.
 
-- `validate(file)` - runs `nomad job validate`; raises `JobSpecError` on failure.
-- `plan(file) -> int` - runs `nomad job plan` with `stream=True` so Nomad's own colored diff appears verbatim in the terminal; returns the binary's exit code (1 = changes present, 0 = no changes).
-- `compile_to_json(file) -> bytes` - runs `nomad job run -output` to produce the `{"Job": {...}}` JSON payload without submitting anything; this payload is passed directly to `client.jobs.register()`.
+- `validate(file, config)` - runs `nomad job validate`; raises `JobSpecError` on failure.
+- `plan(file, config) -> int` - runs `nomad job plan` with `stream=True` so Nomad's own colored diff appears verbatim in the terminal; returns the binary's exit code (1 = changes present, 0 = no changes).
+- `compile_to_json(file, config) -> bytes` - runs `nomad job run -output` to produce the `{"Job": {...}}` JSON payload without submitting anything; this payload is passed directly to `client.jobs.register()`.
 
 All three raise `JobSpecError` if the binary is missing or the invocation fails.
 
@@ -82,6 +82,34 @@ All three raise `JobSpecError` if the binary is missing or the invocation fails.
 - `nd list` - renders a table of all discovered job files alongside their status on the cluster (running, dead, or not deployed). Candidates are all discovered files.
 - `nd plan` - surfaces `nomad job plan` output verbatim for one or more job files. Candidates are all discovered files (including already-running jobs, so you can preview in-place updates). Accepts an optional name prefix to narrow targets; with `--dry-run / -n` it reports what would be planned without invoking the binary.
 - `nd run` - deploys job files that are not already running. Compiles each file to JSON via the binary, registers it via `client.jobs.register()`, then watches the rollout: service jobs wait for the deployment to succeed (polling `client.deployments.read()`), while batch and system jobs watch allocations via `client.jobs.allocations()`. Progress is shown in a live Rich panel.
+
+### Allocation exec & logs (`src/nd/allocio.py`, `src/nd/alloc_target.py`)
+
+The `exec` and `logs` commands act on a single task. `alloc_target.py` resolves the
+target through the API client (`resolve_alloc_task` / `resolve_target`): a job (by
+optional name prefix), then its allocation (auto when one, prompt when several),
+then a task (auto when one, prompt when several, or a `--task/-t` override). The
+`running_only` flag governs which candidates are offered: `nd exec` keeps the
+default (`True`, live targets only, since you cannot shell into a dead task), while
+`nd logs` passes `running_only=False` so a dead, completed, or failed task's logs
+stay reachable. Allocation and task prompts show status so dead ones are
+distinguishable. `SelectionError` marks a hard failure (exit 1); a cancelled prompt
+or an empty cluster exits 0.
+
+`allocio.py` then hands off to the local `nomad` binary, injecting the resolved
+`NomadConfig` as `NOMAD_*` env vars (via `binary_env()`, shared with `jobspec.py`)
+so the binary targets the same cluster as the client. `exec_shell()` runs
+`nomad alloc exec` with inherited stdio for a full interactive TTY; it takes the
+in-container command as a list, so with no `--shell` it runs the `EXEC_SHELL_PROBE`
+(`sh -c 'command -v bash && exec bash || exec sh'`) to prefer bash and fall back to
+sh, while an explicit `--shell` is run verbatim. It requests a pseudo-tty (`-t`)
+only when stdin is a terminal, so piped/CI use does not hang. `stream_logs()` runs
+`nomad alloc logs` and takes a `streams` tuple (default `("stdout", "stderr")`):
+live `-f` follow of both streams by default (no stream flag, so Nomad interleaves
+them natively), `--stdout/-o` or `--stderr/-e` to isolate one stream, `--tail/-n N`
+for a static last-N read, and `--export PATH` to snapshot the current logs to a file
+(no follow). Because Nomad cannot merge streams without `-f`, the one-shot tail and
+export modes read each requested stream in turn (stdout then stderr) and concatenate.
 
 ## nclutils
 
