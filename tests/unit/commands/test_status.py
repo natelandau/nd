@@ -247,21 +247,6 @@ def test_build_report_ui_url_uses_config_override():
     assert report.ui_url == "https://nomad.example.org"
 
 
-def test_link_helpers_build_webui_urls():
-    """Verify node and job links target the Nomad web UI paths."""
-    # Given a UI base URL
-    from nd.commands.status import _job_url, _node_url
-
-    # When building links
-    # Then they point at the clients and jobs UI routes
-    assert _node_url("https://nomad.example.org", "ebd78455") == (
-        "https://nomad.example.org/ui/clients/ebd78455"
-    )
-    assert _job_url("http://10.0.30.95:4646", "jackett") == (
-        "http://10.0.30.95:4646/ui/jobs/jackett"
-    )
-
-
 def test_build_report_sorts_everything_alphabetically():
     """Verify nodes, jobs, and servers are sorted by name."""
     # Given unsorted nodes, jobs, and servers
@@ -591,19 +576,19 @@ def test_correlate_nodes_matches_by_name_when_addresses_differ():
     assert rows[0].link_id == "mf1"
 
 
-def test_format_uptime_renders_compact_durations():
+def test_fmt_uptime_renders_compact_durations():
     """Verify uptime formats nanosecond submit times into compact durations."""
     # Given a fixed reference time
-    from nd.commands.status import _format_uptime
+    from nd.ui.duration import fmt_uptime
 
     now_s = 1_000_000.0
 
     # When formatting various submit ages (now minus N seconds, in nanoseconds)
     # Then durations are compact and zero/unknown render as a dash
-    assert _format_uptime(int((now_s - 90_000) * 1_000_000_000), now_s) == "1d 1h"
-    assert _format_uptime(int((now_s - 3700) * 1_000_000_000), now_s) == "1h 1m"
-    assert _format_uptime(int((now_s - 45) * 1_000_000_000), now_s) == "45s"
-    assert _format_uptime(0, now_s) == "-"
+    assert fmt_uptime(int((now_s - 90_000) * 1_000_000_000), now_s) == "1d 1h"
+    assert fmt_uptime(int((now_s - 3700) * 1_000_000_000), now_s) == "1h 1m"
+    assert fmt_uptime(int((now_s - 45) * 1_000_000_000), now_s) == "45s"
+    assert fmt_uptime(0, now_s) == "-"
 
 
 def test_render_report_omits_activity_panel_when_clean():

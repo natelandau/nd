@@ -12,19 +12,14 @@ from typer.testing import CliRunner
 
 from nd.commands import stop as stop_module
 from nd.commands.stop import (
+    _OUTCOME_ROW,
     StopOutcome,
     StopStatus,
     _build_dry_run_panel,
-    _build_panel,
-    _clear_prompt_line,
-    _fmt_elapsed,
-    _JobRender,
-    _outcome_phase,
     all_allocs_terminal,
     exit_code_for,
     final_title,
     phase_text,
-    resolve_targets,
     running_task_names,
     stop_and_wait,
     stopping_title,
@@ -33,6 +28,10 @@ from nd.nomad.client import NomadClient
 from nd.nomad.config import NomadConfig
 from nd.nomad.models.allocation import AllocListStub
 from nd.nomad.models.job import JobListStub
+from nd.selection import resolve_targets
+from nd.ui.duration import fmt_elapsed as _fmt_elapsed
+from nd.ui.live_panel import LiveRow, _build_panel
+from nd.ui.prompts import clear_prompt_line as _clear_prompt_line
 
 _ADDR = "http://nomad.test:4646"
 
@@ -75,7 +74,7 @@ def test_resolve_targets_no_arg_prompts_all():
     running = [_job("web"), _job("api")]
 
     # When resolving with no argument
-    result = resolve_targets(running, None)
+    result = resolve_targets(running, None, name_of=lambda j: j.name)
 
     # Then every running job is a candidate and a prompt is required
     assert result.needs_prompt is True
@@ -88,7 +87,7 @@ def test_resolve_targets_single_prefix_match_auto():
     running = [_job("web"), _job("api")]
 
     # When resolving with that prefix
-    result = resolve_targets(running, "we")
+    result = resolve_targets(running, "we", name_of=lambda j: j.name)
 
     # Then it is auto-selected without a prompt
     assert result.needs_prompt is False
@@ -101,7 +100,7 @@ def test_resolve_targets_multi_prefix_match_prompts():
     running = [_job("web-api"), _job("web-ui"), _job("db")]
 
     # When resolving with the shared prefix (case-insensitive)
-    result = resolve_targets(running, "WEB")
+    result = resolve_targets(running, "WEB", name_of=lambda j: j.name)
 
     # Then both matches are candidates and a prompt is required
     assert result.needs_prompt is True
@@ -114,7 +113,7 @@ def test_resolve_targets_no_match_returns_empty():
     running = [_job("web")]
 
     # When resolving with a prefix that matches nothing
-    result = resolve_targets(running, "zzz")
+    result = resolve_targets(running, "zzz", name_of=lambda j: j.name)
 
     # Then there are no candidates and no prompt
     assert result.needs_prompt is False
@@ -202,7 +201,9 @@ def test_stop_and_wait_returns_stopped_when_allocs_drain(httpx2_mock: respx.Rout
     # When stopping and waiting
     async def run() -> object:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
-            return await stop_and_wait(client, _job("web"), purge=False, on_phase=lambda _t: None)
+            return await stop_and_wait(
+                client, _job("web"), purge=False, node_names={}, update=lambda *_a: None
+            )
 
     outcome = asyncio.run(run())
 
@@ -223,7 +224,9 @@ def test_stop_and_wait_times_out_when_never_terminal(httpx2_mock: respx.Router, 
     # When stopping and waiting
     async def run() -> object:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
-            return await stop_and_wait(client, _job("web"), purge=False, on_phase=lambda _t: None)
+            return await stop_and_wait(
+                client, _job("web"), purge=False, node_names={}, update=lambda *_a: None
+            )
 
     outcome = asyncio.run(run())
 
@@ -232,8 +235,8 @@ def test_stop_and_wait_times_out_when_never_terminal(httpx2_mock: respx.Router, 
     assert "draining" in outcome.detail
 
 
-def test_stop_and_wait_reports_running_task_in_phase(httpx2_mock: respx.Router, mocker):
-    """Verify the poll loop reports the names of tasks still running."""
+def test_stop_and_wait_reports_phase_and_drain_detail(httpx2_mock: respx.Router, mocker):
+    """Verify the poll loop reports the running task in the phase and as a detail row."""
     # Given a stop call and an allocation with a running cleanup task, then terminal
     httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
     alloc_running = {
@@ -248,17 +251,25 @@ def test_stop_and_wait_reports_running_task_in_phase(httpx2_mock: respx.Router, 
     )
     mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
     phases: list[str] = []
+    detail_labels: list[str] = []
 
-    # When stopping and waiting, capturing the phase texts
+    def _update(phase: str, children=()) -> None:
+        phases.append(phase)
+        detail_labels.extend(c.cells[0] for c in children)
+
+    # When stopping and waiting, capturing the phase texts and detail rows
     async def run() -> object:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
-            return await stop_and_wait(client, _job("web"), purge=False, on_phase=phases.append)
+            return await stop_and_wait(
+                client, _job("web"), purge=False, node_names={}, update=_update
+            )
 
     outcome = asyncio.run(run())
 
-    # Then it stops, and a phase named the running task
+    # Then it stops, the phase names the running task, and a detail row names it too
     assert outcome.status is StopStatus.STOPPED
     assert "running: cleanup" in phases
+    assert any("cleanup" in label for label in detail_labels)
 
 
 def test_stop_and_wait_reports_failed_on_nomad_error(httpx2_mock: respx.Router):
@@ -269,7 +280,9 @@ def test_stop_and_wait_reports_failed_on_nomad_error(httpx2_mock: respx.Router):
     # When stopping and waiting
     async def run() -> object:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
-            return await stop_and_wait(client, _job("web"), purge=False, on_phase=lambda _t: None)
+            return await stop_and_wait(
+                client, _job("web"), purge=False, node_names={}, update=lambda *_a: None
+            )
 
     outcome = asyncio.run(run())
 
@@ -326,6 +339,7 @@ def test_stop_app_force_stops_single_match(
     monkeypatch.setenv("NOMAD_ADDR", _ADDR)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     httpx2_mock.get(f"{_ADDR}/v1/jobs").respond(json=[_running_job_json()])
+    httpx2_mock.get(f"{_ADDR}/v1/nodes").respond(json=[])
     httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
     httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[])
     mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
@@ -468,13 +482,15 @@ def _panel_text(panel) -> str:
 
 def test_build_panel_shows_running_and_finished_rows():
     """Verify the panel shows the title, job names, phase, and a finished glyph."""
+    from nd.ui.styles import OUTCOME_GLYPH
+
     # Given one in-flight row and one stopped row
     rows = [
-        _JobRender(job=_job("ladder"), phase="running: cleanup", status=None, started_at=0.0),
-        _JobRender(
-            job=_job("linkding"),
+        LiveRow(label="ladder", phase="running: cleanup", started_at=0.0),
+        LiveRow(
+            label="linkding",
             phase="stopped",
-            status=StopStatus.STOPPED,
+            glyph=OUTCOME_GLYPH["ok"],
             started_at=0.0,
             ended_at=5.0,
         ),
@@ -491,14 +507,16 @@ def test_build_panel_shows_running_and_finished_rows():
     assert "✓" in text
 
 
-def test_outcome_phase_maps_status_to_label():
-    """Verify _outcome_phase labels each terminal status."""
-    # Given the three terminal outcomes
-    # When mapping to phase labels
-    # Then each has its label
-    assert _outcome_phase(StopOutcome(_job("a"), StopStatus.STOPPED)) == "stopped"
-    assert _outcome_phase(StopOutcome(_job("a"), StopStatus.TIMEOUT)) == "still draining"
-    assert _outcome_phase(StopOutcome(_job("a"), StopStatus.FAILED)) == "failed"
+def test_outcome_row_maps_status_to_glyph_and_label():
+    """Verify _OUTCOME_ROW maps each terminal status to the correct glyph and label."""
+    from nd.ui.styles import OUTCOME_GLYPH
+
+    # Given the three terminal statuses
+    # When looking up each status in _OUTCOME_ROW
+    # Then each maps to the expected (glyph, label) pair
+    assert _OUTCOME_ROW[StopStatus.STOPPED] == (OUTCOME_GLYPH["ok"], "stopped")
+    assert _OUTCOME_ROW[StopStatus.TIMEOUT] == (OUTCOME_GLYPH["warn"], "still draining")
+    assert _OUTCOME_ROW[StopStatus.FAILED] == (OUTCOME_GLYPH["fail"], "failed")
 
 
 def test_build_dry_run_panel_names_targets():
@@ -521,7 +539,7 @@ def test_clear_prompt_line_noop_when_not_terminal(mocker):
     # Given a non-terminal recording console
     buffer = StringIO()
     console = Console(file=buffer, force_terminal=False)
-    mocker.patch("nd.commands.stop.pp.console", return_value=console)
+    mocker.patch("nd.ui.prompts.pp.console", return_value=console)
 
     # When clearing the prompt line
     _clear_prompt_line()
@@ -535,7 +553,7 @@ def test_clear_prompt_line_writes_escape_when_terminal(mocker):
     # Given a terminal recording console
     buffer = StringIO()
     console = Console(file=buffer, force_terminal=True)
-    mocker.patch("nd.commands.stop.pp.console", return_value=console)
+    mocker.patch("nd.ui.prompts.pp.console", return_value=console)
 
     # When clearing two prompt lines
     _clear_prompt_line(2)

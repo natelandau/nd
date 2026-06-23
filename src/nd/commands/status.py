@@ -14,12 +14,17 @@ from typing import TYPE_CHECKING, Annotated, Any, Protocol
 import typer
 from nclutils import pp
 from nclutils.pp import Verbosity
-from rich import box
 from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
 
+from nd.constants import HEALTHY_ALLOC_STATUSES
 from nd.nomad import NomadClient, NomadConfig
+from nd.ui.duration import fmt_uptime
+from nd.ui.links import job_url, link, node_url
+from nd.ui.panels import status_table as _table
+from nd.ui.panels import titled_panel
+from nd.ui.styles import status_cell
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -33,8 +38,6 @@ if TYPE_CHECKING:
     from nd.nomad.models.job import JobListStub
     from nd.nomad.models.node import NodeListStub
 
-# Allocation client statuses that are considered healthy.
-_HEALTHY_ALLOC_STATUSES = frozenset({"running", "complete"})
 # Allocation client statuses that represent live work (counted in the per-node/per-job columns).
 _ACTIVE_ALLOC_STATUSES = frozenset({"running", "pending"})
 # Deployment statuses that represent an in-progress (notable) rollout.
@@ -139,7 +142,7 @@ def build_report(  # noqa: PLR0913
 
     allocs_failed = sum(1 for a in allocs if a.client_status == "failed")
     allocs_pending = sum(1 for a in allocs if a.client_status == "pending")
-    allocs_unhealthy = any(a.client_status not in _HEALTHY_ALLOC_STATUSES for a in allocs)
+    allocs_unhealthy = any(a.client_status not in HEALTHY_ALLOC_STATUSES for a in allocs)
     node_alloc_counts = Counter(
         a.node_id for a in allocs if a.client_status in _ACTIVE_ALLOC_STATUSES
     )
@@ -155,7 +158,7 @@ def build_report(  # noqa: PLR0913
             evals_problem=evals_problem,
         ),
         address=config.address,
-        ui_url=(config.ui_url or config.address).rstrip("/"),
+        ui_url=config.ui_base,
         region=config.region,
         namespace=config.namespace,
         servers=servers,
@@ -266,25 +269,6 @@ _HEALTH_STYLE: dict[Health, str] = {
     Health.CRITICAL: "red",
 }
 
-# Maps a Nomad status string to a Rich color used for its cell.
-_STATUS_STYLE = {
-    "ready": "green",
-    "running": "green",
-    "complete": "green",
-    "alive": "green",
-    "pending": "yellow",
-    "initializing": "yellow",
-    "draining": "yellow",
-    "leaving": "yellow",
-    "paused": "yellow",
-    "blocked": "yellow",
-    "down": "red",
-    "dead": "red",
-    "failed": "red",
-    "lost": "red",
-    "disconnected": "red",
-}
-
 
 def render_report(report: StatusReport) -> None:
     """Print the status report as a banner followed by the cluster panels."""
@@ -341,28 +325,6 @@ def _server_only_row(server: ServerInfo) -> NodeRow:
     )
 
 
-def _node_url(ui_url: str, node_id: str) -> str:
-    """Build the web UI URL for a client node."""
-    return f"{ui_url}/ui/clients/{node_id}"
-
-
-def _job_url(ui_url: str, job_id: str) -> str:
-    """Build the web UI URL for a job."""
-    return f"{ui_url}/ui/jobs/{job_id}"
-
-
-def _link(url: str, text: str) -> str:
-    """Wrap text in Rich link markup pointing at the given URL."""
-    return f"[link={url}]{text}[/link]"
-
-
-def _status_cell(status: str) -> str:
-    """Render a status string as a colored glyph + label for a table cell."""
-    style = _STATUS_STYLE.get(status, "default")
-    glyph = {"green": "✓", "red": "✗"}.get(style, "•")
-    return f"[{style}]{glyph} {status}[/]"
-
-
 def _role_cell(row: NodeRow) -> str:
     """Render a node's cluster role, flagging an unhealthy server agent."""
     if row.role == "client":
@@ -379,25 +341,6 @@ def _allocs_cell(row: NodeRow, counts: dict[str, int]) -> str:
     if row.link_id is None:
         return "[dim]-[/]"
     return str(counts.get(row.link_id, 0))
-
-
-def _format_uptime(submit_time_ns: int, now_s: float) -> str:
-    """Format a job's time-since-submit as a compact human duration."""
-    if submit_time_ns <= 0:
-        return "-"
-    seconds = int(now_s - submit_time_ns / 1_000_000_000)
-    if seconds < 0:
-        return "-"
-    days, rem = divmod(seconds, 86400)
-    hours, rem = divmod(rem, 3600)
-    minutes, secs = divmod(rem, 60)
-    if days:
-        return f"{days}d {hours}h"
-    if hours:
-        return f"{hours}h {minutes}m"
-    if minutes:
-        return f"{minutes}m"
-    return f"{secs}s"
 
 
 def _banner_title(report: StatusReport) -> str:
@@ -435,27 +378,14 @@ def _banner(report: StatusReport) -> Panel:
     )
 
 
-def _table(*columns: str) -> Table:
-    """Build a borderless status table with the given column headers."""
-    table = Table(box=box.SIMPLE, expand=True, pad_edge=False)
-    for column in columns:
-        table.add_column(column)
-    return table
-
-
-def _panel(body: RenderableType, title: str, *, border_style: str = "cyan") -> Panel:
-    """Wrap a renderable in a left-titled panel."""
-    return Panel(body, title=title, title_align="left", border_style=border_style)
-
-
 def _nodes_panel(report: StatusReport) -> Panel:
     """Build the combined nodes panel (clients + servers, role-annotated)."""
     rows = correlate_nodes(report.nodes, report.servers)
     if not rows:
-        return _panel("[dim]No nodes[/]", "Nodes")
+        return titled_panel("[dim]No nodes[/]", "Nodes", expand=True)
     table = _table("NAME", "ADDRESS", "ROLE", "ALLOCS", "STATUS", "ELIGIBLE", "VERSION")
     for row in rows:
-        name = _link(_node_url(report.ui_url, row.link_id), row.name) if row.link_id else row.name
+        name = link(node_url(report.ui_url, row.link_id), row.name) if row.link_id else row.name
         eligible = (
             "[green]✓[/]" if row.eligible else ("[dim]-[/]" if row.link_id is None else "[red]✗[/]")
         )
@@ -464,29 +394,29 @@ def _nodes_panel(report: StatusReport) -> Panel:
             row.address,
             _role_cell(row),
             _allocs_cell(row, report.node_alloc_counts),
-            _status_cell(row.status),
+            status_cell(row.status),
             eligible,
             row.version,
         )
-    return _panel(table, "Nodes")
+    return titled_panel(table, "Nodes", expand=True)
 
 
 def _jobs_panel(report: StatusReport) -> Panel:
     """Build the jobs panel listing every job."""
     if not report.jobs:
-        return _panel("[dim]No jobs[/]", "Jobs")
+        return titled_panel("[dim]No jobs[/]", "Jobs", expand=True)
     now_s = time.time()
     table = _table("NAME", "TYPE", "STATUS", "UPTIME", "NODES")
     for job in report.jobs:
         nodes = report.job_nodes.get(job.id, [])
         table.add_row(
-            _link(_job_url(report.ui_url, job.id), job.name),
+            link(job_url(report.ui_url, job.id), job.name),
             job.type,
-            _status_cell(job.status),
-            _format_uptime(job.submit_time, now_s),
+            status_cell(job.status),
+            fmt_uptime(job.submit_time, now_s),
             ", ".join(nodes) if nodes else "[dim]-[/]",
         )
-    return _panel(table, "Jobs")
+    return titled_panel(table, "Jobs", expand=True)
 
 
 def _activity_panel(report: StatusReport) -> Panel:
@@ -495,17 +425,17 @@ def _activity_panel(report: StatusReport) -> Panel:
     if report.deployments_active:
         table = _table("JOB", "VERSION", "STATUS")
         for dep in report.deployments_active:
-            table.add_row(dep.job_id, str(dep.job_version), _status_cell(dep.status))
+            table.add_row(dep.job_id, str(dep.job_version), status_cell(dep.status))
         sections.append("[bold]Deployments[/]")
         sections.append(table)
     if report.evals_problem:
         table = _table("JOB", "STATUS", "QUEUED", "TRIGGER")
         for ev in report.evals_problem:
             queued = sum(ev.queued_allocations.values())
-            table.add_row(ev.job_id, _status_cell(ev.status), str(queued), ev.triggered_by)
+            table.add_row(ev.job_id, status_cell(ev.status), str(queued), ev.triggered_by)
         sections.append("[bold]Evaluations[/]")
         sections.append(table)
-    return _panel(Group(*sections), "Activity", border_style="yellow")
+    return titled_panel(Group(*sections), "Activity", border_style="yellow", expand=True)
 
 
 class _StepLike(Protocol):
