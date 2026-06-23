@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 from nclutils import pp
 
-from nd.binary import NomadBinaryError, ensure_nomad, jobspec
+from nd.binary import NomadBinary, NomadBinaryError
 from nd.commands._common import VerboseOption, configure_verbosity
 from nd.jobfiles import candidates_for, discover_job_files, load_job_directories
 from nd.nomad import NomadConfig
@@ -78,22 +78,22 @@ def _plan_all(targets: list[JobCandidate]) -> int:
     Returns 0 when every plan ran (including "changes present"); 1 if any file
     failed validation or the binary could not run.
     """
+    # Resolve config so the binary targets the same cluster as nd (including
+    # config-file overrides), not just whatever NOMAD_* env vars are ambient.
+    config = NomadConfig.resolve()
     try:
-        nomad_bin = ensure_nomad()
+        nomad = NomadBinary.create(config)
     except NomadBinaryError as exc:
         pp.error(str(exc))
         return 1
 
-    # Resolve config so the binary targets the same cluster as nd (including
-    # config-file overrides), not just whatever NOMAD_* env vars are ambient.
-    config = NomadConfig.resolve()
     failures = 0
     # dict.fromkeys dedups while preserving order, so a multi-job file is planned once.
     for path in dict.fromkeys(c.file.path for c in targets):
         pp.header(f"plan: {path.name}")
         try:
-            jobspec.validate(path, config, nomad_bin=nomad_bin)
-            jobspec.plan(path, config, nomad_bin=nomad_bin)
+            nomad.validate(path)
+            nomad.plan(path)
         except NomadBinaryError as exc:
             pp.error(str(exc))
             failures += 1

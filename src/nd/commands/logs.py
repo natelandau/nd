@@ -7,7 +7,6 @@ from typing import Annotated
 
 import typer
 
-from nd.binary import allocio
 from nd.commands._common import VerboseOption, configure_verbosity, run_alloc_action
 from nd.nomad import NomadConfig
 
@@ -68,7 +67,7 @@ def logs(  # noqa: PLR0913
         job=job,
         task=task,
         running_only=False,
-        action=lambda alloc_id, task_name: allocio.stream_logs(
-            config, alloc_id, task_name, streams=streams, tail=tail, export_path=export
+        action=lambda nomad, alloc_id, task_name: nomad.stream_logs(
+            alloc_id, task_name, streams=streams, tail=tail, export_path=export
         ),
     )

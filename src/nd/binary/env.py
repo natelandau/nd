@@ -1,9 +1,9 @@
-"""Shared discovery and environment for the local `nomad` binary wrappers.
+"""Shared discovery and environment for the local `nomad` binary.
 
 The Nomad HTTP API cannot parse HCL2 and does not own the raw-TTY exec protocol, so
-some operations shell out to the local `nomad` binary. The wrappers (`jobspec` for
-HCL2 compile/validate, `allocio` for exec/logs) share the binary lookup and the
-connection-env overlay that targets the same cluster as the API client.
+some operations shell out to the local `nomad` binary. `NomadBinary` (in `runner.py`)
+uses these helpers to locate the binary and build the connection-env overlay that
+targets the same cluster as the API client.
 """
 
 from __future__ import annotations

@@ -37,7 +37,7 @@ uv run ty check src/     # Type check code with ty
 The Nomad HTTP API is accessed through a typed, **async** client. Layers, top to bottom:
 
 - `client.py` — `NomadClient`, the facade. It is an async context manager that owns a single transport and exposes resource namespaces: `client.agent`, `client.nodes`, `client.jobs`, `client.allocations`, `client.status`, `client.deployments`, `client.evaluations`, `client.system`. Resource methods are coroutines, e.g. `await client.agent.self()`, `await client.nodes.list()`.
-- `resources/` — one module per resource (`agent`, `nodes`, `jobs`, `allocations`, `status`, `deployments`, `evaluations`, `system`) over `BaseResource`, which centralizes decoding via `_decode` / `_decode_list` (mapping `msgspec` failures to `NomadDecodeError`). `list()` methods auto-paginate. `jobs` also exposes lifecycle operations: `await client.jobs.stop(job_id, purge=...)` (`DELETE /v1/job/:id`), `await client.jobs.allocations(job_id)` (`GET /v1/job/:id/allocations`), `await client.jobs.register(body)` (`POST /v1/jobs`, body = compiled JSON from `jobspec.compile_to_json`), and `await client.jobs.deployments(job_id)` (`GET /v1/job/:id/deployments`). `deployments` now also exposes `await client.deployments.read(deployment_id)` (`GET /v1/deployment/:id`) to fetch full health counts during a rollout. `system` exposes cluster-housekeeping operations, both returning `None`: `await client.system.gc()` (`PUT /v1/system/gc`) and `await client.system.reconcile_summaries()` (`PUT /v1/system/reconcile/summaries`).
+- `resources/` — one module per resource (`agent`, `nodes`, `jobs`, `allocations`, `status`, `deployments`, `evaluations`, `system`) over `BaseResource`, which centralizes decoding via `_decode` / `_decode_list` (mapping `msgspec` failures to `NomadDecodeError`). `list()` methods auto-paginate. `jobs` also exposes lifecycle operations: `await client.jobs.stop(job_id, purge=...)` (`DELETE /v1/job/:id`), `await client.jobs.allocations(job_id)` (`GET /v1/job/:id/allocations`), `await client.jobs.register(body)` (`POST /v1/jobs`, body = compiled JSON from `NomadBinary.compile_to_json`), and `await client.jobs.deployments(job_id)` (`GET /v1/job/:id/deployments`). `deployments` now also exposes `await client.deployments.read(deployment_id)` (`GET /v1/deployment/:id`) to fetch full health counts during a rollout. `system` exposes cluster-housekeeping operations, both returning `None`: `await client.system.gc()` (`PUT /v1/system/gc`) and `await client.system.reconcile_summaries()` (`PUT /v1/system/reconcile/summaries`).
 - `transport.py` — `AsyncTransport` wraps `httpx2.AsyncClient`, sends the `X-Nomad-Token` header, merges namespace/region params, follows next-token pagination, and maps non-2xx responses to typed errors.
 - `models/` — `msgspec.Struct` definitions (`agent`, `node`, `job`, `allocation`, `deployment`). Decoding uses **msgspec, not dataclasses or pydantic**: structs use `rename="pascal"`, `frozen=True`, `kw_only=True`, with explicit `msgspec.field(name=...)` for irregular Nomad keys (`ID`, `NodeID`, `JobID`, `HTTPAddr`, `TLSEnabled`, `TaskStates`); unknown fields are tolerated by default. `job` also defines `JobDeregisterResponse` (the `jobs.stop()` result) and `JobRegisterResponse` (the `jobs.register()` result, carries `eval_id`, `job_modify_index`, `warnings`); `AllocListStub` decodes per-task `TaskStates` so callers can see which tasks are still running. `deployment` defines `DeploymentListStub` (list endpoint) and `Deployment` (full record with `task_groups: dict[str, TaskGroupDeploymentState]` for per-group health counts).
 - `config.py` — `NomadConfig.resolve()` reads standard Nomad env vars (`NOMAD_ADDR`, `NOMAD_TOKEN`, `NOMAD_NAMESPACE`, `NOMAD_REGION`, `NOMAD_CACERT`, `NOMAD_CLIENT_CERT`, `NOMAD_CLIENT_KEY`, `NOMAD_TLS_SERVER_NAME`) as the base, then overrides them with a `[nomad]` table from `$XDG_CONFIG_HOME/nd/config.toml` (default `~/.config/nd/config.toml`). `NomadConfig` also carries `ui_url` and `timeout`; the address/timeout defaults come from `nd.constants`. The module also exports the public helper `default_config_path() -> Path`, which returns the XDG config file path and is reused by `jobfiles.py`.
@@ -56,7 +56,7 @@ The CLI entry point is `nd:main` (per `pyproject.toml`), implemented in `src/nd/
 - `main()` wraps `app()` to translate `KeyboardInterrupt` into a clean exit 130 and the `NomadError` subclasses into non-zero exits with a friendly message (no traceback).
 - Each subcommand module exports its own `typer.Typer()` instance and uses `@app.callback(invoke_without_command=True)` to allow future sub-subcommands.
 
-### Job files (`src/nd/jobfiles.py`, `src/nd/binary/jobspec.py`)
+### Job files (`src/nd/jobfiles.py`, `src/nd/binary/`)
 
 The `list`, `plan`, and `run` commands work with local Nomad job files discovered from configured directories.
 
@@ -69,13 +69,15 @@ directories = ["/path/to/nomad-jobs", "~/homelab/jobs"]
 
 `load_job_directories()` in `jobfiles.py` reads this list (expanding `~`) and returns an empty list if the section is absent. Job files are discovered by the globs `*.hcl` and `*.nomad` (from `JOB_FILE_GLOBS` in `constants.py`). Each file's job names are parsed by regex matching the top-level `job "<name>" {` block opener; interpolated names (containing `${`) are skipped. Results come back as `JobFile(path, job_names)` dataclass instances, sorted deterministically by path.
 
-**Binary wrappers (`src/nd/binary/`)** - the local `nomad` binary is wrapped because the HTTP API cannot parse HCL2 and does not own the raw-TTY exec protocol. The package has three modules: `env.py` holds the shared layer (`NomadBinaryError`, `ensure_nomad()` which resolves the binary on PATH, and `binary_env(config)` which overlays the resolved `NomadConfig` as `NOMAD_*` env vars so the binary targets the same cluster as the API client); `jobspec.py` does HCL2 compile/validate; `allocio.py` does exec/logs (see below). `from nd.binary import jobspec, allocio, NomadBinaryError, ensure_nomad`. The caller resolves the binary once via `ensure_nomad()` and passes the path into each wrapper, so a multi-file run does not re-walk PATH per file.
+**Binary wrappers (`src/nd/binary/`)** - the local `nomad` binary is wrapped because the HTTP API cannot parse HCL2 and does not own the raw-TTY exec protocol. `NomadBinary` (in `runner.py`) is a configured handle to the binary: build it once per command with `NomadBinary.create(config)` (`from nd.binary import NomadBinary, NomadBinaryError`), which resolves the binary on PATH (raising `NomadBinaryError` if absent) and builds the `NOMAD_*` connection-env overlay so it targets the same cluster as the API client. Resolving once means a multi-file run does not re-walk PATH or rebuild the env per file. `env.py` holds the shared helpers it uses (`NomadBinaryError`, `ensure_nomad()`, `binary_env(config)`).
 
-- `validate(file, config, *, nomad_bin)` - runs `nomad job validate`; raises `NomadBinaryError` on failure.
-- `plan(file, config, *, nomad_bin) -> int` - runs `nomad job plan` with `stream=True` so Nomad's own colored diff appears verbatim in the terminal; returns the binary's exit code (1 = changes present, 0 = no changes).
-- `compile_to_json(file, config, *, nomad_bin) -> bytes` - runs `nomad job run -output` to produce the `{"Job": {...}}` JSON payload without submitting anything; this payload is passed directly to `client.jobs.register()`.
+Job-spec methods (act on local HCL2 files):
 
-All three raise `NomadBinaryError` if the invocation fails.
+- `nomad.validate(file)` - runs `nomad job validate`; raises `NomadBinaryError` on failure.
+- `nomad.plan(file) -> int` - runs `nomad job plan` with `stream=True` so Nomad's own colored diff appears verbatim in the terminal; returns the binary's exit code (1 = changes present, 0 = no changes).
+- `nomad.compile_to_json(file) -> bytes` - runs `nomad job run -output` to produce the `{"Job": {...}}` JSON payload without submitting anything; this payload is passed directly to `client.jobs.register()`.
+
+Allocation methods (`nomad.exec_shell(...)`, `nomad.stream_logs(...)`) act on a running task; see the exec & logs section below.
 
 **Commands:**
 
@@ -83,7 +85,7 @@ All three raise `NomadBinaryError` if the invocation fails.
 - `nd plan` - surfaces `nomad job plan` output verbatim for one or more job files. Candidates are all discovered files (including already-running jobs, so you can preview in-place updates). Accepts an optional name prefix to narrow targets; with `--dry-run / -n` it reports what would be planned without invoking the binary.
 - `nd run` - deploys job files that are not already running. Compiles each file to JSON via the binary, registers it via `client.jobs.register()`, then watches the rollout: service jobs wait for the deployment to succeed (polling `client.deployments.read()`), while batch and system jobs watch allocations via `client.jobs.allocations()`. Progress is shown in a live Rich panel.
 
-### Allocation exec & logs (`src/nd/binary/allocio.py`, `src/nd/targets/alloc_target.py`)
+### Allocation exec & logs (`src/nd/binary/runner.py`, `src/nd/targets/alloc_target.py`)
 
 The `exec` and `logs` commands act on a single task. `targets/alloc_target.py` resolves the
 target through the API client (`resolve_alloc_task` / `resolve_target`): a job (by
@@ -96,11 +98,10 @@ stay reachable. Allocation and task prompts show status so dead ones are
 distinguishable. `SelectionError` marks a hard failure (exit 1); a cancelled prompt
 or an empty cluster exits 0.
 
-`allocio.py` then hands off to the local `nomad` binary, injecting the resolved
-`NomadConfig` as `NOMAD_*` env vars (via `binary_env()` from `binary/env.py`, shared
-across the binary wrappers) so the binary targets the same cluster as the client.
 The `exec`/`logs` commands share the resolve-target-then-run-binary tail via
-`run_alloc_action()` in `commands/_common.py`. `exec_shell()` runs
+`run_alloc_action()` in `commands/_common.py`, which builds the `NomadBinary` (so a
+missing binary maps to a friendly exit 1) and hands it to the command's action.
+`NomadBinary.exec_shell()` runs
 `nomad alloc exec` with inherited stdio for a full interactive TTY; it takes the
 in-container command as a list, so with no `--shell` it runs the `EXEC_SHELL_PROBE`
 (`sh -c 'command -v bash && exec bash || exec sh'`) to prefer bash and fall back to

@@ -6,7 +6,6 @@ from typing import Annotated
 
 import typer
 
-from nd.binary import allocio
 from nd.commands._common import VerboseOption, configure_verbosity, run_alloc_action
 from nd.constants import DEFAULT_EXEC_SHELL, EXEC_SHELL_PROBE
 from nd.nomad import NomadConfig
@@ -55,5 +54,5 @@ def exec_(
         job=job,
         task=task,
         running_only=True,
-        action=lambda alloc_id, task_name: allocio.exec_shell(config, alloc_id, task_name, command),
+        action=lambda nomad, alloc_id, task_name: nomad.exec_shell(alloc_id, task_name, command),
     )

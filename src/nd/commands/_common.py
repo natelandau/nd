@@ -10,7 +10,7 @@ import typer
 from nclutils import pp
 from nclutils.pp import Verbosity
 
-from nd.binary import NomadBinaryError
+from nd.binary import NomadBinary, NomadBinaryError
 from nd.targets import resolve_target
 
 if TYPE_CHECKING:
@@ -77,15 +77,15 @@ def run_alloc_action(
     job: str | None,
     task: str | None,
     running_only: bool,
-    action: Callable[[str, str], int],
+    action: Callable[[NomadBinary, str, str], int],
 ) -> NoReturn:
     """Resolve an exec/logs target, run a ``nomad`` binary action against it, then exit.
 
     Shared tail of ``nd exec`` and ``nd logs``: resolve the (job, allocation, task)
     target through the API client, exit cleanly when there is nothing to act on, then
-    hand the resolved alloc id and task name to ``action`` (a binary wrapper). A missing
-    binary or failed invocation becomes a friendly exit 1; otherwise the command exits
-    with the action's own return code.
+    build the configured ``NomadBinary`` and hand it (with the resolved alloc id and
+    task name) to ``action``. A missing binary or failed invocation becomes a friendly
+    exit 1; otherwise the command exits with the action's own return code.
     """
     exit_code, target = asyncio.run(
         resolve_target(config, job_arg=job, task_arg=task, running_only=running_only)
@@ -93,7 +93,8 @@ def run_alloc_action(
     if target is None:
         raise typer.Exit(exit_code)
     try:
-        code = action(target.alloc_id, target.task)
+        nomad = NomadBinary.create(config)
+        code = action(nomad, target.alloc_id, target.task)
     except NomadBinaryError as exc:
         pp.error(str(exc))
         raise typer.Exit(1) from exc

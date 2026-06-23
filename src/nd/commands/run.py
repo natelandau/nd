@@ -12,7 +12,7 @@ import msgspec
 import typer
 from nclutils import pp
 
-from nd.binary import NomadBinaryError, ensure_nomad, jobspec
+from nd.binary import NomadBinary, NomadBinaryError
 from nd.commands._common import VerboseOption, configure_verbosity
 from nd.constants import DEPLOY_TIMEOUT_SECONDS, HEALTHY_ALLOC_STATUSES, POLL_INTERVAL_SECONDS
 from nd.jobfiles import candidates_for, discover_job_files, load_job_directories
@@ -25,8 +25,6 @@ from nd.ui.live_panel import PanelUpdate, run_rows
 from nd.ui.styles import OUTCOME_GLYPH
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from nd.jobfiles import JobCandidate
     from nd.nomad.models.deployment import Deployment
     from nd.ui.alloc_rows import TaskLifecycle
@@ -171,10 +169,10 @@ async def _run(*, job_arg: str | None, dry_run: bool) -> int:
             return 1
 
         try:
-            nomad_bin = ensure_nomad()
+            nomad = NomadBinary.create(config)
             # dict.fromkeys dedups so a multi-job file is validated once.
             for path in dict.fromkeys(c.file.path for c in targets):
-                jobspec.validate(path, config, nomad_bin=nomad_bin)
+                nomad.validate(path)
         except NomadBinaryError as exc:
             pp.error(str(exc))
             return 1
@@ -184,21 +182,20 @@ async def _run(*, job_arg: str | None, dry_run: bool) -> int:
                 pp.dryrun(f"would run {c.name} ({c.file.path})")
             return 0
 
-        outcomes = await _deploy_all(client, targets, config, nomad_bin)
+        outcomes = await _deploy_all(client, targets, nomad)
 
     return 0 if all(o.status is DeployStatus.DEPLOYED for o in outcomes) else 1
 
 
 async def _deploy_all(
-    client: NomadClient, targets: list[JobCandidate], config: NomadConfig, nomad_bin: Path
+    client: NomadClient, targets: list[JobCandidate], nomad: NomadBinary
 ) -> list[DeployOutcome]:
     """Register and watch every target concurrently under one live panel.
 
     Args:
         client: Authenticated Nomad client.
         targets: The job candidates to register and watch.
-        config: Resolved Nomad config, passed to the binary compile step.
-        nomad_bin: Resolved `nomad` binary path for the compile step.
+        nomad: Configured `nomad` binary handle for the compile step.
 
     Returns:
         Ordered list of outcomes, one per target.
@@ -208,12 +205,7 @@ async def _deploy_all(
 
     async def do_work(candidate: JobCandidate, update: PanelUpdate) -> DeployOutcome:
         return await _deploy_one(
-            client,
-            candidate,
-            node_names=node_names,
-            update=update,
-            config=config,
-            nomad_bin=nomad_bin,
+            client, candidate, node_names=node_names, update=update, nomad=nomad
         )
 
     ordered = await run_rows(
@@ -248,13 +240,12 @@ async def _deploy_one(
     *,
     node_names: dict[str, str],
     update: PanelUpdate,
-    config: NomadConfig,
-    nomad_bin: Path,
+    nomad: NomadBinary,
 ) -> DeployOutcome:
     """Compile, register, and watch one job to a terminal deploy state.
 
     Service jobs are watched via their deployment; batch/system jobs (which create
-    no deployment) are watched via their allocations. Never raises: Nomad/jobspec
+    no deployment) are watched via their allocations. Never raises: Nomad/binary
     failures become a FAILED outcome so a sibling job's progress is unaffected.
 
     Args:
@@ -262,8 +253,7 @@ async def _deploy_one(
         candidate: The job file and name to deploy.
         node_names: Map of node ID to node name for the per-allocation detail rows.
         update: Callback to update the live panel phase text and detail rows.
-        config: Resolved Nomad config, passed to the binary compile step.
-        nomad_bin: Resolved `nomad` binary path for the compile step.
+        nomad: Configured `nomad` binary handle for the compile step.
 
     Returns:
         The terminal outcome for this candidate.
@@ -272,9 +262,7 @@ async def _deploy_one(
         update("compiling")
         # compile_to_json shells out to the nomad binary (blocking); run it off the
         # event loop so sibling deploys keep making progress concurrently.
-        body = await asyncio.to_thread(
-            jobspec.compile_to_json, candidate.file.path, config, nomad_bin=nomad_bin
-        )
+        body = await asyncio.to_thread(nomad.compile_to_json, candidate.file.path)
         lifecycle = task_lifecycle(body)
         update("registering")
         resp = await client.jobs.register(body)

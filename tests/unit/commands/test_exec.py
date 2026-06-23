@@ -13,9 +13,8 @@ runner = CliRunner()
 
 
 def _patch(monkeypatch, *, target: ResolvedTarget | None, exit_code: int = 0) -> MagicMock:
-    """Patch the resolver to return a fixed target and capture exec_shell calls."""
+    """Patch the resolver and the NomadBinary factory; return the exec_shell mock."""
     from nd.commands import _common
-    from nd.commands import exec as exec_module
 
     async def _fake_resolve(
         config, *, job_arg, task_arg, running_only=True
@@ -23,9 +22,12 @@ def _patch(monkeypatch, *, target: ResolvedTarget | None, exit_code: int = 0) ->
         return (exit_code, target)
 
     monkeypatch.setattr(_common, "resolve_target", _fake_resolve)
-    shell = MagicMock(return_value=0)
-    monkeypatch.setattr(exec_module.allocio, "exec_shell", shell)
-    return shell
+    nomad = MagicMock()
+    nomad.exec_shell.return_value = 0
+    fake_cls = MagicMock()
+    fake_cls.create.return_value = nomad
+    monkeypatch.setattr(_common, "NomadBinary", fake_cls)
+    return nomad.exec_shell
 
 
 def test_exec_default_probes_bash_then_sh(monkeypatch):
@@ -38,7 +40,7 @@ def test_exec_default_probes_bash_then_sh(monkeypatch):
 
     # Then exec_shell runs the bash-with-sh-fallback probe for the resolved alloc and task
     assert result.exit_code == 0
-    assert shell.call_args.args[1:] == (
+    assert shell.call_args.args == (
         "alloc-1",
         "server",
         [DEFAULT_EXEC_SHELL, "-c", EXEC_SHELL_PROBE],
@@ -55,7 +57,7 @@ def test_exec_honors_shell_option(monkeypatch):
 
     # Then exec_shell is given exactly that shell as the whole command
     assert result.exit_code == 0
-    assert shell.call_args.args[3] == ["/bin/bash"]
+    assert shell.call_args.args[2] == ["/bin/bash"]
 
 
 def test_exec_no_target_exits_with_resolver_code(monkeypatch):
