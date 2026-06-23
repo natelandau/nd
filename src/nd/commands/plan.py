@@ -11,6 +11,7 @@ from nclutils import pp
 from nd import jobspec
 from nd.jobfiles import candidates_for, discover_job_files, load_job_directories
 from nd.jobspec import JobSpecError
+from nd.nomad import NomadConfig
 from nd.selection import resolve_targets, select_candidates
 
 if TYPE_CHECKING:
@@ -90,13 +91,16 @@ def _plan_all(targets: list[JobCandidate]) -> int:
         pp.error(str(exc))
         return 1
 
+    # Resolve config so the binary targets the same cluster as nd (including
+    # config-file overrides), not just whatever NOMAD_* env vars are ambient.
+    config = NomadConfig.resolve()
     failures = 0
     # dict.fromkeys dedups while preserving order, so a multi-job file is planned once.
     for path in dict.fromkeys(c.file.path for c in targets):
         pp.header(f"plan: {path.name}")
         try:
-            jobspec.validate(path)
-            jobspec.plan(path)
+            jobspec.validate(path, config)
+            jobspec.plan(path, config)
         except JobSpecError as exc:
             pp.error(str(exc))
             failures += 1

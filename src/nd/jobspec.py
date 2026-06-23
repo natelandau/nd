@@ -6,12 +6,15 @@ HCL2 -> JSON compiler and validator. Everything else goes through the API client
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 from nclutils.sh import ShellCommandError, run_command, which
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from nd.nomad.config import NomadConfig
 
 
 class JobSpecError(Exception):
@@ -27,7 +30,18 @@ def ensure_nomad() -> Path:
     return found
 
 
-def validate(file: Path) -> None:
+def binary_env(config: NomadConfig) -> dict[str, str]:
+    """Build the environment for a `nomad` binary invocation.
+
+    Overlays the resolved connection settings onto the current environment so the
+    spawned binary targets the same cluster, token, and namespace as the API client
+    rather than relying on the ambient env alone (which would miss nd config-file
+    overrides). Shared with ``allocio`` so every binary wrapper stays consistent.
+    """
+    return {**os.environ, **config.to_env()}
+
+
+def validate(file: Path, config: NomadConfig) -> None:
     """Validate a job file with `nomad job validate`.
 
     Raises:
@@ -35,14 +49,14 @@ def validate(file: Path) -> None:
     """
     ensure_nomad()
     try:
-        run_command(["nomad", "job", "validate", str(file)])
+        run_command(["nomad", "job", "validate", str(file)], env=binary_env(config))
     except ShellCommandError as exc:
         detail = _stderr(exc)
         msg = f"`nomad job validate {file}` failed: {detail}"
         raise JobSpecError(msg) from exc
 
 
-def plan(file: Path) -> int:
+def plan(file: Path, config: NomadConfig) -> int:
     """Preview a job with `nomad job plan`, streaming its output verbatim.
 
     Returns the binary's exit code (1 means changes are present, 0 means none).
@@ -54,6 +68,7 @@ def plan(file: Path) -> int:
     try:
         result = run_command(
             ["nomad", "job", "plan", str(file)],
+            env=binary_env(config),
             stream=True,
             check=False,
         )
@@ -63,7 +78,7 @@ def plan(file: Path) -> int:
     return result.returncode
 
 
-def compile_to_json(file: Path) -> bytes:
+def compile_to_json(file: Path, config: NomadConfig) -> bytes:
     """Compile a job file to its JSON register payload via `nomad job run -output`.
 
     Returns the ``{"Job": {...}}`` JSON bytes without submitting anything.
@@ -73,7 +88,7 @@ def compile_to_json(file: Path) -> bytes:
     """
     ensure_nomad()
     try:
-        result = run_command(["nomad", "job", "run", "-output", str(file)])
+        result = run_command(["nomad", "job", "run", "-output", str(file)], env=binary_env(config))
     except ShellCommandError as exc:
         msg = f"`nomad job run -output {file}` failed: {_stderr(exc)}"
         raise JobSpecError(msg) from exc

@@ -25,6 +25,10 @@ _ENV_MAP = {
     "NOMAD_UI_URL": "ui_url",
 }
 
+# Vars handed off to the `nomad` binary: everything in _ENV_MAP except NOMAD_UI_URL,
+# which is an nd-only concept the binary does not understand.
+_BINARY_ENV_MAP = {var: field for var, field in _ENV_MAP.items() if var != "NOMAD_UI_URL"}
+
 
 class NomadConfig(msgspec.Struct, frozen=True, kw_only=True):
     """Resolved connection settings for the Nomad API."""
@@ -48,6 +52,20 @@ class NomadConfig(msgspec.Struct, frozen=True, kw_only=True):
         endpoint; otherwise links point at the API address itself.
         """
         return (self.ui_url or self.address).rstrip("/")
+
+    def to_env(self) -> dict[str, str]:
+        """Render the connection settings as ``NOMAD_*`` environment variables.
+
+        Reverses the env-var/field mapping used by ``resolve`` so a spawned ``nomad``
+        binary targets the same cluster, token, namespace, and TLS material as this
+        client. ``NOMAD_UI_URL`` is omitted because the binary does not understand it.
+        """
+        env: dict[str, str] = {}
+        for var, field in _BINARY_ENV_MAP.items():
+            value = getattr(self, field)
+            if value is not None:
+                env[var] = str(value)
+        return env
 
     @classmethod
     def resolve(cls, config_path: Path | None = None) -> NomadConfig:

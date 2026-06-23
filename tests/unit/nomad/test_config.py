@@ -93,3 +93,37 @@ def test_resolve_invalid_config_file_raises(clean_env, tmp_path):
     # Then a NomadConfigError is raised
     with pytest.raises(NomadConfigError):
         NomadConfig.resolve(config_path=cfg_file)
+
+
+def test_to_env_includes_set_fields_and_omits_ui_url():
+    """Verify to_env emits NOMAD_* vars for set fields and never NOMAD_UI_URL."""
+    # Given a config with an address, token, namespace, and a ui_url override
+    config = NomadConfig(
+        address="http://nomad.test:4646",
+        token="abc",  # noqa: S106
+        namespace="prod",
+        ui_url="http://ui.test",
+    )
+
+    # When rendering it as environment variables
+    env = config.to_env()
+
+    # Then the connection fields are present and the binary-irrelevant ui_url is not
+    assert env["NOMAD_ADDR"] == "http://nomad.test:4646"
+    assert env["NOMAD_TOKEN"] == "abc"  # noqa: S105
+    assert env["NOMAD_NAMESPACE"] == "prod"
+    assert "NOMAD_UI_URL" not in env
+
+
+def test_to_env_omits_unset_optional_fields():
+    """Verify unset optional fields produce no environment entries."""
+    # Given a config with only the default address set
+    config = NomadConfig(address="http://nomad.test:4646")
+
+    # When rendering it as environment variables
+    env = config.to_env()
+
+    # Then no optional connection vars are emitted
+    assert "NOMAD_TOKEN" not in env
+    assert "NOMAD_NAMESPACE" not in env
+    assert "NOMAD_CLIENT_CERT" not in env
