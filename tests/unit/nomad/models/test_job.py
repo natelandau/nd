@@ -2,7 +2,7 @@
 
 import msgspec
 
-from nd.nomad.models.job import Job, JobListStub
+from nd.nomad.models.job import Job, JobDeregisterResponse, JobListStub
 
 
 def test_job_list_stub_decodes():
@@ -42,3 +42,31 @@ def test_job_decodes():
     # Then
     assert job.datacenters == ["dc1", "dc2"]
     assert job.namespace == "default"
+
+
+def test_job_deregister_response_decodes():
+    """Verify a job deregister response decodes its eval and index fields."""
+    # Given a deregister payload from DELETE /v1/job/:id
+    payload = b'{"EvalID": "e1", "EvalCreateIndex": 12, "JobModifyIndex": 34, "Unknown": 1}'
+
+    # When decoding
+    resp = msgspec.json.decode(payload, type=JobDeregisterResponse)
+
+    # Then the eval id and indices are populated
+    assert resp.eval_id == "e1"
+    assert resp.eval_create_index == 12
+    assert resp.job_modify_index == 34
+
+
+def test_job_deregister_response_defaults_empty_eval():
+    """Verify a no-op stop response (empty/absent EvalID) decodes to defaults."""
+    # Given a payload with a null eval id and no indices
+    payload = b'{"EvalID": ""}'
+
+    # When decoding
+    resp = msgspec.json.decode(payload, type=JobDeregisterResponse)
+
+    # Then the eval id is empty and indices fall back to zero
+    assert resp.eval_id == ""
+    assert resp.eval_create_index == 0
+    assert resp.job_modify_index == 0

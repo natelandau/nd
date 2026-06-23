@@ -35,6 +35,28 @@ def test_cli_dash_h_shows_help():
     assert "Usage:" in result.output
 
 
+def test_stop_command_is_registered():
+    """Verify the stop subcommand is wired into the root app."""
+    # Given the root CLI app
+    # When listing registered typer groups
+    names = {group.name for group in app.registered_groups}
+
+    # Then stop is present
+    assert "stop" in names
+
+
+def test_main_handles_keyboard_interrupt(mocker):
+    """Verify Ctrl-C during any command exits cleanly with code 130, not a traceback."""
+    # Given the CLI raising KeyboardInterrupt mid-run
+    mocker.patch("nd.cli.app", side_effect=KeyboardInterrupt)
+
+    # When running main()
+    # Then it exits with the conventional SIGINT code instead of propagating
+    with pytest.raises(SystemExit) as exit_info:
+        main()
+    assert exit_info.value.code == 130
+
+
 def test_main_maps_connection_error_to_clean_exit(httpx2_mock: respx.Router, monkeypatch, tmp_path):
     """Verify an unreachable agent exits non-zero instead of dumping a traceback."""
     # Given every endpoint failing at the transport level

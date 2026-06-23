@@ -9,7 +9,7 @@ import typer
 from nclutils import pp
 
 from nd import __version__
-from nd.commands import status
+from nd.commands import status, stop
 from nd.nomad import (
     NomadAuthError,
     NomadConfigError,
@@ -23,6 +23,7 @@ app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 app.add_typer(status.app, name="status")
+app.add_typer(stop.app, name="stop")
 
 
 @dataclass
@@ -67,6 +68,10 @@ def main() -> None:
     """Run the CLI, mapping Nomad client errors to clean, non-zero exits."""
     try:
         app()
+    except KeyboardInterrupt as exc:
+        # 130 = 128 + SIGINT(2), the conventional shell exit code for Ctrl-C.
+        pp.warning("Aborted")
+        raise SystemExit(130) from exc
     except NomadConnectionError as exc:
         pp.error("Could not reach the Nomad agent", details=[str(exc)])
         raise SystemExit(1) from exc

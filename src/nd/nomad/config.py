@@ -9,9 +9,8 @@ from typing import Any
 
 import msgspec
 
+from nd.constants import DEFAULT_NOMAD_ADDRESS, DEFAULT_REQUEST_TIMEOUT_SECONDS
 from nd.nomad.errors import NomadConfigError
-
-DEFAULT_ADDRESS = "http://127.0.0.1:4646"
 
 # Standard Nomad env var -> NomadConfig field name.
 _ENV_MAP = {
@@ -30,7 +29,7 @@ _ENV_MAP = {
 class NomadConfig(msgspec.Struct, frozen=True, kw_only=True):
     """Resolved connection settings for the Nomad API."""
 
-    address: str = DEFAULT_ADDRESS
+    address: str = DEFAULT_NOMAD_ADDRESS
     token: str | None = None
     namespace: str | None = None
     region: str | None = None
@@ -39,7 +38,7 @@ class NomadConfig(msgspec.Struct, frozen=True, kw_only=True):
     client_key: str | None = None
     tls_server_name: str | None = None
     ui_url: str | None = None
-    timeout: float = 60.0
+    timeout: float = DEFAULT_REQUEST_TIMEOUT_SECONDS
 
     @classmethod
     def resolve(cls, config_path: Path | None = None) -> NomadConfig:

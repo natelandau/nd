@@ -24,6 +24,7 @@ class AllocListStub(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
     task_group: str
     client_status: str
     desired_status: str
+    task_states: dict[str, TaskState] = msgspec.field(name="TaskStates", default_factory=dict)
     create_index: int
     modify_index: int
 

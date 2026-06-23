@@ -31,3 +31,11 @@ class Job(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
     datacenters: list[str] = msgspec.field(default_factory=list)
     create_index: int
     modify_index: int
+
+
+class JobDeregisterResponse(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
+    """The response from stopping a job (``DELETE /v1/job/:id``)."""
+
+    eval_id: str = msgspec.field(name="EvalID", default="")
+    eval_create_index: int = 0
+    job_modify_index: int = 0

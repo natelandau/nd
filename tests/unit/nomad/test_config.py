@@ -2,7 +2,8 @@
 
 import pytest
 
-from nd.nomad.config import DEFAULT_ADDRESS, NomadConfig
+from nd.constants import DEFAULT_NOMAD_ADDRESS
+from nd.nomad.config import NomadConfig
 from nd.nomad.errors import NomadConfigError
 
 _NOMAD_ENV = (
@@ -33,7 +34,7 @@ def test_resolve_defaults_address_when_unset(clean_env, tmp_path):
     cfg = NomadConfig.resolve(config_path=tmp_path / "missing.toml")
 
     # Then the default address is used and the token is unset
-    assert cfg.address == DEFAULT_ADDRESS
+    assert cfg.address == DEFAULT_NOMAD_ADDRESS
     assert cfg.token is None
 
 

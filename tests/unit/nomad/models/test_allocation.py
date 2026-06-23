@@ -44,3 +44,40 @@ def test_allocation_decodes_task_states():
     assert alloc.task_states["server"].state == "running"
     assert alloc.task_states["server"].failed is False
     assert alloc.task_states["server"].restarts == 2
+
+
+def test_alloc_list_stub_decodes_task_states():
+    """Verify the allocation list stub decodes per-task states when present."""
+    # Given a job-allocations stub payload that includes TaskStates
+    payload = b"""
+    {
+      "ID": "a1", "Name": "web.web[0]", "Namespace": "default", "NodeID": "n1",
+      "JobID": "web", "TaskGroup": "web", "ClientStatus": "running",
+      "DesiredStatus": "stop", "CreateIndex": 1, "ModifyIndex": 2,
+      "TaskStates": {"cleanup": {"State": "running", "Failed": false, "Restarts": 0}}
+    }
+    """
+
+    # When decoding
+    stub = msgspec.json.decode(payload, type=AllocListStub)
+
+    # Then the task state decodes
+    assert stub.task_states["cleanup"].state == "running"
+
+
+def test_alloc_list_stub_defaults_task_states_empty():
+    """Verify the allocation list stub defaults task_states to an empty dict."""
+    # Given a stub payload with no TaskStates
+    payload = b"""
+    {
+      "ID": "a1", "Name": "web.web[0]", "NodeID": "n1", "JobID": "web",
+      "TaskGroup": "web", "ClientStatus": "complete", "DesiredStatus": "stop",
+      "CreateIndex": 1, "ModifyIndex": 2
+    }
+    """
+
+    # When decoding
+    stub = msgspec.json.decode(payload, type=AllocListStub)
+
+    # Then task_states is empty
+    assert stub.task_states == {}
