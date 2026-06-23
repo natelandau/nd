@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING
 
 import typer
 from nclutils import pp
 
+from nd.commands._common import VerboseOption, configure_verbosity
 from nd.jobfiles import discover_job_files, load_job_directories
 from nd.nomad import NomadClient, NomadConfig
 from nd.ui.links import job_url, link
@@ -84,18 +85,9 @@ app = typer.Typer()
 
 
 @app.callback(invoke_without_command=True)
-def list_(
-    ctx: typer.Context,
-    verbose: Annotated[
-        int,
-        typer.Option(
-            "-v", "--verbose", count=True, help="Increase verbosity (-v debug, -vv trace)."
-        ),
-    ] = 0,
-) -> None:
+def list_(ctx: typer.Context, verbose: VerboseOption = 0) -> None:
     """List known job files and whether each is running, dead, or not deployed."""
-    verbose = max(getattr(ctx.obj, "verbose", 0), verbose)
-    pp.configure(verbosity=verbose)
+    configure_verbosity(ctx, verbose)
     asyncio.run(_run())
 
 

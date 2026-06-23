@@ -4,69 +4,31 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from time import perf_counter
-from typing import TYPE_CHECKING, Annotated, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 import typer
 from nclutils import pp
-from nclutils.pp import Verbosity
 
+from nd.commands._common import VerboseOption, configure_verbosity, record_step
 from nd.commands.status.render import render_report
 from nd.commands.status.report import build_report
 from nd.nomad import NomadClient, NomadConfig
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable
-
     from nd.commands.status.report import StatusReport
-
-
-class _StepLike(Protocol):
-    """Structural type for the progress step object yielded by ``pp.step``."""
-
-    def sub(self, text: str) -> None: ...
 
 
 app = typer.Typer()
 
 
 @app.callback(invoke_without_command=True)
-def status(
-    ctx: typer.Context,
-    verbose: Annotated[
-        int,
-        typer.Option(
-            "-v", "--verbose", count=True, help="Increase verbosity (-v debug, -vv trace)."
-        ),
-    ] = 0,
-) -> None:
+def status(ctx: typer.Context, verbose: VerboseOption = 0) -> None:
     """Show an at-a-glance overview of the Nomad cluster."""
-    # Accept -v/-vv either before the command (root callback) or here; take the louder.
-    verbose = max(getattr(ctx.obj, "verbose", 0), verbose)
-    pp.configure(verbosity=verbose)
+    verbose = configure_verbosity(ctx, verbose)
     report = asyncio.run(_collect(verbose=verbose))
     if verbose:  # separate the progress tree from the dashboard
         pp.console().print()
     render_report(report)
-
-
-async def _fetch(path: str, coro: Awaitable[Any], *, step: _StepLike | None, verbose: int) -> Any:  # noqa: ANN401
-    """Await one resource call, recording it on the progress step per verbosity.
-
-    At ``-v`` the step records the action (the request); at ``-vv`` it also records
-    the response (item count and elapsed time).
-    """
-    start = perf_counter()
-    result = await coro
-    if step is not None:
-        if verbose >= Verbosity.TRACE:
-            count = len(result) if isinstance(result, list) else None
-            elapsed_ms = (perf_counter() - start) * 1000
-            items = f"{count} items, " if count is not None else ""
-            step.sub(f"GET /v1{path} → {items}{elapsed_ms:.0f}ms")
-        else:
-            step.sub(f"GET /v1{path}")
-    return result
 
 
 async def _collect(*, verbose: int) -> StatusReport:
@@ -89,14 +51,20 @@ async def _collect(*, verbose: int) -> StatusReport:
             pp.step("Querying Nomad cluster") if verbose else contextlib.nullcontext(None)
         )
         with step_cm as step:
+
+            def fetch(path: str, coro: Any) -> Any:  # noqa: ANN401
+                return record_step(
+                    coro, step=step, verbose=verbose, method="GET", path=path, count_items=True
+                )
+
             nodes, jobs, allocs, members, leader, deployments, evals = await asyncio.gather(
-                _fetch("/nodes", client.nodes.list(), step=step, verbose=verbose),
-                _fetch("/jobs", client.jobs.list(), step=step, verbose=verbose),
-                _fetch("/allocations", client.allocations.list(), step=step, verbose=verbose),
-                _fetch("/agent/members", client.agent.members(), step=step, verbose=verbose),
-                _fetch("/status/leader", client.status.leader(), step=step, verbose=verbose),
-                _fetch("/deployments", client.deployments.list(), step=step, verbose=verbose),
-                _fetch("/evaluations", client.evaluations.list(), step=step, verbose=verbose),
+                fetch("/nodes", client.nodes.list()),
+                fetch("/jobs", client.jobs.list()),
+                fetch("/allocations", client.allocations.list()),
+                fetch("/agent/members", client.agent.members()),
+                fetch("/status/leader", client.status.leader()),
+                fetch("/deployments", client.deployments.list()),
+                fetch("/evaluations", client.evaluations.list()),
             )
     return build_report(
         nodes=nodes,

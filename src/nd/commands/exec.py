@@ -10,6 +10,7 @@ from nclutils import pp
 
 from nd import allocio
 from nd.alloc_target import resolve_target
+from nd.commands._common import VerboseOption, configure_verbosity
 from nd.constants import DEFAULT_EXEC_SHELL, EXEC_SHELL_PROBE
 from nd.jobspec import JobSpecError
 from nd.nomad import NomadConfig
@@ -47,17 +48,10 @@ def exec_(
             "--shell", "-s", help="Shell to launch (default: bash, or sh if bash is absent)."
         ),
     ] = None,
-    verbose: Annotated[
-        int,
-        typer.Option(
-            "-v", "--verbose", count=True, help="Increase verbosity (-v debug, -vv trace)."
-        ),
-    ] = 0,
+    verbose: VerboseOption = 0,
 ) -> None:
     """Open an interactive shell inside a running task's allocation."""
-    # Accept -v/-vv either before the command (root callback) or here; take the louder.
-    verbose = max(getattr(ctx.obj, "verbose", 0), verbose)
-    pp.configure(verbosity=verbose)
+    configure_verbosity(ctx, verbose)
 
     config = NomadConfig.resolve()
     exit_code, target = asyncio.run(resolve_target(config, job_arg=job, task_arg=task))

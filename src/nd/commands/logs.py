@@ -11,6 +11,7 @@ from nclutils import pp
 
 from nd import allocio
 from nd.alloc_target import resolve_target
+from nd.commands._common import VerboseOption, configure_verbosity
 from nd.jobspec import JobSpecError
 from nd.nomad import NomadConfig
 
@@ -54,21 +55,14 @@ def logs(  # noqa: PLR0913
         Path | None,
         typer.Option("--export", help="Write current logs to this file, then exit."),
     ] = None,
-    verbose: Annotated[
-        int,
-        typer.Option(
-            "-v", "--verbose", count=True, help="Increase verbosity (-v debug, -vv trace)."
-        ),
-    ] = 0,
+    verbose: VerboseOption = 0,
 ) -> None:
     """Stream a task's logs, or tail/export them.
 
     Defaults to a live stream of both stdout and stderr (interleaved) until
     interrupted with Ctrl-C. Pass --stdout or --stderr to show a single stream.
     """
-    # Accept -v/-vv either before the command (root callback) or here; take the louder.
-    verbose = max(getattr(ctx.obj, "verbose", 0), verbose)
-    pp.configure(verbosity=verbose)
+    configure_verbosity(ctx, verbose)
 
     config = NomadConfig.resolve()
     # running_only=False so logs of a dead, completed, or failed task stay reachable

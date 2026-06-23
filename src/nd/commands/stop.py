@@ -12,6 +12,7 @@ import typer
 from nclutils import pp
 from rich.table import Table
 
+from nd.commands._common import VerboseOption, configure_verbosity
 from nd.constants import (
     POLL_INTERVAL_SECONDS,
     STOP_TIMEOUT_SECONDS,
@@ -202,17 +203,10 @@ def stop(
         bool,
         typer.Option("--dry-run", "-n", help="Resolve and report targets without stopping them."),
     ] = False,
-    verbose: Annotated[
-        int,
-        typer.Option(
-            "-v", "--verbose", count=True, help="Increase verbosity (-v debug, -vv trace)."
-        ),
-    ] = 0,
+    verbose: VerboseOption = 0,
 ) -> None:
     """Stop (and optionally purge) one or more running Nomad jobs."""
-    # Accept -v/-vv either before the command (root callback) or here; take the louder.
-    verbose = max(getattr(ctx.obj, "verbose", 0), verbose)
-    pp.configure(verbosity=verbose)
+    configure_verbosity(ctx, verbose)
     exit_code = asyncio.run(_run(job_arg=job, purge=purge, force=force, dry_run=dry_run))
     if exit_code != 0:
         raise typer.Exit(exit_code)

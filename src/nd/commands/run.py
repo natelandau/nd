@@ -13,6 +13,7 @@ import typer
 from nclutils import pp
 
 from nd import jobspec
+from nd.commands._common import VerboseOption, configure_verbosity
 from nd.constants import DEPLOY_TIMEOUT_SECONDS, HEALTHY_ALLOC_STATUSES, POLL_INTERVAL_SECONDS
 from nd.jobfiles import candidates_for, discover_job_files, load_job_directories
 from nd.jobspec import JobSpecError
@@ -135,17 +136,10 @@ def run(
         bool,
         typer.Option("--dry-run", "-n", help="Resolve and validate without registering."),
     ] = False,
-    verbose: Annotated[
-        int,
-        typer.Option(
-            "-v", "--verbose", count=True, help="Increase verbosity (-v debug, -vv trace)."
-        ),
-    ] = 0,
+    verbose: VerboseOption = 0,
 ) -> None:
     """Deploy one or more not-yet-running job files and watch them roll out."""
-    # Accept -v/-vv either before the command (root callback) or here; take the louder.
-    verbose = max(getattr(ctx.obj, "verbose", 0), verbose)
-    pp.configure(verbosity=verbose)
+    configure_verbosity(ctx, verbose)
     exit_code = asyncio.run(_run(job_arg=job, dry_run=dry_run))
     if exit_code != 0:
         raise typer.Exit(exit_code)
