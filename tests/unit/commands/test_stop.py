@@ -351,6 +351,43 @@ def test_stop_app_force_stops_single_match(
     assert result.exit_code == 0
 
 
+def test_stop_app_detach_issues_stop_without_watching(
+    httpx2_mock: respx.Router, monkeypatch, tmp_path
+):
+    """Verify --detach issues the stop but never polls allocations to watch the drain."""
+    # Given an isolated config and one running job
+    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    httpx2_mock.get(f"{_ADDR}/v1/jobs").respond(json=[_running_job_json()])
+    stop_route = httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
+
+    # When invoking with --detach (and --force to skip the confirm prompt)
+    result = CliRunner().invoke(stop_module.app, ["we", "--force", "--detach"])
+
+    # Then the stop is issued once and no allocations are polled
+    assert result.exit_code == 0
+    assert stop_route.called
+    assert not any(call.request.url.path.endswith("/allocations") for call in httpx2_mock.calls)
+
+
+def test_stop_app_no_shutdown_delay_passthrough(httpx2_mock: respx.Router, monkeypatch, tmp_path):
+    """Verify --no-shutdown-delay forwards the bypass flag on the stop call."""
+    # Given an isolated config and one running job, stopped with --detach for a short path
+    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    httpx2_mock.get(f"{_ADDR}/v1/jobs").respond(json=[_running_job_json()])
+    stop_route = httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
+
+    # When invoking with --no-shutdown-delay
+    result = CliRunner().invoke(
+        stop_module.app, ["we", "--force", "--detach", "--no-shutdown-delay"]
+    )
+
+    # Then the deregister carries no_shutdown_delay=true
+    assert result.exit_code == 0
+    assert stop_route.calls.last.request.url.params["no_shutdown_delay"] == "true"
+
+
 def test_stop_app_dry_run_skips_delete(httpx2_mock: respx.Router, monkeypatch, tmp_path):
     """Verify --dry-run resolves the target but never issues the stop call."""
     # Given an isolated config, one running job, and a stop endpoint

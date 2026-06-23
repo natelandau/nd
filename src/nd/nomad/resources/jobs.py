@@ -27,13 +27,19 @@ class JobsResource(BaseResource):
         response = await self._transport.request("GET", f"/job/{job_id}")
         return self._decode(response, Job)
 
-    async def stop(self, job_id: str, *, purge: bool = False) -> JobDeregisterResponse:
+    async def stop(
+        self, job_id: str, *, purge: bool = False, no_shutdown_delay: bool = False
+    ) -> JobDeregisterResponse:
         """Stop a job (``DELETE /v1/job/:id``).
 
         Pass ``purge=True`` to garbage-collect the job instead of leaving it ``dead``.
+        Pass ``no_shutdown_delay=True`` to bypass the configured group/task shutdown
+        delays for an immediate teardown.
         """
         response = await self._transport.request(
-            "DELETE", f"/job/{job_id}", params={"purge": purge}
+            "DELETE",
+            f"/job/{job_id}",
+            params={"purge": purge, "no_shutdown_delay": no_shutdown_delay},
         )
         return self._decode(response, JobDeregisterResponse)
 

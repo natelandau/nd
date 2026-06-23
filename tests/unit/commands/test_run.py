@@ -153,6 +153,61 @@ def test_run_no_candidates_exits_clean(monkeypatch) -> None:
     assert result.exit_code == 0
 
 
+def test_register_detached_registers_without_watching(httpx2_mock: respx.Router, mocker) -> None:
+    """Verify --detach compiles and registers each job but polls no rollout state."""
+    # Given a candidate, a binary that compiles to a body, and a register endpoint
+    candidate = candidates_for(
+        [JobFile(path=Path("/j/web.hcl"), job_names=["web"])], exclude_names=set()
+    )[0]
+    register_route = httpx2_mock.post(f"{_ADDR}/v1/jobs").respond(
+        json={"EvalID": "e1", "JobModifyIndex": 7, "Warnings": ""}
+    )
+    nomad = mocker.MagicMock()
+    nomad.compile_to_json.return_value = b'{"Job": {"ID": "web"}}'
+
+    # When registering with detach
+    async def go() -> int:
+        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+            return await run_mod._register_detached(client, [candidate], nomad)
+
+    exit_code = asyncio.run(go())
+
+    # Then it exits 0, registers once, and never queries deployments or allocations
+    assert exit_code == 0
+    assert register_route.called
+    assert not any(
+        call.request.url.path.endswith(("/deployments", "/allocations"))
+        for call in httpx2_mock.calls
+    )
+
+
+def test_run_app_detach_skips_watch(httpx2_mock: respx.Router, monkeypatch, mocker) -> None:
+    """Verify the run command with --detach registers without entering the watch loop."""
+    # Given one deployable file, a stubbed binary, and a register endpoint
+    monkeypatch.setattr(run_mod, "load_job_directories", list)
+    monkeypatch.setattr(
+        run_mod,
+        "discover_job_files",
+        lambda dirs: [JobFile(path=Path("/j/web.hcl"), job_names=["web"])],
+    )
+    monkeypatch.setattr(run_mod, "_running_job_names", _async_return(set()))
+    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
+    nomad = mocker.MagicMock()
+    nomad.compile_to_json.return_value = b'{"Job": {"ID": "web"}}'
+    monkeypatch.setattr(run_mod.NomadBinary, "create", classmethod(lambda cls, cfg: nomad))
+    httpx2_mock.post(f"{_ADDR}/v1/jobs").respond(json={"EvalID": "e1", "Warnings": ""})
+
+    # When invoking run --detach naming the job so it auto-selects
+    result = CliRunner().invoke(app, ["run", "web", "--detach"])
+
+    # Then it exits cleanly without polling any rollout state
+    assert result.exit_code == 0
+    assert not any(
+        call.request.url.path.endswith(("/deployments", "/allocations"))
+        for call in httpx2_mock.calls
+    )
+
+
 def test_watch_service_success_reports_deployed(httpx2_mock: respx.Router) -> None:
     """Verify a service job whose deployment reads back as successful returns DEPLOYED."""
     # Given a job with one running deployment that then resolves to successful

@@ -118,6 +118,7 @@ async def stop_and_wait(
     job: JobListStub,
     *,
     purge: bool,
+    no_shutdown_delay: bool = False,
     node_names: dict[str, str],
     update: PanelUpdate,
 ) -> StopOutcome:
@@ -132,7 +133,7 @@ async def stop_and_wait(
     """
     try:
         update("stopping")
-        resp = await client.jobs.stop(job.id, purge=purge)
+        resp = await client.jobs.stop(job.id, purge=purge, no_shutdown_delay=no_shutdown_delay)
         pp.debug(
             f"DELETE /v1/job/{job.id}?purge={str(purge).lower()} -> eval {resp.eval_id or 'no-op'}"
         )
@@ -185,7 +186,7 @@ app = typer.Typer(context_settings={"allow_interspersed_args": True})
 
 
 @app.callback(invoke_without_command=True)
-def stop(
+def stop(  # noqa: PLR0913
     ctx: typer.Context,
     job: Annotated[
         str | None,
@@ -199,6 +200,20 @@ def stop(
         bool,
         typer.Option("--force", "-f", help="Skip the confirmation prompt."),
     ] = False,
+    detach: Annotated[  # noqa: FBT002
+        bool,
+        typer.Option(
+            "--detach", "-d", help="Request the stop and return without watching the drain."
+        ),
+    ] = False,
+    no_shutdown_delay: Annotated[  # noqa: FBT002
+        bool,
+        typer.Option(
+            "--no-shutdown-delay",
+            "-S",
+            help="Bypass the group/task shutdown delays for an immediate teardown.",
+        ),
+    ] = False,
     dry_run: Annotated[  # noqa: FBT002
         bool,
         typer.Option("--dry-run", "-n", help="Resolve and report targets without stopping them."),
@@ -207,16 +222,34 @@ def stop(
 ) -> None:
     """Stop (and optionally purge) one or more running Nomad jobs."""
     configure_verbosity(ctx, verbose)
-    exit_code = asyncio.run(_run(job_arg=job, purge=purge, force=force, dry_run=dry_run))
+    exit_code = asyncio.run(
+        _run(
+            job_arg=job,
+            purge=purge,
+            force=force,
+            detach=detach,
+            no_shutdown_delay=no_shutdown_delay,
+            dry_run=dry_run,
+        )
+    )
     if exit_code != 0:
         raise typer.Exit(exit_code)
 
 
-async def _run(*, job_arg: str | None, purge: bool, force: bool, dry_run: bool) -> int:
+async def _run(  # noqa: PLR0911
+    *,
+    job_arg: str | None,
+    purge: bool,
+    force: bool,
+    detach: bool,
+    no_shutdown_delay: bool,
+    dry_run: bool,
+) -> int:
     """Resolve targets, confirm, then stop them concurrently. Return the exit code.
 
     In ``dry_run`` mode every step runs except the stop call and the drain wait it
-    triggers: the resolved targets are reported via ``pp.dryrun`` instead.
+    triggers: the resolved targets are reported via ``pp.dryrun`` instead. With
+    ``detach`` the stop is requested for each target but the drain is not watched.
     """
     config = NomadConfig.resolve()
     pp.debug(
@@ -249,9 +282,45 @@ async def _run(*, job_arg: str | None, purge: bool, force: bool, dry_run: bool) 
             _render_dry_run(targets, purge=purge)
             return 0
 
-        outcomes = await _stop_all(client, targets, purge=purge)
+        if detach:
+            return await _stop_detached(
+                client, targets, purge=purge, no_shutdown_delay=no_shutdown_delay
+            )
+
+        outcomes = await _stop_all(
+            client, targets, purge=purge, no_shutdown_delay=no_shutdown_delay
+        )
 
     return exit_code_for(outcomes)
+
+
+async def _stop_detached(
+    client: NomadClient, targets: list[JobListStub], *, purge: bool, no_shutdown_delay: bool
+) -> int:
+    """Request the stop for every target concurrently and return without watching.
+
+    Mirrors ``nomad job stop -detach``: each job is deregistered and the command
+    returns immediately rather than polling allocations to terminal. A per-job Nomad
+    failure is reported but does not abort the others. Returns 0 only when every stop
+    request was accepted.
+    """
+
+    async def issue(job: JobListStub) -> tuple[JobListStub, str | None]:
+        try:
+            await client.jobs.stop(job.id, purge=purge, no_shutdown_delay=no_shutdown_delay)
+        except NomadError as exc:
+            return (job, str(exc))
+        return (job, None)
+
+    results = await asyncio.gather(*(issue(job) for job in targets))
+    requested = [job for job, err in results if err is None]
+    failed = [(job, err) for job, err in results if err is not None]
+    if requested:
+        verb = "Requested stop and purge for" if purge else "Requested stop for"
+        pp.success(f"{verb} {_jobs_phrase(len(requested))}", details=[j.name for j in requested])
+    for job, err in failed:
+        pp.error(f"{job.name} failed to stop", details=[err])
+    return 0 if not failed else 1
 
 
 async def _confirm(targets: list[JobListStub], *, purge: bool) -> bool:
@@ -266,14 +335,21 @@ async def _confirm(targets: list[JobListStub], *, purge: bool) -> bool:
 
 
 async def _stop_all(
-    client: NomadClient, targets: list[JobListStub], *, purge: bool
+    client: NomadClient, targets: list[JobListStub], *, purge: bool, no_shutdown_delay: bool
 ) -> list[StopOutcome]:
     """Stop every target concurrently, rendering one live panel that ends final."""
     # Resolve node IDs to names once so each job's detail rows can show placement.
     node_names = {node.id: node.name for node in await client.nodes.list()}
 
     async def do_work(job: JobListStub, update: PanelUpdate) -> StopOutcome:
-        return await stop_and_wait(client, job, purge=purge, node_names=node_names, update=update)
+        return await stop_and_wait(
+            client,
+            job,
+            purge=purge,
+            no_shutdown_delay=no_shutdown_delay,
+            node_names=node_names,
+            update=update,
+        )
 
     ordered = await run_rows(
         targets,

@@ -85,8 +85,72 @@ def test_volume_register_dry_run_makes_no_api_calls(monkeypatch) -> None:
     monkeypatch.setattr(cmd.NomadClient, "from_config", lambda cfg: fake_client)
     monkeypatch.setattr(cmd.NomadConfig, "resolve", lambda: MagicMock(ui_base="http://test:4646"))
 
-    # When running register in dry-run mode
-    result = runner.invoke(app, ["register", "--dry-run"])
+    # When running register in dry-run mode, naming the spec so it auto-selects
+    result = runner.invoke(app, ["register", "data", "--dry-run"])
 
     # Then it exits cleanly
     assert result.exit_code == 0
+
+
+def test_volume_register_no_name_match_exits_one(monkeypatch) -> None:
+    """Verify a register name argument matching no spec exits non-zero before any client call."""
+    # Given discovery returns one spec named "data"
+    from pathlib import Path
+
+    import nd.commands.volume.command as cmd
+    from nd.volumefiles import VolumeSpec
+
+    spec = VolumeSpec(
+        path=Path("/v/data.hcl"),
+        name="data",
+        capabilities=[{"access_mode": "x", "attachment_mode": "file-system"}],
+        relative_path="data",
+    )
+    monkeypatch.setattr(cmd, "load_volume_directories", list)
+    monkeypatch.setattr(cmd, "discover_volume_files", lambda dirs: [spec])
+
+    # When naming a volume that matches nothing
+    result = runner.invoke(app, ["register", "zzz"])
+
+    # Then it exits non-zero
+    assert result.exit_code == 1
+
+
+def test_volume_delete_dry_run_with_name_selects_match(monkeypatch) -> None:
+    """Verify delete narrows to the named spec and reports without issuing a delete."""
+    # Given two specs and a registration matching the named one
+    from pathlib import Path
+    from unittest.mock import AsyncMock, MagicMock
+
+    import msgspec
+
+    import nd.commands.volume.command as cmd
+    from nd.nomad.models.volume import HostVolumeListStub
+    from nd.volumefiles import VolumeSpec
+
+    specs = [
+        VolumeSpec(path=Path("/v/data.hcl"), name="data", capabilities=[], relative_path="data"),
+        VolumeSpec(path=Path("/v/logs.hcl"), name="logs", capabilities=[], relative_path="logs"),
+    ]
+    monkeypatch.setattr(cmd, "load_volume_directories", list)
+    monkeypatch.setattr(cmd, "discover_volume_files", lambda dirs: specs)
+
+    registered = msgspec.convert(
+        {"ID": "v1", "Name": "data", "NodeID": "n1", "State": "ready"},
+        type=HostVolumeListStub,
+    )
+    fake_client = MagicMock()
+    fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+    fake_client.__aexit__ = AsyncMock(return_value=None)
+    fake_client.nodes.list = AsyncMock(return_value=[])
+    fake_client.volumes.list = AsyncMock(return_value=[registered])
+    fake_client.volumes.delete = AsyncMock()
+    monkeypatch.setattr(cmd.NomadClient, "from_config", lambda cfg: fake_client)
+    monkeypatch.setattr(cmd.NomadConfig, "resolve", lambda: MagicMock())
+
+    # When deleting in dry-run mode, naming the matching spec
+    result = runner.invoke(app, ["delete", "data", "--dry-run"])
+
+    # Then it exits cleanly and never issues a real delete
+    assert result.exit_code == 0
+    fake_client.volumes.delete.assert_not_awaited()

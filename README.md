@@ -119,16 +119,18 @@ uv run nd status
 Stop (and optionally remove) running jobs.
 
 ```bash
-uv run nd stop [JOB] [--purge/-p] [--force/-f] [--dry-run/-n]
+uv run nd stop [JOB] [--purge/-p] [--force/-f] [--detach/-d] [--no-shutdown-delay/-S] [--dry-run/-n]
 ```
 
 - **`JOB`** — optional. Matches any running job whose name starts with the given text (case-insensitive). One match stops that job; several matches open a multi-select.
 - **no `JOB`** — opens a multi-select of every running job.
 - **`--purge` / `-p`** — garbage-collect the job after stopping it, instead of leaving it in the `dead` state.
 - **`--force` / `-f`** — skip the confirmation prompt.
+- **`--detach` / `-d`** — request the stop and return immediately, without watching the drain.
+- **`--no-shutdown-delay` / `-S`** — bypass the configured group and task shutdown delays for an immediate teardown.
 - **`--dry-run` / `-n`** — resolve and report the targets without actually stopping anything.
 
-Each selected job is stopped concurrently, with a live panel that tracks it until its allocations have fully drained (including any `poststop` tasks). Press `Ctrl-C` at any time to abort cleanly.
+Each selected job is stopped concurrently, with a live panel that tracks it until its allocations have fully drained (including any `poststop` tasks). Press `Ctrl-C` at any time to abort cleanly. With `--detach`, the stop is requested for every target and the command returns at once, skipping the drain watch.
 
 The next three commands work with the local job files you point `nd` at with the [`[jobs]` table](#jobs-table).
 
@@ -157,11 +159,12 @@ uv run nd plan [JOB] [--dry-run/-n]
 Deploy job files that are not already running, then watch the rollout in a live panel. Service jobs wait for the deployment to succeed; batch and system jobs track their allocations.
 
 ```bash
-uv run nd run [JOB] [--dry-run/-n]
+uv run nd run [JOB] [--detach/-d] [--dry-run/-n]
 ```
 
 - **`JOB`** — optional. Matches any not-running job file whose name starts with the given text. One match runs that job; several matches open a multi-select.
 - **no `JOB`** — opens a multi-select of every not-running job file.
+- **`--detach` / `-d`** — register the jobs and return immediately, without watching the rollout.
 - **`--dry-run` / `-n`** — resolve and validate the targets without registering anything.
 
 ### `nd clean`
@@ -178,30 +181,37 @@ The next three commands manage dynamic host volumes. They use the spec files you
 
 ### `nd volume list`
 
-List every discovered host-volume spec alongside its registration status on the cluster. There is one row per discovered spec, including specs not yet registered on any node (those show no nodes). Each row shows the volume name and which nodes it is currently registered on.
+List discovered host-volume specs alongside their registration status on the cluster. There is one row per discovered spec, including specs not yet registered on any node (those show no nodes). Each row shows the volume name and which nodes it is currently registered on.
 
 ```bash
-uv run nd volume list
+uv run nd volume list [NAME]
 ```
+
+- **`NAME`** — optional. Narrows the listing to specs whose name starts with the given text. As a read-only view, this command never prompts.
+- **no `NAME`** — lists every discovered spec.
 
 ### `nd volume register`
 
-Register discovered host-volume specs on every eligible cluster node. `nd` reads each node's `nfsStorageRoot` metadata key and combines it with the spec's `relative_path` parameter to compute the host path, then calls the Nomad API to register the volume. Already-registered volumes are skipped.
+Register host-volume specs on every eligible cluster node. `nd` reads each node's `nfsStorageRoot` metadata key and combines it with the spec's `relative_path` parameter to compute the host path, then calls the Nomad API to register the volume. Already-registered volumes are skipped.
 
 ```bash
-uv run nd volume register [--dry-run/-n]
+uv run nd volume register [NAME] [--dry-run/-n]
 ```
 
+- **`NAME`** — optional. Matches any spec whose name starts with the given text. One match registers that spec; several matches open a multi-select.
+- **no `NAME`** — opens a multi-select of every discovered spec.
 - **`--dry-run` / `-n`** — report what would be registered without changing the cluster.
 
 ### `nd volume delete`
 
-Delete every registered host volume whose name matches a discovered spec.
+Delete registered host volumes whose name matches one of the selected specs.
 
 ```bash
-uv run nd volume delete [--dry-run/-n]
+uv run nd volume delete [NAME] [--dry-run/-n]
 ```
 
+- **`NAME`** — optional. Matches any spec whose name starts with the given text. One match selects that spec; several matches open a multi-select.
+- **no `NAME`** — opens a multi-select of every discovered spec.
 - **`--dry-run` / `-n`** — report what would be deleted without changing the cluster.
 
 The next two commands act on a single task inside a running allocation.

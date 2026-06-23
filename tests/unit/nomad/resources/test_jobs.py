@@ -107,8 +107,26 @@ def test_stop_defaults_purge_false(httpx2_mock: respx.Router):
 
     asyncio.run(run())
 
-    # Then purge is false
+    # Then purge is false and the shutdown delay is kept by default
     assert route.calls.last.request.url.params["purge"] == "false"
+    assert route.calls.last.request.url.params["no_shutdown_delay"] == "false"
+
+
+def test_stop_sends_no_shutdown_delay(httpx2_mock: respx.Router):
+    """Verify jobs.stop forwards no_shutdown_delay as a query param when requested."""
+    # Given a mocked stop endpoint
+    route = httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
+    resource = JobsResource(AsyncTransport(NomadConfig(address=_ADDR)))
+
+    # When stopping with no_shutdown_delay
+    async def run() -> None:
+        await resource.stop("web", no_shutdown_delay=True)
+        await resource._transport.aclose()
+
+    asyncio.run(run())
+
+    # Then the bypass flag is sent as true
+    assert route.calls.last.request.url.params["no_shutdown_delay"] == "true"
 
 
 def test_allocations_lists_job_allocations(httpx2_mock: respx.Router):

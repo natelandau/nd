@@ -131,6 +131,12 @@ def run(
         str | None,
         typer.Argument(help="Job to run; matches any not-running job whose name starts with this."),
     ] = None,
+    detach: Annotated[  # noqa: FBT002
+        bool,
+        typer.Option(
+            "--detach", "-d", help="Register the jobs and return without watching the rollout."
+        ),
+    ] = False,
     dry_run: Annotated[  # noqa: FBT002
         bool,
         typer.Option("--dry-run", "-n", help="Resolve and validate without registering."),
@@ -139,15 +145,16 @@ def run(
 ) -> None:
     """Deploy one or more not-yet-running job files and watch them roll out."""
     configure_verbosity(ctx, verbose)
-    exit_code = asyncio.run(_run(job_arg=job, dry_run=dry_run))
+    exit_code = asyncio.run(_run(job_arg=job, detach=detach, dry_run=dry_run))
     if exit_code != 0:
         raise typer.Exit(exit_code)
 
 
-async def _run(*, job_arg: str | None, dry_run: bool) -> int:
+async def _run(*, job_arg: str | None, detach: bool, dry_run: bool) -> int:  # noqa: PLR0911
     """Resolve not-running candidates, validate, register, and watch the rollout.
 
-    Returns the exit code: 0 on clean success, 1 on any failure.
+    Returns the exit code: 0 on clean success, 1 on any failure. With ``detach`` the
+    jobs are compiled and registered but the rollout is not watched.
     """
     files = discover_job_files(load_job_directories())
     config = NomadConfig.resolve()
@@ -182,9 +189,43 @@ async def _run(*, job_arg: str | None, dry_run: bool) -> int:
                 pp.dryrun(f"would run {c.name} ({c.file.path})")
             return 0
 
+        if detach:
+            return await _register_detached(client, targets, nomad)
+
         outcomes = await _deploy_all(client, targets, nomad)
 
     return 0 if all(o.status is DeployStatus.DEPLOYED for o in outcomes) else 1
+
+
+async def _register_detached(
+    client: NomadClient, targets: list[JobCandidate], nomad: NomadBinary
+) -> int:
+    """Compile and register every target concurrently, then return without watching.
+
+    Mirrors ``nomad job run -detach``: each job file is compiled to JSON and
+    registered, surfacing any register warnings, but the rollout is not polled. A
+    per-job compile or register failure is reported and does not abort the others.
+    Returns 0 only when every job registered successfully.
+    """
+
+    async def register_one(candidate: JobCandidate) -> tuple[str, str | None, str]:
+        try:
+            body = await asyncio.to_thread(nomad.compile_to_json, candidate.file.path)
+            resp = await client.jobs.register(body)
+        except (NomadBinaryError, NomadError) as exc:
+            return (candidate.name, str(exc), "")
+        return (candidate.name, None, resp.warnings)
+
+    results = await asyncio.gather(*(register_one(c) for c in targets))
+    registered = [name for name, err, _ in results if err is None]
+    if registered:
+        pp.success(f"Registered {len(registered)} job(s)", details=registered)
+    for name, err, warnings in results:
+        if err is not None:
+            pp.error(f"{name} failed to register", details=[err])
+        elif warnings:
+            pp.warning(f"{name}: {warnings}")
+    return 0 if all(err is None for _, err, _ in results) else 1
 
 
 async def _deploy_all(
