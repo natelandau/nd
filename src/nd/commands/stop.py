@@ -23,7 +23,7 @@ from nd.nomad.errors import NomadError
 from nd.selection import resolve_targets, select_candidates
 from nd.ui.alloc_rows import alloc_children
 from nd.ui.duration import summary_title
-from nd.ui.live_panel import LiveRow, PanelUpdate, finish_row, run_live_panel
+from nd.ui.live_panel import PanelUpdate, run_rows
 from nd.ui.panels import titled_panel
 from nd.ui.prompts import select_one
 from nd.ui.styles import OUTCOME_GLYPH
@@ -269,32 +269,22 @@ async def _stop_all(
     client: NomadClient, targets: list[JobListStub], *, purge: bool
 ) -> list[StopOutcome]:
     """Stop every target concurrently, rendering one live panel that ends final."""
-    start = time.monotonic()
     # Resolve node IDs to names once so each job's detail rows can show placement.
     node_names = {node.id: node.name for node in await client.nodes.list()}
-    # Key by row identity, not job name: two jobs can share a display name, which
-    # would otherwise collapse into one entry and stop the wrong job.
-    pairs = [(job, LiveRow(label=job.name, phase="stopping", started_at=start)) for job in targets]
-    by_row: dict[int, JobListStub] = {id(row): job for job, row in pairs}
-    outcomes: dict[int, StopOutcome] = {}
 
-    async def worker(row: LiveRow, update: PanelUpdate) -> None:
-        job = by_row[id(row)]
-        outcome = await stop_and_wait(
-            client, job, purge=purge, node_names=node_names, update=update
-        )
-        glyph, label = _OUTCOME_ROW[outcome.status]
-        finish_row(row, glyph, label)
-        outcomes[id(row)] = outcome
+    async def do_work(job: JobListStub, update: PanelUpdate) -> StopOutcome:
+        return await stop_and_wait(client, job, purge=purge, node_names=node_names, update=update)
 
-    await run_live_panel(
-        [row for _, row in pairs],
-        worker,
+    ordered = await run_rows(
+        targets,
+        do_work,
+        label_of=lambda job: job.name,
+        initial_phase="stopping",
+        finish_of=lambda o: _OUTCOME_ROW[o.status],
         running_title=stopping_title(len(targets), purge=purge),
-        final_title=lambda secs: final_title(list(outcomes.values()), elapsed_seconds=secs),
+        final_title=lambda outcomes, secs: final_title(outcomes, elapsed_seconds=secs),
     )
 
-    ordered = [outcomes[id(row)] for _, row in pairs]
     # The live panel is transient on a pipe/CI; emit a durable line for any job
     # that did not stop cleanly so timeouts and failures are never silent.
     for outcome in ordered:

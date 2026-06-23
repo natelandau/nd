@@ -22,7 +22,7 @@ from nd.nomad.errors import NomadError
 from nd.selection import resolve_targets, select_candidates
 from nd.ui.alloc_rows import alloc_children
 from nd.ui.duration import summary_title
-from nd.ui.live_panel import LiveRow, PanelUpdate, finish_row, run_live_panel
+from nd.ui.live_panel import PanelUpdate, run_rows
 from nd.ui.styles import OUTCOME_GLYPH
 
 if TYPE_CHECKING:
@@ -201,31 +201,24 @@ async def _deploy_all(
     Returns:
         Ordered list of outcomes, one per target.
     """
-    start = time.monotonic()
     # Resolve node IDs to names once so every job's detail rows can show placement.
     node_names = {node.id: node.name for node in await client.nodes.list()}
-    pairs = [(c, LiveRow(label=c.name, phase="registering", started_at=start)) for c in targets]
-    # Key by row identity so duplicate job names don't collapse into one entry.
-    by_row: dict[int, JobCandidate] = {id(row): c for c, row in pairs}
-    outcomes: dict[int, DeployOutcome] = {}
 
-    async def worker(row: LiveRow, update: PanelUpdate) -> None:
-        candidate = by_row[id(row)]
-        outcome = await _deploy_one(
+    async def do_work(candidate: JobCandidate, update: PanelUpdate) -> DeployOutcome:
+        return await _deploy_one(
             client, candidate, node_names=node_names, update=update, config=config
         )
-        glyph, label = _OUTCOME_ROW[outcome.status]
-        finish_row(row, glyph, label)
-        outcomes[id(row)] = outcome
 
-    await run_live_panel(
-        [row for _, row in pairs],
-        worker,
+    ordered = await run_rows(
+        targets,
+        do_work,
+        label_of=lambda c: c.name,
+        initial_phase="registering",
+        finish_of=lambda o: _OUTCOME_ROW[o.status],
         running_title=f"Deploying {len(targets)} job(s)",
-        final_title=lambda secs: _final_title(list(outcomes.values()), secs),
+        final_title=_final_title,
     )
 
-    ordered = [outcomes[id(row)] for _, row in pairs]
     for o in ordered:
         if o.status is DeployStatus.TIMEOUT:
             pp.warning(f"{o.name}: {o.detail or 'still deploying'}")

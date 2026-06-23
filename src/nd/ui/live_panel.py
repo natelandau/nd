@@ -141,3 +141,59 @@ async def run_live_panel(
 
         await asyncio.gather(*(run_one(row) for row in rows))
         live.update(panel(final_title(clock() - start)))
+
+
+async def run_rows[I, O](  # noqa: PLR0913
+    items: list[I],
+    do_work: Callable[[I, PanelUpdate], Awaitable[O]],
+    *,
+    label_of: Callable[[I], str],
+    initial_phase: str,
+    finish_of: Callable[[O], tuple[str, str]],
+    running_title: str,
+    final_title: Callable[[list[O], float], str],
+    clock: Callable[[], float] = time.monotonic,
+) -> list[O]:
+    """Run ``do_work`` for every item concurrently under one live panel.
+
+    Owns the per-item row bookkeeping shared by ``nd stop`` and ``nd run``: builds a
+    ``LiveRow`` per item, runs ``do_work(item, update)`` for each, then stamps the row
+    with ``finish_of(outcome)`` (its terminal glyph and label). Rows are keyed by
+    identity, not label, so two items with the same display name never collapse into
+    one entry. Returns the outcomes in the original item order.
+
+    Args:
+        items: The units of work to run concurrently.
+        do_work: Async callable receiving ``(item, update)`` and returning an outcome.
+        label_of: Render an item's row label.
+        initial_phase: Phase text shown on every row before ``do_work`` updates it.
+        finish_of: Map an outcome to its ``(glyph, label)`` for the finished row.
+        running_title: Panel title shown while work is in progress.
+        final_title: Build the final title from the ordered outcomes and elapsed seconds.
+        clock: Monotonic clock callable, injectable so tests avoid real wall-clock calls.
+    """
+    start = clock()
+    pairs = [
+        (item, LiveRow(label=label_of(item), phase=initial_phase, started_at=start))
+        for item in items
+    ]
+    by_row: dict[int, I] = {id(row): item for item, row in pairs}
+    outcomes: dict[int, O] = {}
+
+    async def worker(row: LiveRow, update: PanelUpdate) -> None:
+        outcome = await do_work(by_row[id(row)], update)
+        glyph, label = finish_of(outcome)
+        finish_row(row, glyph, label, clock=clock)
+        outcomes[id(row)] = outcome
+
+    def ordered() -> list[O]:
+        return [outcomes[id(row)] for _, row in pairs]
+
+    await run_live_panel(
+        [row for _, row in pairs],
+        worker,
+        running_title=running_title,
+        final_title=lambda secs: final_title(ordered(), secs),
+        clock=clock,
+    )
+    return ordered()
