@@ -31,7 +31,10 @@ def exec_(
     ctx: typer.Context,
     job: Annotated[
         str | None,
-        typer.Argument(help="Running job to enter; matches any job whose name starts with this."),
+        typer.Argument(
+            help="Running job to enter; matches any job whose name starts with this. "
+            "Omit to pick from a list."
+        ),
     ] = None,
     task: Annotated[
         str | None,
@@ -45,7 +48,13 @@ def exec_(
     ] = None,
     verbose: VerboseOption = 0,
 ) -> None:
-    """Open an interactive shell inside a running task's allocation."""
+    """Open an interactive shell inside a running task's allocation.
+
+    Resolves a running job, allocation, and task, prompting only where the choice is
+    ambiguous, then opens a shell over nomad alloc exec. With no --shell it prefers
+    bash and falls back to sh, so it works on minimal images. Requires an interactive
+    terminal.
+    """
     configure_verbosity(ctx, verbose)
     config = NomadConfig.resolve()
     command = _container_command(shell)

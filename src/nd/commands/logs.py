@@ -28,7 +28,10 @@ def logs(  # noqa: PLR0913
     ctx: typer.Context,
     job: Annotated[
         str | None,
-        typer.Argument(help="Running job to read; matches any job whose name starts with this."),
+        typer.Argument(
+            help="Running job to read; matches any job whose name starts with this. "
+            "Omit to pick from a list."
+        ),
     ] = None,
     task: Annotated[
         str | None,

@@ -1,250 +1,234 @@
 # nd
 
-`nd` is a command-line tool for managing a [Hashicorp Nomad](https://developer.hashicorp.com/nomad) homelab. It wraps the Nomad HTTP API behind a small, friendly CLI built with Typer and Rich.
+A friendly command-line tool for managing a Nomad cluster.
 
-> The package is published on PyPI as [`nomadctl`](https://pypi.org/project/nomadctl/); the installed command is `nd`.
+`nd` wraps the Nomad HTTP API and the local `nomad` binary behind a small set of
+task-focused commands. Instead of stitching together multiple nomad commands, you
+get easy to remember commands that marry your on-disk job and volume files and the
+live cluster. No more no more hunting for an allocation ID or task name, just use
+your easy to remember job and volume names and the cli does the rest.
 
-## Install
+## Features
 
-Install the CLI as an isolated tool (recommended):
+- A one-screen cluster dashboard covering nodes, jobs, allocations, deployments,
+  evaluations, and host volumes.
+- Deploy and stop commands that watch the rollout or drain live and report a clear
+  success or failure at the end.
+- Job-file aware commands that discover and work with your local `.hcl` and `.nomad` specs
+- Interactive shell and log streaming for any task, with a prompt to pick the job,
+  allocation, and task when the choice is ambiguous.
+- Dynamic host volume management: register, delete, and list host volumes across
+  every eligible node.
+- Standard `NOMAD_*` environment variables work out of the box, with an optional
+  config file for anything you would rather not retype.
+
+## Requirements
+
+- Python 3.13 or 3.14.
+- A reachable Nomad cluster.
+- The `nomad` binary on your `PATH`. The `plan`, `run`, `exec`, and `logs` commands
+  shell out to it, because the HTTP API cannot parse HCL2 job files and does not own
+  the interactive exec protocol. The other commands use the API only.
+
+## Installation
+
+The tool is published to PyPI as `nomadctl`. The installed command is `nd`.
+
+Install it as an isolated CLI with [uv](https://docs.astral.sh/uv/):
 
 ```bash
 uv tool install nomadctl
 ```
 
-Or install it into the current environment with pip:
+Or with `pipx`:
 
 ```bash
-pip install nomadctl
+pipx install nomadctl
 ```
 
-Either way the `nd` command is added to your `PATH`:
+Confirm the install:
 
 ```bash
-nd --help
+nd --version
 ```
-
-### Run from source
-
-To work on `nd` from a checkout, install the dependencies and run it through uv:
-
-```bash
-uv sync
-uv run nd --help
-```
-
-The `nd plan`, `nd run`, `nd exec`, and `nd logs` commands also need the [`nomad` CLI binary](https://developer.hashicorp.com/nomad/install) on your `PATH`. `nd plan` and `nd run` use it because the HTTP API can't parse HCL2, so the local binary validates your job files and compiles them to JSON before deploying. `nd exec` and `nd logs` use it for the interactive shell session and log streaming, which the binary handles natively. The remaining commands (`status`, `stop`, `list`, `clean`, `volume`) talk to the API directly and don't need it.
 
 ## Configuration
 
-`nd` runs with no setup at all. With nothing configured, it talks to a local Nomad agent at `http://127.0.0.1:4646`. To point it at a remote cluster, send an ACL token, or tell it where your job files live, add a config file at `$XDG_CONFIG_HOME/nd/config.toml` (default `~/.config/nd/config.toml`).
+`nd` reads the standard Nomad environment variables first, then overrides them with
+an optional config file. If you already run `nomad` from your shell, `nd` targets
+the same cluster with no extra setup.
 
-`nd` reads the standard Nomad environment variables (`NOMAD_ADDR`, `NOMAD_TOKEN`, and the others listed below) first, then applies the config file on top. A value set in `config.toml` overrides the matching environment variable.
+### Environment variables
 
-Here is a config file that uses every option:
+| Variable                | Purpose                      | Default                    |
+| ----------------------- | ---------------------------- | -------------------------- |
+| `NOMAD_ADDR`            | Cluster API address          | `http://127.0.0.1:4646`    |
+| `NOMAD_TOKEN`           | ACL token                    | none                       |
+| `NOMAD_NAMESPACE`       | Default namespace            | none                       |
+| `NOMAD_REGION`          | Default region               | none                       |
+| `NOMAD_CACERT`          | Path to a CA certificate     | none                       |
+| `NOMAD_CLIENT_CERT`     | Path to a client certificate | none                       |
+| `NOMAD_CLIENT_KEY`      | Path to a client key         | none                       |
+| `NOMAD_TLS_SERVER_NAME` | TLS server name override     | none                       |
+| `NOMAD_UI_URL`          | Base URL for web UI links    | falls back to `NOMAD_ADDR` |
+
+### Config file
+
+For settings you do not want to export every session, create
+`~/.config/nd/config.toml` (or `$XDG_CONFIG_HOME/nd/config.toml`). Values here
+override the environment.
 
 ```toml
-# ~/.config/nd/config.toml
-
 [nomad]
 address = "https://nomad.example.com:4646"
-token = "your-acl-token"
-namespace = "default"
-region = "global"
-timeout = 30.0
-ui_url = "https://nomad.example.com"
+token   = "your-acl-token"
+ui_url  = "https://nomad.example.com"
 
+# Directories nd searches for .hcl and .nomad job files.
 [jobs]
-directories = ["~/homelab/nomad-jobs", "/srv/nomad/services"]
+directories = ["~/homelab/jobs"]
 
+# Directories nd searches for host volume spec files.
 [volumes]
-directories = ["~/homelab/nomad-volumes", "/srv/nomad/volumes"]
+directories = ["~/homelab/volumes"]
 ```
 
-Every key is optional. Set only the ones you need.
+The `[jobs]` and `[volumes]` directory lists power the file-aware commands. Without
+them, `list`, `plan`, `run`, and the `volume` commands have nothing to discover.
 
-### `[nomad]` table
+## Quick start
 
-These keys control how `nd` connects to the Nomad HTTP API. They also apply to the bundled `nomad` binary that `plan`, `run`, `exec`, and `logs` call, so a config-file override points both the API client and the binary at the same cluster. Each key maps to a standard Nomad environment variable, except `timeout`, which has no variable.
+Point `nd` at your cluster, then look at it:
 
-| Key | What it sets | Default | Environment variable |
-| --- | --- | --- | --- |
-| `address` | Base URL of the Nomad HTTP API | `http://127.0.0.1:4646` | `NOMAD_ADDR` |
-| `token` | ACL token sent with every request | none | `NOMAD_TOKEN` |
-| `namespace` | Namespace that requests run against | Nomad's `default` | `NOMAD_NAMESPACE` |
-| `region` | Region that requests run against | the server's region | `NOMAD_REGION` |
-| `ca_cert` | Path to a PEM CA certificate used to verify the server's TLS certificate | system trust store | `NOMAD_CACERT` |
-| `client_cert` | Path to a PEM client certificate for mutual TLS | none | `NOMAD_CLIENT_CERT` |
-| `client_key` | Path to the PEM private key for mutual TLS | none | `NOMAD_CLIENT_KEY` |
-| `tls_server_name` | Server name used when verifying the TLS certificate (SNI) | host from `address` | `NOMAD_TLS_SERVER_NAME` |
-| `ui_url` | Base URL for the clickable web UI links shown by `nd status` and `nd list` | value of `address` | `NOMAD_UI_URL` |
-| `timeout` | HTTP request timeout, in seconds | `60` | none |
+```bash
+export NOMAD_ADDR="https://nomad.example.com:4646"
+export NOMAD_TOKEN="your-acl-token"
 
-> **Note:** Mutual TLS needs both `client_cert` and `client_key`. Setting only one has no effect.
+nd
+```
 
-### `[jobs]` table
+Add a job directory to your config file, then list your specs against the live
+cluster:
 
-This table tells `nd` where your Nomad job files live so that `nd list`, `nd plan`, and `nd run` can find them.
+```bash
+nd list
+```
 
-| Key | What it sets | Default |
-| --- | --- | --- |
-| `directories` | List of directories to scan for job files (`*.hcl` and `*.nomad`) | empty |
+Deploy a job that is not yet running and watch it roll out:
 
-`nd` scans each listed directory for job files, expands a leading `~` to your home directory, and skips any directory that does not exist. Files are classified by content: a file with a `job "..." {}` block is treated as a job, so a host-volume spec sharing the same directory is not mistaken for one. Without a `[jobs]` table, the job-file commands have nothing to work with.
+```bash
+nd run web
+```
 
-### `[volumes]` table
+Tail its logs, then open a shell inside it:
 
-This table tells `nd` where your Nomad host-volume spec files live so that `nd volume register`, `nd volume delete`, and `nd volume list` can find them.
-
-| Key | What it sets | Default |
-| --- | --- | --- |
-| `directories` | List of directories to scan for host-volume specs (`*.hcl` and `*.nomad`) | empty |
-
-`nd` scans each listed directory with the same `*.hcl` and `*.nomad` globs it uses for job files. Files are classified by content: a file with `type = "host"` is treated as a volume spec; a file with a `job "..." {}` block is treated as a job. A single directory can therefore hold both kinds of file. `nd` expands a leading `~` and silently skips directories that do not exist. Without a `[volumes]` table, the volume commands have nothing to work with.
-
-Add `-v` for debug output or `-vv` for request tracing on any command.
+```bash
+nd logs web
+nd exec web
+```
 
 ## Commands
 
-### `nd status`
+Run `nd --help`, or `nd <command> --help`, for the full option list at any time.
 
-Show an at-a-glance overview of the cluster: servers and leader, client nodes (with their active allocation counts), jobs (with the nodes each runs on), allocation health, registered host volumes, and any in-progress deployments or stuck evaluations. The Volumes panel and count are empty when the cluster or token cannot read host volumes (for example on older Nomad versions), so the rest of the dashboard still renders.
+| Command                     | What it does                                                                      |
+| --------------------------- | --------------------------------------------------------------------------------- |
+| `nd status`                 | Show an at-a-glance overview of the cluster. Also runs when you type `nd` alone.  |
+| `nd list`                   | List discovered job files and whether each is running, dead, or not deployed.     |
+| `nd plan [JOB]`             | Preview the changes one or more job files would apply, including to running jobs. |
+| `nd run [JOB]`              | Deploy not-yet-running job files and watch the rollout.                           |
+| `nd stop [JOB]`             | Stop, and optionally purge, running jobs and watch them drain.                    |
+| `nd logs [JOB]`             | Stream, tail, or export a task's logs.                                            |
+| `nd exec [JOB]`             | Open an interactive shell inside a running task.                                  |
+| `nd clean`                  | Force garbage collection and reconcile job summaries.                             |
+| `nd volume register [NAME]` | Register host volumes on every eligible node.                                     |
+| `nd volume delete [NAME]`   | Delete registered host volumes matching the selected specs.                       |
+| `nd volume list [NAME]`     | List host volume specs and where each is registered.                              |
 
-```bash
-uv run nd status
-```
+### Targeting jobs by name
 
-### `nd stop`
-
-Stop (and optionally remove) running jobs.
-
-```bash
-uv run nd stop [JOB] [--purge/-p] [--force/-f] [--detach/-d] [--no-shutdown-delay/-S] [--dry-run/-n]
-```
-
-- **`JOB`** — optional. Matches any running job whose name starts with the given text (case-insensitive). One match stops that job; several matches open a multi-select.
-- **no `JOB`** — opens a multi-select of every running job.
-- **`--purge` / `-p`** — garbage-collect the job after stopping it, instead of leaving it in the `dead` state.
-- **`--force` / `-f`** — skip the confirmation prompt.
-- **`--detach` / `-d`** — request the stop and return immediately, without watching the drain.
-- **`--no-shutdown-delay` / `-S`** — bypass the configured group and task shutdown delays for an immediate teardown.
-- **`--dry-run` / `-n`** — resolve and report the targets without actually stopping anything.
-
-Each selected job is stopped concurrently, with a live panel that tracks it until its allocations have fully drained (including any `poststop` tasks). Press `Ctrl-C` at any time to abort cleanly. With `--detach`, the stop is requested for every target and the command returns at once, skipping the drain watch.
-
-The next three commands work with the local job files you point `nd` at with the [`[jobs]` table](#jobs-table).
-
-### `nd list`
-
-List every discovered job file alongside its status on the cluster: running, dead, or not deployed. Deployed job names link to the web UI.
+Commands that take a `JOB` or `NAME` argument match by case-insensitive name prefix.
+A single match runs straight away; several matches open a prompt. Omit the argument
+to pick from a list of every candidate.
 
 ```bash
-uv run nd list
+nd run web          # runs the one job whose name starts with "web"
+nd stop             # prompts you to choose from all running jobs
 ```
 
-### `nd plan`
+### Previewing before you act
 
-Preview the changes a job file would make by surfacing `nomad job plan` output verbatim, including Nomad's own colored diff. Already-running jobs are valid targets, so you can preview an in-place update.
+Lifecycle commands accept `--dry-run` (`-n`) to report their targets without
+touching the cluster:
 
 ```bash
-uv run nd plan [JOB] [--dry-run/-n]
+nd run --dry-run
+nd stop web --dry-run
+nd volume register --dry-run
 ```
 
-- **`JOB`** — optional. Matches any job file whose name starts with the given text. One match plans that job; several matches open a multi-select.
-- **no `JOB`** — opens a multi-select of every job file.
-- **`--dry-run` / `-n`** — report which files would be planned without running the binary.
+For `nd run`, a dry run still validates each job file locally, so it catches a
+broken spec without registering anything.
 
-### `nd run`
+### Deploying jobs
 
-Deploy job files that are not already running, then watch the rollout in a live panel. Service jobs wait for the deployment to succeed; batch and system jobs track their allocations.
+`nd run` only offers jobs that are not already running. Each selected file is
+validated and registered, then watched live until its deployment or allocations
+settle. Use `--detach` to register and return without watching the rollout.
 
 ```bash
-uv run nd run [JOB] [--detach/-d] [--dry-run/-n]
+nd run                # choose from every deployable job
+nd run web            # deploy the job whose name starts with "web"
+nd run web --detach   # register and return immediately
 ```
 
-- **`JOB`** — optional. Matches any not-running job file whose name starts with the given text. One match runs that job; several matches open a multi-select.
-- **no `JOB`** — opens a multi-select of every not-running job file.
-- **`--detach` / `-d`** — register the jobs and return immediately, without watching the rollout.
-- **`--dry-run` / `-n`** — resolve and validate the targets without registering anything.
+### Working with logs
 
-### `nd clean`
-
-Run cluster housekeeping: force garbage collection of dead jobs, terminal allocations and evaluations, and GC-eligible nodes, then reconcile any drifted job summary counts.
+`nd logs` streams both stdout and stderr live until you press Ctrl-C. Narrow or
+redirect the output with flags:
 
 ```bash
-uv run nd clean
+nd logs web                 # follow stdout and stderr
+nd logs web --stderr        # follow stderr only
+nd logs web --tail 100      # print the last 100 lines, no follow
+nd logs web --export run.log  # write the current logs to a file
 ```
 
-Both operations are safe and idempotent (they only remove or correct already-terminal state), so the command takes no arguments and no confirmation. Add `-v` to name each `PUT` request or `-vv` to also show its elapsed time.
+### Stopping jobs
 
-The next three commands manage dynamic host volumes. They use the spec files you point `nd` at with the [`[volumes]` table](#volumes-table).
-
-### `nd volume list`
-
-List discovered host-volume specs alongside their registration status on the cluster. There is one row per discovered spec, including specs not yet registered on any node (those show no nodes). Each row shows the volume name and which nodes it is currently registered on.
+`nd stop` confirms before it acts unless you pass `--force`. Use `--purge` to
+garbage-collect the job afterward, `--detach` to return without watching the drain,
+and `--no-shutdown-delay` to skip the configured shutdown delays for an immediate
+teardown.
 
 ```bash
-uv run nd volume list [NAME]
+nd stop web                       # confirm, stop, and watch it drain
+nd stop web --purge --force       # purge without a prompt
+nd stop web --detach              # request the stop and return immediately
 ```
 
-- **`NAME`** — optional. Narrows the listing to specs whose name starts with the given text. As a read-only view, this command never prompts.
-- **no `NAME`** — lists every discovered spec.
+### Verbosity
 
-### `nd volume register`
-
-Register host-volume specs on every eligible cluster node. `nd` reads each node's `nfsStorageRoot` metadata key and combines it with the spec's `relative_path` parameter to compute the host path, then calls the Nomad API to register the volume. Already-registered volumes are skipped.
+Add `-v` for debug output or `-vv` to trace each API request with timings. The flag
+works before or after the subcommand.
 
 ```bash
-uv run nd volume register [NAME] [--dry-run/-n]
+nd status -v
+nd -vv run web
 ```
 
-- **`NAME`** — optional. Matches any spec whose name starts with the given text. One match registers that spec; several matches open a multi-select.
-- **no `NAME`** — opens a multi-select of every discovered spec.
-- **`--dry-run` / `-n`** — report what would be registered without changing the cluster.
+## Development
 
-### `nd volume delete`
-
-Delete registered host volumes whose name matches one of the selected specs.
+The project uses [uv](https://docs.astral.sh/uv/) for dependency management and
+[duty](https://pawamoy.github.io/duty/) as a task runner.
 
 ```bash
-uv run nd volume delete [NAME] [--dry-run/-n]
+uv sync                  # install dependencies
+uv run nd --help         # run the CLI from source
+uv run duty lint         # run ruff, ty, typos, and prek
+uv run duty test         # run the test suite with coverage
 ```
 
-- **`NAME`** — optional. Matches any spec whose name starts with the given text. One match selects that spec; several matches open a multi-select.
-- **no `NAME`** — opens a multi-select of every discovered spec.
-- **`--dry-run` / `-n`** — report what would be deleted without changing the cluster.
+## License
 
-The next two commands act on a single task inside a running allocation.
-
-### `nd exec`
-
-Open an interactive shell inside a running task.
-
-```bash
-uv run nd exec [JOB] [--task/-t TASK] [--shell/-s SHELL]
-```
-
-- **`JOB`** — optional. Matches any running job whose name starts with the given text. One match selects it; several open a prompt to pick one.
-- **no `JOB`** — opens a prompt to pick from every running job.
-- **`--task` / `-t`** — the task to enter, skipping the task prompt. Needed only when the allocation runs more than one task.
-- **`--shell` / `-s`** — the shell to launch. By default `nd` runs `bash` when the container has it and falls back to `sh`, so it works on minimal images too.
-
-`nd` walks you from the job to one of its running allocations to one of its running tasks, picking automatically whenever there's only one and prompting when there are several. The session inherits your terminal, so it's fully interactive. Type `exit` or press `Ctrl-D` to leave.
-
-### `nd logs`
-
-Stream, tail, or export a task's logs. Unlike `nd exec`, this also reaches dead, completed, and failed tasks, so you can read the logs of a job that already crashed.
-
-```bash
-uv run nd logs [JOB] [--task/-t TASK] [--stdout/-o] [--stderr/-e] [--tail/-n N] [--export PATH]
-```
-
-- **`JOB`** — optional. Matches any job whose name starts with the given text, running or not. One match selects it; several open a prompt to pick one.
-- **no `JOB`** — opens a prompt to pick from every job.
-- **`--task` / `-t`** — the task to read, skipping the task prompt.
-- **`--stdout` / `-o`** — show only the stdout stream.
-- **`--stderr` / `-e`** — show only the stderr stream.
-- **`--tail` / `-n N`** — print the last `N` lines and exit, instead of following the live stream.
-- **`--export PATH`** — write the current logs to `PATH`, then exit.
-
-By default `nd logs` follows both stdout and stderr, interleaved, until you press `Ctrl-C`. Pass `--stdout` or `--stderr` to limit it to one stream.
+MIT. See [LICENSE](LICENSE).

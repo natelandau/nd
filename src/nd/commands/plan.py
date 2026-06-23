@@ -29,15 +29,18 @@ def plan(
     ctx: typer.Context,
     job: Annotated[
         str | None,
-        typer.Argument(help="Job to plan; matches any job whose name starts with this."),
+        typer.Argument(
+            help="Job to plan; matches any job whose name starts with this. "
+            "Omit to pick from a list."
+        ),
     ] = None,
     dry_run: Annotated[  # noqa: FBT002
         bool,
-        typer.Option("--dry-run", "-n", help="Report what would be planned without running plan."),
+        typer.Option("--dry-run", "-n", help="Resolve and report targets without planning them."),
     ] = False,
     verbose: VerboseOption = 0,
 ) -> None:
-    """Preview changes for one or more job files (plan includes running jobs)."""
+    """Preview the changes one or more job files would apply, including to running jobs."""
     configure_verbosity(ctx, verbose)
     exit_code = asyncio.run(_run(job_arg=job, dry_run=dry_run))
     if exit_code != 0:

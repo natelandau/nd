@@ -72,7 +72,13 @@ def register(
     dry_run: DryRunOption = False,  # noqa: FBT002
     verbose: VerboseOption = 0,
 ) -> None:
-    """Register discovered host volumes on every eligible node."""
+    """Register discovered host volumes on every eligible node.
+
+    Reads host volume specs from the volume directories in your nd config, then
+    registers each selected spec on every ready node. A node is skipped when it lacks
+    the nfsStorageRoot meta, when the spec has no relative_path, or when the volume is
+    already registered there. Use --dry-run to preview without touching the cluster.
+    """
     configure_verbosity(ctx, verbose)
     asyncio.run(_run_register(name_arg=name, dry_run=dry_run))
 
@@ -84,14 +90,24 @@ def delete(
     dry_run: DryRunOption = False,  # noqa: FBT002
     verbose: VerboseOption = 0,
 ) -> None:
-    """Delete registered host volumes matching the selected specs."""
+    """Delete registered host volumes matching the selected specs.
+
+    Matches the selected specs against the volumes currently registered on the
+    cluster and deletes every registration whose name matches a spec. Use --dry-run
+    to preview which registrations would be removed.
+    """
     configure_verbosity(ctx, verbose)
     asyncio.run(_run_delete(name_arg=name, dry_run=dry_run))
 
 
 @app.command(name="list")
 def list_(ctx: typer.Context, name: NameArgument = None, verbose: VerboseOption = 0) -> None:
-    """List host volume specs and where each is registered."""
+    """List host volume specs and where each is registered.
+
+    Joins the host volume specs from your nd config to the registrations on the
+    cluster, showing each spec and the nodes it is registered on. This view is
+    read-only and never prompts.
+    """
     configure_verbosity(ctx, verbose)
     asyncio.run(_run_list(name_arg=name))
 

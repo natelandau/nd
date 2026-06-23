@@ -129,7 +129,10 @@ def run(
     ctx: typer.Context,
     job: Annotated[
         str | None,
-        typer.Argument(help="Job to run; matches any not-running job whose name starts with this."),
+        typer.Argument(
+            help="Job to run; matches any not-running job whose name starts with this. "
+            "Omit to pick from a list."
+        ),
     ] = None,
     detach: Annotated[  # noqa: FBT002
         bool,
@@ -143,7 +146,13 @@ def run(
     ] = False,
     verbose: VerboseOption = 0,
 ) -> None:
-    """Deploy one or more not-yet-running job files and watch them roll out."""
+    """Deploy one or more not-yet-running job files and watch them roll out.
+
+    Only jobs that are not already running are offered; use plan to preview changes
+    to a running job. Each selected file is validated, registered, and watched live:
+    service jobs follow their deployment to success, while batch and system jobs
+    follow their allocations. Use --detach to register and return without watching.
+    """
     configure_verbosity(ctx, verbose)
     exit_code = asyncio.run(_run(job_arg=job, detach=detach, dry_run=dry_run))
     if exit_code != 0:

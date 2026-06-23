@@ -15,7 +15,12 @@ app = typer.Typer()
 
 @app.callback(invoke_without_command=True)
 def clean(ctx: typer.Context, verbose: VerboseOption = 0) -> None:
-    """Force garbage collection and reconcile job summaries on the cluster."""
+    """Force garbage collection and reconcile job summaries on the cluster.
+
+    Runs Nomad's system garbage collection, then reconciles job summaries. Both
+    operations are safe to run anytime: they only reclaim dead objects and correct
+    summary counts, never touching running jobs.
+    """
     verbose = configure_verbosity(ctx, verbose)
     asyncio.run(_run(verbose=verbose))
 

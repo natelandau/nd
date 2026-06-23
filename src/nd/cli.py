@@ -66,7 +66,7 @@ def root(
         ),
     ] = False,
 ) -> None:
-    """Run nd, a friendly wrapper around the Nomad API."""
+    """Manage Nomad jobs, allocations, and host volumes from the command line."""
     pp.configure(verbosity=verbose)
     ctx.obj = AppState(verbose=verbose)
 

@@ -190,7 +190,10 @@ def stop(  # noqa: PLR0913
     ctx: typer.Context,
     job: Annotated[
         str | None,
-        typer.Argument(help="Running job to stop; matches any job whose name starts with this."),
+        typer.Argument(
+            help="Running job to stop; matches any job whose name starts with this. "
+            "Omit to pick from a list."
+        ),
     ] = None,
     purge: Annotated[  # noqa: FBT002
         bool,
@@ -220,7 +223,13 @@ def stop(  # noqa: PLR0913
     ] = False,
     verbose: VerboseOption = 0,
 ) -> None:
-    """Stop (and optionally purge) one or more running Nomad jobs."""
+    """Stop (and optionally purge) one or more running Nomad jobs.
+
+    Confirms the targets (unless --force), stops each job, then watches its
+    allocations drain to a terminal state. Use --purge to garbage-collect the job
+    after it stops, --detach to return without watching the drain, and
+    --no-shutdown-delay to skip the configured group and task shutdown delays.
+    """
     configure_verbosity(ctx, verbose)
     exit_code = asyncio.run(
         _run(
