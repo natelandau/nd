@@ -56,7 +56,7 @@ The CLI entry point is `nd:main` (per `pyproject.toml`), implemented in `src/nd/
 - `main()` wraps `app()` to translate `KeyboardInterrupt` into a clean exit 130 and the `NomadError` subclasses into non-zero exits with a friendly message (no traceback).
 - Each subcommand module exports its own `typer.Typer()` instance and uses `@app.callback(invoke_without_command=True)` to allow future sub-subcommands.
 
-### Job files (`src/nd/jobfiles.py`, `src/nd/jobspec.py`)
+### Job files (`src/nd/jobfiles.py`, `src/nd/binary/jobspec.py`)
 
 The `list`, `plan`, and `run` commands work with local Nomad job files discovered from configured directories.
 
@@ -69,13 +69,13 @@ directories = ["/path/to/nomad-jobs", "~/homelab/jobs"]
 
 `load_job_directories()` in `jobfiles.py` reads this list (expanding `~`) and returns an empty list if the section is absent. Job files are discovered by the globs `*.hcl` and `*.nomad` (from `JOB_FILE_GLOBS` in `constants.py`). Each file's job names are parsed by regex matching the top-level `job "<name>" {` block opener; interpolated names (containing `${`) are skipped. Results come back as `JobFile(path, job_names)` dataclass instances, sorted deterministically by path.
 
-**Binary wrappers** - `src/nd/jobspec.py` wraps three `nomad` binary invocations. The Nomad HTTP API cannot parse HCL2, so the local `nomad` binary is required as the HCL2-to-JSON compiler and validator; only registration and monitoring go through the API client. Each wrapper takes the resolved `NomadConfig` and runs the binary with `env=binary_env(config)` so it targets the same cluster as the API client (picking up nd config-file overrides, not just ambient `NOMAD_*` env). `binary_env(config)` is the shared env-overlay helper, reused by `allocio.py`.
+**Binary wrappers (`src/nd/binary/`)** - the local `nomad` binary is wrapped because the HTTP API cannot parse HCL2 and does not own the raw-TTY exec protocol. The package has three modules: `env.py` holds the shared layer (`NomadBinaryError`, `ensure_nomad()` which resolves the binary on PATH, and `binary_env(config)` which overlays the resolved `NomadConfig` as `NOMAD_*` env vars so the binary targets the same cluster as the API client); `jobspec.py` does HCL2 compile/validate; `allocio.py` does exec/logs (see below). `from nd.binary import jobspec, allocio, NomadBinaryError, ensure_nomad`. The caller resolves the binary once via `ensure_nomad()` and passes the path into each wrapper, so a multi-file run does not re-walk PATH per file.
 
-- `validate(file, config)` - runs `nomad job validate`; raises `JobSpecError` on failure.
-- `plan(file, config) -> int` - runs `nomad job plan` with `stream=True` so Nomad's own colored diff appears verbatim in the terminal; returns the binary's exit code (1 = changes present, 0 = no changes).
-- `compile_to_json(file, config) -> bytes` - runs `nomad job run -output` to produce the `{"Job": {...}}` JSON payload without submitting anything; this payload is passed directly to `client.jobs.register()`.
+- `validate(file, config, *, nomad_bin)` - runs `nomad job validate`; raises `NomadBinaryError` on failure.
+- `plan(file, config, *, nomad_bin) -> int` - runs `nomad job plan` with `stream=True` so Nomad's own colored diff appears verbatim in the terminal; returns the binary's exit code (1 = changes present, 0 = no changes).
+- `compile_to_json(file, config, *, nomad_bin) -> bytes` - runs `nomad job run -output` to produce the `{"Job": {...}}` JSON payload without submitting anything; this payload is passed directly to `client.jobs.register()`.
 
-All three raise `JobSpecError` if the binary is missing or the invocation fails.
+All three raise `NomadBinaryError` if the invocation fails.
 
 **Commands:**
 
@@ -83,9 +83,9 @@ All three raise `JobSpecError` if the binary is missing or the invocation fails.
 - `nd plan` - surfaces `nomad job plan` output verbatim for one or more job files. Candidates are all discovered files (including already-running jobs, so you can preview in-place updates). Accepts an optional name prefix to narrow targets; with `--dry-run / -n` it reports what would be planned without invoking the binary.
 - `nd run` - deploys job files that are not already running. Compiles each file to JSON via the binary, registers it via `client.jobs.register()`, then watches the rollout: service jobs wait for the deployment to succeed (polling `client.deployments.read()`), while batch and system jobs watch allocations via `client.jobs.allocations()`. Progress is shown in a live Rich panel.
 
-### Allocation exec & logs (`src/nd/allocio.py`, `src/nd/alloc_target.py`)
+### Allocation exec & logs (`src/nd/binary/allocio.py`, `src/nd/targets/alloc_target.py`)
 
-The `exec` and `logs` commands act on a single task. `alloc_target.py` resolves the
+The `exec` and `logs` commands act on a single task. `targets/alloc_target.py` resolves the
 target through the API client (`resolve_alloc_task` / `resolve_target`): a job (by
 optional name prefix), then its allocation (auto when one, prompt when several),
 then a task (auto when one, prompt when several, or a `--task/-t` override). The
@@ -97,8 +97,10 @@ distinguishable. `SelectionError` marks a hard failure (exit 1); a cancelled pro
 or an empty cluster exits 0.
 
 `allocio.py` then hands off to the local `nomad` binary, injecting the resolved
-`NomadConfig` as `NOMAD_*` env vars (via `binary_env()`, shared with `jobspec.py`)
-so the binary targets the same cluster as the client. `exec_shell()` runs
+`NomadConfig` as `NOMAD_*` env vars (via `binary_env()` from `binary/env.py`, shared
+across the binary wrappers) so the binary targets the same cluster as the client.
+The `exec`/`logs` commands share the resolve-target-then-run-binary tail via
+`run_alloc_action()` in `commands/_common.py`. `exec_shell()` runs
 `nomad alloc exec` with inherited stdio for a full interactive TTY; it takes the
 in-container command as a list, so with no `--shell` it runs the `EXEC_SHELL_PROBE`
 (`sh -c 'command -v bash && exec bash || exec sh'`) to prefer bash and fall back to
@@ -139,9 +141,13 @@ Follow the existing `status`, `stop`, and `clean` commands (`src/nd/commands/`) 
 2. In `cli.py`, import and register: `app.add_typer(<name>.app, name="<name>")`
 3. Add tests in `tests/unit/commands/test_<name>.py`
 
-**Shared UI (`src/nd/ui/`)** - view styling, Rich panels, multi-select prompts, duration formatting, and the live deployment-watch panel all live in `src/nd/ui/` (`styles.py`, `panels.py`, `prompts.py`, `duration.py`, `live_panel.py`). Reuse these rather than reimplementing them. `run_live_panel` from `live_panel.py` drives the Rich live display used by both `stop` and `run`.
+A larger command can be a package instead of a module (see `commands/status/`, split into `report.py` pure aggregation, `render.py` Rich rendering, and `command.py` Typer wiring, with the public surface re-exported from `__init__.py`).
 
-**Target resolution (`src/nd/selection.py`)** - `resolve_targets(items, arg, *, name_of=...)` handles the name-prefix matching pattern (no arg = offer all for multi-select; one match = auto-select; multiple matches = prompt). Commands that accept an optional name argument should call this rather than writing their own matching logic.
+**Shared command wiring (`src/nd/commands/_common.py`)** - the `-v/--verbose` option (`VerboseOption`), the verbosity-merge helper (`configure_verbosity`), the `StepLike` protocol and per-call progress recorder (`record_step`), and the exec/logs target-and-binary tail (`run_alloc_action`) are shared here rather than copied per command. Reuse them in new commands.
+
+**Shared UI (`src/nd/ui/`)** - view styling, Rich panels, multi-select prompts, duration formatting, and the live progress panel all live in `src/nd/ui/` (`styles.py`, `panels.py`, `prompts.py`, `duration.py`, `links.py`, `alloc_rows.py`, `live_panel.py`). Reuse these rather than reimplementing them. `live_panel.py` exposes `run_live_panel` (the raw Rich live display) and `run_rows`, the higher-level concurrent orchestrator (build a row per item, run a worker, stamp the finished row, return ordered outcomes) used by both `stop` and `run`.
+
+**Target resolution (`src/nd/targets/`)** - `resolve_targets(items, arg, *, name_of=...)` (in `targets/selection.py`, re-exported from `nd.targets`) handles the name-prefix matching pattern (no arg = offer all for multi-select; one match = auto-select; multiple matches = prompt). Commands that accept an optional name argument should call this rather than writing their own matching logic. `targets/alloc_target.py` builds the single-task exec/logs resolution on top of it.
 
 ### Testing
 
