@@ -21,7 +21,7 @@ type TaskLifecycle = dict[str, dict[str, tuple[int, str]]]
 
 
 def alloc_children(
-    allocs: list[AllocListStub], node_names: dict[str, str], lifecycle: TaskLifecycle
+    allocs: list[AllocListStub], node_names: dict[str, str], lifecycle: TaskLifecycle | None
 ) -> list[LiveChild]:
     """Build the detail rows for a job: one node row per allocation, then its tasks.
 
@@ -33,8 +33,8 @@ def alloc_children(
     Args:
         allocs: The job's current allocations.
         node_names: Map of node ID to node name for placement display.
-        lifecycle: Task ordering and labels from a compiled job spec, or an empty
-            map to show every task by name (used when no spec is on hand).
+        lifecycle: Task ordering and labels from a compiled job spec, or None when no
+            spec is on hand (e.g. ``nd stop``), which shows every task by name.
 
     Returns:
         The ordered detail rows: node rows at depth 1, task rows at depth 2.
@@ -46,7 +46,8 @@ def alloc_children(
         children.append(
             LiveChild(cells=[accent(node), "", status_cell(alloc.client_status)], depth=1)
         )
-        children.extend(_task_rows(alloc, lifecycle.get(alloc.task_group, {})))
+        roles = lifecycle.get(alloc.task_group, {}) if lifecycle is not None else None
+        children.extend(_task_rows(alloc, roles))
     return children
 
 
@@ -60,12 +61,12 @@ def _alloc_node_label(alloc: AllocListStub, node_names: dict[str, str], *, ambig
     return f"{node} #{index}"
 
 
-def _task_rows(alloc: AllocListStub, roles: dict[str, tuple[int, str]]) -> list[LiveChild]:
+def _task_rows(alloc: AllocListStub, roles: dict[str, tuple[int, str]] | None) -> list[LiveChild]:
     """Build the depth-2 task rows for one allocation, ordered by lifecycle.
 
     With lifecycle metadata, only its tasks are shown (poststop already excluded),
-    ordered prestart, main, then sidecar. Without it, every task is shown by name as
-    a fallback so a missing spec never hides the tasks.
+    ordered prestart, main, then sidecar. Without it (None, or a group absent from
+    the spec), every task is shown by name so a missing spec never hides the tasks.
     """
     if roles:
         names = sorted((n for n in alloc.task_states if n in roles), key=lambda n: roles[n][0])

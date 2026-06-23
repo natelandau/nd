@@ -155,7 +155,7 @@ async def stop_and_wait(
                 return StopOutcome(job, StopStatus.STOPPED)
             if time.monotonic() >= deadline:
                 return StopOutcome(job, StopStatus.TIMEOUT, "stop requested, still draining")
-            update(phase_text(allocs), alloc_children(allocs, node_names, {}))
+            update(phase_text(allocs), alloc_children(allocs, node_names, None))
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
     except NomadError as exc:
         return StopOutcome(job, StopStatus.FAILED, str(exc))

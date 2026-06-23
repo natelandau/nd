@@ -21,6 +21,7 @@ from nd.selection import pick_single, resolve_targets, select_one_candidate
 if TYPE_CHECKING:
     from nd.nomad.config import NomadConfig
     from nd.nomad.models.allocation import AllocListStub
+    from nd.nomad.models.job import JobListStub
 
 
 class SelectionError(Exception):
@@ -36,16 +37,41 @@ class ResolvedTarget:
     task: str
 
 
+@dataclass(frozen=True)
+class _TargetFilter:
+    """The live-only-vs-any policy applied at every selection stage.
+
+    ``nd exec`` resolves with ``running_only`` (only running jobs/allocs/tasks are
+    selectable, since you cannot shell into a dead task); ``nd logs`` resolves with it
+    off so a dead task's logs stay reachable. Holding the policy in one place keeps the
+    job, allocation, and task stages from each re-deriving the same filter and label.
+    """
+
+    running_only: bool
+
+    @property
+    def qualifier(self) -> str:
+        """The word woven into "No {qualifier}jobs/allocations/tasks" messages."""
+        return "running " if self.running_only else ""
+
+    def jobs(self, jobs: list[JobListStub]) -> list[JobListStub]:
+        """Keep only running jobs when the policy is live-only."""
+        return [j for j in jobs if j.status == "running"] if self.running_only else jobs
+
+    def allocs(self, allocs: list[AllocListStub]) -> list[AllocListStub]:
+        """Keep only running allocations when the policy is live-only."""
+        return [a for a in allocs if a.client_status == "running"] if self.running_only else allocs
+
+    def task_names(self, alloc: AllocListStub) -> list[str]:
+        """Return the allocation's task names, limited to running tasks when live-only."""
+        if self.running_only:
+            return sorted(n for n, s in alloc.task_states.items() if s.state == "running")
+        return sorted(alloc.task_states)
+
+
 def _alloc_label(alloc: AllocListStub) -> str:
     """Render an allocation for a selection prompt (short id, group, client status)."""
     return f"{alloc.id[:8]}  {alloc.task_group} ({alloc.client_status})"
-
-
-def _task_names(alloc: AllocListStub, *, running_only: bool) -> list[str]:
-    """Return the allocation's task names, limited to running tasks when requested."""
-    if running_only:
-        return sorted(name for name, state in alloc.task_states.items() if state.state == "running")
-    return sorted(alloc.task_states)
 
 
 def _task_label(alloc: AllocListStub, name: str) -> str:
@@ -67,9 +93,10 @@ async def resolve_alloc_task(
     Raises:
         SelectionError: If an argument matches nothing selectable (the caller exits 1).
     """
-    qualifier = "running " if running_only else ""
+    target_filter = _TargetFilter(running_only=running_only)
+    qualifier = target_filter.qualifier
     jobs = await client.jobs.list()
-    candidates = [j for j in jobs if j.status == "running"] if running_only else jobs
+    candidates = target_filter.jobs(jobs)
     pp.debug(f"GET /v1/jobs -> {len(candidates)} selectable of {len(jobs)} jobs")
     if not candidates:
         pp.info(f"No {qualifier}jobs")
@@ -85,9 +112,7 @@ async def resolve_alloc_task(
         return None
 
     allocs = await client.jobs.allocations(job.id)
-    alloc_candidates = (
-        [a for a in allocs if a.client_status == "running"] if running_only else allocs
-    )
+    alloc_candidates = target_filter.allocs(allocs)
     pp.debug(
         f"GET /v1/job/{job.id}/allocations -> {len(alloc_candidates)} selectable of {len(allocs)}"
     )
@@ -99,7 +124,7 @@ async def resolve_alloc_task(
         pp.info("Nothing selected")
         return None
 
-    task_names = _task_names(alloc, running_only=running_only)
+    task_names = target_filter.task_names(alloc)
     if not task_names:
         msg = f"No {qualifier}tasks in allocation {alloc.id[:8]}"
         raise SelectionError(msg)
