@@ -12,11 +12,11 @@ from nd.binary import NomadBinaryError, ensure_nomad, jobspec
 from nd.commands._common import VerboseOption, configure_verbosity
 from nd.jobfiles import candidates_for, discover_job_files, load_job_directories
 from nd.nomad import NomadConfig
-from nd.selection import resolve_targets, select_candidates
+from nd.targets import resolve_targets, select_candidates
 
 if TYPE_CHECKING:
     from nd.jobfiles import JobCandidate
-    from nd.selection import TargetResolution
+    from nd.targets import TargetResolution
 
 
 # allow_interspersed_args lets options follow the positional JOB (e.g. `nd plan web -n`);

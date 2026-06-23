@@ -10,8 +10,8 @@ import typer
 from nclutils import pp
 from nclutils.pp import Verbosity
 
-from nd.alloc_target import resolve_target
 from nd.binary import NomadBinaryError
+from nd.targets import resolve_target
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable

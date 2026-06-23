@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
-from nd.selection import (
+from nd.targets.selection import (
     TargetResolution,
     pick_single,
     resolve_targets,

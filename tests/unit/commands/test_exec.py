@@ -4,10 +4,10 @@ from unittest.mock import MagicMock
 
 from typer.testing import CliRunner
 
-from nd.alloc_target import ResolvedTarget
 from nd.binary import NomadBinaryError
 from nd.cli import app
 from nd.constants import DEFAULT_EXEC_SHELL, EXEC_SHELL_PROBE
+from nd.targets import ResolvedTarget
 
 runner = CliRunner()
 

@@ -28,7 +28,7 @@ from nd.nomad.client import NomadClient
 from nd.nomad.config import NomadConfig
 from nd.nomad.models.allocation import AllocListStub
 from nd.nomad.models.job import JobListStub
-from nd.selection import resolve_targets
+from nd.targets import resolve_targets
 from nd.ui.duration import fmt_elapsed as _fmt_elapsed
 from nd.ui.live_panel import LiveRow, _build_panel
 from nd.ui.prompts import clear_prompt_line as _clear_prompt_line

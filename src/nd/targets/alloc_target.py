@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from nclutils import pp
 
 from nd.nomad import NomadClient
-from nd.selection import pick_single, resolve_targets, select_one_candidate
+from nd.targets.selection import pick_single, resolve_targets, select_one_candidate
 
 if TYPE_CHECKING:
     from nd.nomad.config import NomadConfig

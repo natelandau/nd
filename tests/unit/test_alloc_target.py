@@ -6,9 +6,9 @@ import httpx
 import pytest
 import respx
 
-from nd.alloc_target import ResolvedTarget, SelectionError, resolve_alloc_task
 from nd.nomad.client import NomadClient
 from nd.nomad.config import NomadConfig
+from nd.targets.alloc_target import ResolvedTarget, SelectionError, resolve_alloc_task
 
 _ADDR = "http://nomad.test:4646"
 

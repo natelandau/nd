@@ -20,7 +20,7 @@ from nd.constants import (
 )
 from nd.nomad import NomadClient, NomadConfig
 from nd.nomad.errors import NomadError
-from nd.selection import resolve_targets, select_candidates
+from nd.targets import resolve_targets, select_candidates
 from nd.ui.alloc_rows import alloc_children
 from nd.ui.duration import summary_title
 from nd.ui.live_panel import PanelUpdate, run_rows
