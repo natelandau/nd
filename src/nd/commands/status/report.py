@@ -1,36 +1,20 @@
-"""The ``nd status`` command: an at-a-glance Nomad cluster overview."""
+"""Pure aggregation for ``nd status``: turn raw Nomad listings into a `StatusReport`.
+
+Kept free of I/O and Rich so the cluster-state logic is unit-testable on its own;
+`render.py` consumes the report and `command.py` feeds it the live listings.
+"""
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import enum
-import time
 from collections import Counter
 from dataclasses import dataclass
-from time import perf_counter
-from typing import TYPE_CHECKING, Annotated, Any, Protocol
-
-import typer
-from nclutils import pp
-from nclutils.pp import Verbosity
-from rich.console import Group
-from rich.panel import Panel
-from rich.table import Table
+from typing import TYPE_CHECKING
 
 from nd.constants import HEALTHY_ALLOC_STATUSES
-from nd.nomad import NomadClient, NomadConfig
-from nd.ui.duration import fmt_uptime
-from nd.ui.links import job_url, link, node_url
-from nd.ui.panels import status_table as _table
-from nd.ui.panels import titled_panel
-from nd.ui.styles import status_cell
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable
-
-    from rich.console import RenderableType
-
+    from nd.nomad.config import NomadConfig
     from nd.nomad.models.agent import AgentMember
     from nd.nomad.models.allocation import AllocListStub
     from nd.nomad.models.deployment import DeploymentListStub
@@ -263,23 +247,6 @@ def _assess_health(
     return Health.HEALTHY
 
 
-_HEALTH_STYLE: dict[Health, str] = {
-    Health.HEALTHY: "green",
-    Health.DEGRADED: "yellow",
-    Health.CRITICAL: "red",
-}
-
-
-def render_report(report: StatusReport) -> None:
-    """Print the status report as a banner followed by the cluster panels."""
-    console = pp.console()
-    console.print(_banner(report))
-    console.print(_nodes_panel(report))
-    console.print(_jobs_panel(report))
-    if report.deployments_active or report.evals_problem:
-        console.print(_activity_panel(report))
-
-
 def correlate_nodes(nodes: list[NodeListStub], servers: list[ServerInfo]) -> list[NodeRow]:
     """Merge client nodes and server members into one role-annotated list.
 
@@ -322,206 +289,4 @@ def _server_only_row(server: ServerInfo) -> NodeRow:
         eligible=False,
         version=server.version,
         link_id=None,
-    )
-
-
-def _role_cell(row: NodeRow) -> str:
-    """Render a node's cluster role, flagging an unhealthy server agent."""
-    if row.role == "client":
-        return "[dim]client[/]"
-    label = "★ leader" if row.role == "leader" else "server"
-    if not row.role_healthy:
-        return f"[red]{label} (down)[/]"
-    style = "magenta" if row.role == "leader" else "cyan"
-    return f"[{style}]{label}[/]"
-
-
-def _allocs_cell(row: NodeRow, counts: dict[str, int]) -> str:
-    """Render a node's active-alloc count, dashing server-only hosts that hold none."""
-    if row.link_id is None:
-        return "[dim]-[/]"
-    return str(counts.get(row.link_id, 0))
-
-
-def _banner_title(report: StatusReport) -> str:
-    """Build the banner panel title from address, region, and namespace."""
-    host = report.address.split("://")[-1]
-    title = f"Nomad · {host}"
-    if report.region:
-        title += f" ({report.region})"
-    if report.namespace:
-        title += f" · {report.namespace}"
-    return title
-
-
-def _banner(report: StatusReport) -> Panel:
-    """Build the top summary banner."""
-    style = _HEALTH_STYLE[report.health]
-    grid = Table.grid(padding=(0, 0))
-    grid.add_row(f"[{style}]●[/] [bold {style}]{report.health.value}[/]")
-    grid.add_row(
-        f"Servers {report.servers_alive}/{report.servers_total} · "
-        f"leader {report.leader_name or 'none'}   "
-        f"Nodes {report.nodes_ready}/{report.nodes_total} ready"
-    )
-    grid.add_row(
-        f"Jobs {report.jobs_running}/{report.jobs_total} running   "
-        f"Allocs {report.allocs_running} running · "
-        f"{report.allocs_failed} failed · {report.allocs_pending} pending"
-    )
-    grid.add_row(
-        f"Deployments {len(report.deployments_active)} active   "
-        f"Evals {len(report.evals_problem)} blocked"
-    )
-    return Panel(
-        grid, title=_banner_title(report), title_align="left", border_style=style, expand=False
-    )
-
-
-def _nodes_panel(report: StatusReport) -> Panel:
-    """Build the combined nodes panel (clients + servers, role-annotated)."""
-    rows = correlate_nodes(report.nodes, report.servers)
-    if not rows:
-        return titled_panel("[dim]No nodes[/]", "Nodes", expand=True)
-    table = _table("NAME", "ADDRESS", "ROLE", "ALLOCS", "STATUS", "ELIGIBLE", "VERSION")
-    for row in rows:
-        name = link(node_url(report.ui_url, row.link_id), row.name) if row.link_id else row.name
-        eligible = (
-            "[green]✓[/]" if row.eligible else ("[dim]-[/]" if row.link_id is None else "[red]✗[/]")
-        )
-        table.add_row(
-            name,
-            row.address,
-            _role_cell(row),
-            _allocs_cell(row, report.node_alloc_counts),
-            status_cell(row.status),
-            eligible,
-            row.version,
-        )
-    return titled_panel(table, "Nodes", expand=True)
-
-
-def _jobs_panel(report: StatusReport) -> Panel:
-    """Build the jobs panel listing every job."""
-    if not report.jobs:
-        return titled_panel("[dim]No jobs[/]", "Jobs", expand=True)
-    now_s = time.time()
-    table = _table("NAME", "TYPE", "STATUS", "UPTIME", "NODES")
-    for job in report.jobs:
-        nodes = report.job_nodes.get(job.id, [])
-        table.add_row(
-            link(job_url(report.ui_url, job.id), job.name),
-            job.type,
-            status_cell(job.status),
-            fmt_uptime(job.submit_time, now_s),
-            ", ".join(nodes) if nodes else "[dim]-[/]",
-        )
-    return titled_panel(table, "Jobs", expand=True)
-
-
-def _activity_panel(report: StatusReport) -> Panel:
-    """Build the activity panel (rendered only when there is in-progress work)."""
-    sections: list[RenderableType] = []
-    if report.deployments_active:
-        table = _table("JOB", "VERSION", "STATUS")
-        for dep in report.deployments_active:
-            table.add_row(dep.job_id, str(dep.job_version), status_cell(dep.status))
-        sections.append("[bold]Deployments[/]")
-        sections.append(table)
-    if report.evals_problem:
-        table = _table("JOB", "STATUS", "QUEUED", "TRIGGER")
-        for ev in report.evals_problem:
-            queued = sum(ev.queued_allocations.values())
-            table.add_row(ev.job_id, status_cell(ev.status), str(queued), ev.triggered_by)
-        sections.append("[bold]Evaluations[/]")
-        sections.append(table)
-    return titled_panel(Group(*sections), "Activity", border_style="yellow", expand=True)
-
-
-class _StepLike(Protocol):
-    """Structural type for the progress step object yielded by ``pp.step``."""
-
-    def sub(self, text: str) -> None: ...
-
-
-app = typer.Typer()
-
-
-@app.callback(invoke_without_command=True)
-def status(
-    ctx: typer.Context,
-    verbose: Annotated[
-        int,
-        typer.Option(
-            "-v", "--verbose", count=True, help="Increase verbosity (-v debug, -vv trace)."
-        ),
-    ] = 0,
-) -> None:
-    """Show an at-a-glance overview of the Nomad cluster."""
-    # Accept -v/-vv either before the command (root callback) or here; take the louder.
-    verbose = max(getattr(ctx.obj, "verbose", 0), verbose)
-    pp.configure(verbosity=verbose)
-    report = asyncio.run(_collect(verbose=verbose))
-    if verbose:  # separate the progress tree from the dashboard
-        pp.console().print()
-    render_report(report)
-
-
-async def _fetch(path: str, coro: Awaitable[Any], *, step: _StepLike | None, verbose: int) -> Any:  # noqa: ANN401
-    """Await one resource call, recording it on the progress step per verbosity.
-
-    At ``-v`` the step records the action (the request); at ``-vv`` it also records
-    the response (item count and elapsed time).
-    """
-    start = perf_counter()
-    result = await coro
-    if step is not None:
-        if verbose >= Verbosity.TRACE:
-            count = len(result) if isinstance(result, list) else None
-            elapsed_ms = (perf_counter() - start) * 1000
-            items = f"{count} items, " if count is not None else ""
-            step.sub(f"GET /v1{path} → {items}{elapsed_ms:.0f}ms")
-        else:
-            step.sub(f"GET /v1{path}")
-    return result
-
-
-async def _collect(*, verbose: int) -> StatusReport:
-    """Fetch all cluster endpoints concurrently and build a `StatusReport`.
-
-    The default view is silent; ``-v`` shows a `pp.step` tree of the requests we
-    make, and ``-vv`` adds each response's item count and elapsed time.
-    """
-    config = NomadConfig.resolve()
-    pp.debug(
-        "Resolved Nomad config",
-        details=[
-            f"address={config.address}",
-            f"region={config.region}",
-            f"namespace={config.namespace}",
-        ],
-    )
-    async with NomadClient.from_config(config) as client:
-        step_cm: contextlib.AbstractContextManager[Any] = (
-            pp.step("Querying Nomad cluster") if verbose else contextlib.nullcontext(None)
-        )
-        with step_cm as step:
-            nodes, jobs, allocs, members, leader, deployments, evals = await asyncio.gather(
-                _fetch("/nodes", client.nodes.list(), step=step, verbose=verbose),
-                _fetch("/jobs", client.jobs.list(), step=step, verbose=verbose),
-                _fetch("/allocations", client.allocations.list(), step=step, verbose=verbose),
-                _fetch("/agent/members", client.agent.members(), step=step, verbose=verbose),
-                _fetch("/status/leader", client.status.leader(), step=step, verbose=verbose),
-                _fetch("/deployments", client.deployments.list(), step=step, verbose=verbose),
-                _fetch("/evaluations", client.evaluations.list(), step=step, verbose=verbose),
-            )
-    return build_report(
-        nodes=nodes,
-        jobs=jobs,
-        allocs=allocs,
-        config=config,
-        members=members,
-        leader=leader,
-        deployments=deployments,
-        evals=evals,
     )
