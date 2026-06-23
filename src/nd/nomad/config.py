@@ -23,6 +23,7 @@ _ENV_MAP = {
     "NOMAD_CLIENT_CERT": "client_cert",
     "NOMAD_CLIENT_KEY": "client_key",
     "NOMAD_TLS_SERVER_NAME": "tls_server_name",
+    "NOMAD_UI_URL": "ui_url",
 }
 
 
@@ -37,6 +38,7 @@ class NomadConfig(msgspec.Struct, frozen=True, kw_only=True):
     client_cert: str | None = None
     client_key: str | None = None
     tls_server_name: str | None = None
+    ui_url: str | None = None
     timeout: float = 60.0
 
     @classmethod

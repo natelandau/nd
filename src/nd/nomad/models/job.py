@@ -14,6 +14,7 @@ class JobListStub(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
     status: str
     priority: int
     namespace: str = "default"
+    submit_time: int = 0
     create_index: int
     modify_index: int
 

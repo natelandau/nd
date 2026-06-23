@@ -12,6 +12,7 @@ def test_node_list_stub_decodes():
     {
       "ID": "abc-123", "Datacenter": "dc1", "Name": "client-1",
       "NodeClass": "", "NodePool": "default", "Drain": false,
+      "Address": "10.0.0.7",
       "SchedulingEligibility": "eligible", "Status": "ready",
       "Version": "1.9.0", "CreateIndex": 10, "ModifyIndex": 42,
       "Unknown": "ignored"
@@ -22,6 +23,7 @@ def test_node_list_stub_decodes():
     # Then the typed fields are populated
     assert stub.id == "abc-123"
     assert stub.status == "ready"
+    assert stub.address == "10.0.0.7"
     assert stub.modify_index == 42
 
 

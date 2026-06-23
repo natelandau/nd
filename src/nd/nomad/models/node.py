@@ -13,6 +13,7 @@ class NodeListStub(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
     name: str
     node_class: str
     node_pool: str = "default"
+    address: str = ""
     drain: bool
     scheduling_eligibility: str
     status: str

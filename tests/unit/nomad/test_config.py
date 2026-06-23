@@ -14,6 +14,7 @@ _NOMAD_ENV = (
     "NOMAD_CLIENT_CERT",
     "NOMAD_CLIENT_KEY",
     "NOMAD_TLS_SERVER_NAME",
+    "NOMAD_UI_URL",
     "XDG_CONFIG_HOME",
 )
 
@@ -67,6 +68,18 @@ def test_resolve_config_file_overrides_env(clean_env, tmp_path, monkeypatch):
     assert cfg.address == "https://from-file:4646"
     assert cfg.token == "env-token"  # noqa: S105
     assert cfg.timeout == 12.5
+
+
+def test_resolve_reads_ui_url_from_env(clean_env, tmp_path, monkeypatch):
+    """Verify resolve reads the optional web UI base URL from the environment."""
+    # Given a UI URL env var
+    monkeypatch.setenv("NOMAD_UI_URL", "https://nomad.example.org")
+
+    # When resolving config
+    cfg = NomadConfig.resolve(config_path=tmp_path / "missing.toml")
+
+    # Then the ui_url is populated
+    assert cfg.ui_url == "https://nomad.example.org"
 
 
 def test_resolve_invalid_config_file_raises(clean_env, tmp_path):

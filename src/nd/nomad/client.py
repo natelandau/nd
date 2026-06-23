@@ -7,8 +7,11 @@ from typing import Self
 from nd.nomad.config import NomadConfig
 from nd.nomad.resources.agent import AgentResource
 from nd.nomad.resources.allocations import AllocationsResource
+from nd.nomad.resources.deployments import DeploymentsResource
+from nd.nomad.resources.evaluations import EvaluationsResource
 from nd.nomad.resources.jobs import JobsResource
 from nd.nomad.resources.nodes import NodesResource
+from nd.nomad.resources.status import StatusResource
 from nd.nomad.transport import AsyncTransport
 
 
@@ -22,6 +25,9 @@ class NomadClient:
         self.nodes = NodesResource(self._transport)
         self.jobs = JobsResource(self._transport)
         self.allocations = AllocationsResource(self._transport)
+        self.status = StatusResource(self._transport)
+        self.deployments = DeploymentsResource(self._transport)
+        self.evaluations = EvaluationsResource(self._transport)
 
     @classmethod
     def from_config(cls, config: NomadConfig) -> NomadClient:
