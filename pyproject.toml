@@ -1,16 +1,16 @@
 [project]
     authors = [{ name = "Nathaniel Landau", email = "github@natelandau.com" }]
     dependencies = [
-        "httpx2>=2.4.0",
+        "httpx2>=2.4.0,<3.0.0",
         "msgspec>=0.21.1",
-        "nclutils>=3.4.1",
+        "nclutils>=3.4.1,<4.0.0",
         "rich>=15.0.0",
         "typer>=0.26.7",
     ]
     description = "Add your description here"
     name = "nd"
     readme = "README.md"
-    requires-python = ">=3.14"
+    requires-python = ">=3.13, <3.15"
     version = "0.1.0"
 
     [project.scripts]
@@ -23,7 +23,7 @@
 [dependency-groups]
     dev = [
         "commitizen>=4.16.4",
-        "coverage>=7.14.2",
+        "coverage>=7.14.3",
         "duty>=1.9.0",
         "prek>=0.4.5",
         "pytest-clarity>=1.0.1",
@@ -36,10 +36,10 @@
         "pytest>=9.1.1",
         "respx>=0.23.1",
         "ruff>=0.15.18",
-        "ty>=0.0.51",
+        "ty>=0.0.52",
         "typos>=1.47.2",
         "yamllint>=1.38.0",
-]
+    ]
 
 [tool.commitizen]
     bump_message               = "bump(release): v$current_version → v$new_version"
