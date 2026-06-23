@@ -12,7 +12,7 @@ from rich.table import Table
 
 from nd.commands.status.report import Health, correlate_nodes
 from nd.ui.duration import fmt_uptime
-from nd.ui.links import job_url, link, node_url
+from nd.ui.links import WebUi
 from nd.ui.panels import status_table as _table
 from nd.ui.panels import titled_panel
 from nd.ui.styles import status_cell
@@ -97,9 +97,10 @@ def _nodes_panel(report: StatusReport) -> Panel:
     rows = correlate_nodes(report.nodes, report.servers)
     if not rows:
         return titled_panel("[dim]No nodes[/]", "Nodes", expand=True)
+    web = WebUi(report.ui_url)
     table = _table("NAME", "ADDRESS", "ROLE", "ALLOCS", "STATUS", "ELIGIBLE", "VERSION")
     for row in rows:
-        name = link(node_url(report.ui_url, row.link_id), row.name) if row.link_id else row.name
+        name = web.node(row.link_id, row.name) if row.link_id else row.name
         eligible = (
             "[green]✓[/]" if row.eligible else ("[dim]-[/]" if row.link_id is None else "[red]✗[/]")
         )
@@ -120,11 +121,12 @@ def _jobs_panel(report: StatusReport) -> Panel:
     if not report.jobs:
         return titled_panel("[dim]No jobs[/]", "Jobs", expand=True)
     now_s = time.time()
+    web = WebUi(report.ui_url)
     table = _table("NAME", "TYPE", "STATUS", "UPTIME", "NODES")
     for job in report.jobs:
         nodes = report.job_nodes.get(job.id, [])
         table.add_row(
-            link(job_url(report.ui_url, job.id), job.name),
+            web.job(job.id, job.name),
             job.type,
             status_cell(job.status),
             fmt_uptime(job.submit_time, now_s),

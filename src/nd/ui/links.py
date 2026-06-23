@@ -1,18 +1,22 @@
-"""Shared builders for Rich hyperlinks into the Nomad web UI."""
+"""Rich hyperlinks into the Nomad web UI."""
 
 from __future__ import annotations
 
 
-def link(url: str, text: str) -> str:
-    """Wrap text in Rich link markup pointing at the given URL."""
-    return f"[link={url}]{text}[/link]"
+class WebUi:
+    """Builds Rich hyperlinks into the Nomad web UI for one base URL.
 
+    Bind it to a base URL (``NomadConfig.ui_base``) once, then build job and node
+    links by id without re-threading the base through every call site.
+    """
 
-def job_url(ui_base: str, job_id: str) -> str:
-    """Build the web UI URL for a job."""
-    return f"{ui_base}/ui/jobs/{job_id}"
+    def __init__(self, base: str) -> None:
+        self._base = base
 
+    def job(self, job_id: str, label: str) -> str:
+        """Wrap ``label`` in a Rich link to the job's web UI page."""
+        return f"[link={self._base}/ui/jobs/{job_id}]{label}[/link]"
 
-def node_url(ui_base: str, node_id: str) -> str:
-    """Build the web UI URL for a client node."""
-    return f"{ui_base}/ui/clients/{node_id}"
+    def node(self, node_id: str, label: str) -> str:
+        """Wrap ``label`` in a Rich link to the client node's web UI page."""
+        return f"[link={self._base}/ui/clients/{node_id}]{label}[/link]"

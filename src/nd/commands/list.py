@@ -12,7 +12,7 @@ from nclutils import pp
 from nd.commands._common import VerboseOption, configure_verbosity
 from nd.jobfiles import discover_job_files, load_job_directories
 from nd.nomad import NomadClient, NomadConfig
-from nd.ui.links import job_url, link
+from nd.ui.links import WebUi
 from nd.ui.panels import status_table, titled_panel
 from nd.ui.styles import status_cell
 
@@ -68,9 +68,10 @@ def _render(rows: list[ListRow], ui_base: str) -> None:
     if not rows:
         pp.info("No job files found; set [jobs] directories in your nd config.")
         return
+    web = WebUi(ui_base)
     table = status_table("JOB", "STATUS", "FILE")
     for row in rows:
-        name = link(job_url(ui_base, row.link_id), row.job_name) if row.link_id else row.job_name
+        name = web.job(row.link_id, row.job_name) if row.link_id else row.job_name
         # "not deployed" is not a Nomad status, so style it muted rather than via status_cell.
         cell = (
             status_cell(row.cluster_status)
