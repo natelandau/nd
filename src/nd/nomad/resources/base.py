@@ -38,3 +38,10 @@ class BaseResource:
         except msgspec.DecodeError as exc:
             msg = f"Failed to decode list[{item_type.__name__}]: {exc}"
             raise NomadDecodeError(msg, payload=response.text[:500]) from exc
+
+    async def _paginate_list(self, path: str, item_type: type[T]) -> list[T]:
+        """Fetch every page of a list endpoint, decoding each into ``item_type``."""
+        items: list[T] = []
+        async for response in self._transport.paginate(path):
+            items.extend(self._decode_list(response, item_type))
+        return items

@@ -16,10 +16,7 @@ class JobsResource(BaseResource):
 
     async def list(self) -> builtins.list[JobListStub]:
         """List all jobs (``GET /v1/jobs``), following pagination."""
-        stubs: list[JobListStub] = []
-        async for response in self._transport.paginate("/jobs"):
-            stubs.extend(self._decode_list(response, JobListStub))
-        return stubs
+        return await self._paginate_list("/jobs", JobListStub)
 
     async def read(self, job_id: str) -> Job:
         """Read a single job (``GET /v1/job/:id``)."""

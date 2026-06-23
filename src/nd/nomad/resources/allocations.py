@@ -16,10 +16,7 @@ class AllocationsResource(BaseResource):
 
     async def list(self) -> builtins.list[AllocListStub]:
         """List all allocations (``GET /v1/allocations``), following pagination."""
-        stubs: list[AllocListStub] = []
-        async for response in self._transport.paginate("/allocations"):
-            stubs.extend(self._decode_list(response, AllocListStub))
-        return stubs
+        return await self._paginate_list("/allocations", AllocListStub)
 
     async def read(self, alloc_id: str) -> Allocation:
         """Read a single allocation (``GET /v1/allocation/:id``)."""

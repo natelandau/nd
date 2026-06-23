@@ -16,10 +16,7 @@ class NodesResource(BaseResource):
 
     async def list(self) -> builtins.list[NodeListStub]:
         """List all nodes (``GET /v1/nodes``), following pagination."""
-        stubs: list[NodeListStub] = []
-        async for response in self._transport.paginate("/nodes"):
-            stubs.extend(self._decode_list(response, NodeListStub))
-        return stubs
+        return await self._paginate_list("/nodes", NodeListStub)
 
     async def read(self, node_id: str) -> Node:
         """Read a single node (``GET /v1/node/:id``)."""
