@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from nclutils import pp
 
-from nd.jobspec import JobSpecError, binary_env, ensure_nomad
+from nd.binary.env import NomadBinaryError, binary_env, ensure_nomad
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -32,7 +32,7 @@ def exec_shell(config: NomadConfig, alloc_id: str, task: str, command: list[str]
     Returns the command's exit code.
 
     Raises:
-        JobSpecError: If the `nomad` binary is not on PATH.
+        NomadBinaryError: If the `nomad` binary is not on PATH.
     """
     nomad_bin = ensure_nomad()
     argv = [str(nomad_bin), "alloc", "exec", "-task", task, "-i"]
@@ -68,7 +68,7 @@ def stream_logs(
     then stderr) and concatenated.
 
     Raises:
-        JobSpecError: If the `nomad` binary is not on PATH or a read fails.
+        NomadBinaryError: If the `nomad` binary is not on PATH or a read fails.
     """
     nomad_bin = ensure_nomad()
     env = binary_env(config)
@@ -105,7 +105,7 @@ def stream_logs(
             if completed.returncode != 0:
                 detail = completed.stderr.decode("utf-8", "replace").strip()
                 msg = f"`nomad alloc logs` failed: {detail}"
-                raise JobSpecError(msg)
+                raise NomadBinaryError(msg)
             chunks.append(completed.stdout)
         else:
             # Tail prints straight to the terminal; with both streams this prints

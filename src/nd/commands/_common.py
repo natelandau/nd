@@ -11,7 +11,7 @@ from nclutils import pp
 from nclutils.pp import Verbosity
 
 from nd.alloc_target import resolve_target
-from nd.jobspec import JobSpecError
+from nd.binary import NomadBinaryError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -94,7 +94,7 @@ def run_alloc_action(
         raise typer.Exit(exit_code)
     try:
         code = action(target.alloc_id, target.task)
-    except JobSpecError as exc:
+    except NomadBinaryError as exc:
         pp.error(str(exc))
         raise typer.Exit(1) from exc
     raise typer.Exit(code)

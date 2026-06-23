@@ -12,11 +12,10 @@ import msgspec
 import typer
 from nclutils import pp
 
-from nd import jobspec
+from nd.binary import NomadBinaryError, ensure_nomad, jobspec
 from nd.commands._common import VerboseOption, configure_verbosity
 from nd.constants import DEPLOY_TIMEOUT_SECONDS, HEALTHY_ALLOC_STATUSES, POLL_INTERVAL_SECONDS
 from nd.jobfiles import candidates_for, discover_job_files, load_job_directories
-from nd.jobspec import JobSpecError
 from nd.nomad import NomadClient, NomadConfig
 from nd.nomad.errors import NomadError
 from nd.selection import resolve_targets, select_candidates
@@ -172,11 +171,11 @@ async def _run(*, job_arg: str | None, dry_run: bool) -> int:
             return 1
 
         try:
-            nomad_bin = jobspec.ensure_nomad()
+            nomad_bin = ensure_nomad()
             # dict.fromkeys dedups so a multi-job file is validated once.
             for path in dict.fromkeys(c.file.path for c in targets):
                 jobspec.validate(path, config, nomad_bin=nomad_bin)
-        except JobSpecError as exc:
+        except NomadBinaryError as exc:
             pp.error(str(exc))
             return 1
 
@@ -284,7 +283,7 @@ async def _deploy_one(
         )
         # Attach any register warnings so the caller can surface them after the panel closes.
         return replace(outcome, warnings=resp.warnings)
-    except (JobSpecError, NomadError) as exc:
+    except (NomadBinaryError, NomadError) as exc:
         return DeployOutcome(candidate.name, DeployStatus.FAILED, str(exc))
 
 

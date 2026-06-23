@@ -8,10 +8,9 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 from nclutils import pp
 
-from nd import jobspec
+from nd.binary import NomadBinaryError, ensure_nomad, jobspec
 from nd.commands._common import VerboseOption, configure_verbosity
 from nd.jobfiles import candidates_for, discover_job_files, load_job_directories
-from nd.jobspec import JobSpecError
 from nd.nomad import NomadConfig
 from nd.selection import resolve_targets, select_candidates
 
@@ -80,8 +79,8 @@ def _plan_all(targets: list[JobCandidate]) -> int:
     failed validation or the binary could not run.
     """
     try:
-        nomad_bin = jobspec.ensure_nomad()
-    except JobSpecError as exc:
+        nomad_bin = ensure_nomad()
+    except NomadBinaryError as exc:
         pp.error(str(exc))
         return 1
 
@@ -95,7 +94,7 @@ def _plan_all(targets: list[JobCandidate]) -> int:
         try:
             jobspec.validate(path, config, nomad_bin=nomad_bin)
             jobspec.plan(path, config, nomad_bin=nomad_bin)
-        except JobSpecError as exc:
+        except NomadBinaryError as exc:
             pp.error(str(exc))
             failures += 1
     return 1 if failures else 0

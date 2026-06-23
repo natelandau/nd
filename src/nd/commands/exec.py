@@ -6,7 +6,7 @@ from typing import Annotated
 
 import typer
 
-from nd import allocio
+from nd.binary import allocio
 from nd.commands._common import VerboseOption, configure_verbosity, run_alloc_action
 from nd.constants import DEFAULT_EXEC_SHELL, EXEC_SHELL_PROBE
 from nd.nomad import NomadConfig

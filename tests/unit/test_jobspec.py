@@ -6,8 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from nd import jobspec
-from nd.jobspec import JobSpecError
+from nd.binary import NomadBinaryError, env, jobspec
 from nd.nomad.config import NomadConfig
 
 
@@ -26,10 +25,10 @@ class _FakeResult:
 
 
 def test_ensure_nomad_missing_raises(monkeypatch) -> None:
-    """Verify a missing nomad binary raises JobSpecError."""
-    monkeypatch.setattr(jobspec, "which", lambda name: None)
-    with pytest.raises(JobSpecError, match="nomad"):
-        jobspec.ensure_nomad()
+    """Verify a missing nomad binary raises NomadBinaryError."""
+    monkeypatch.setattr(env, "which", lambda name: None)
+    with pytest.raises(NomadBinaryError, match="nomad"):
+        env.ensure_nomad()
 
 
 def test_binary_env_overlays_config_onto_environment(monkeypatch, nomad_config) -> None:
@@ -38,12 +37,12 @@ def test_binary_env_overlays_config_onto_environment(monkeypatch, nomad_config) 
     monkeypatch.setenv("SENTINEL_VAR", "keep-me")
 
     # When building the binary environment
-    env = jobspec.binary_env(nomad_config)
+    result = env.binary_env(nomad_config)
 
     # Then the config targets the cluster and the ambient variables are preserved
-    assert env["NOMAD_ADDR"] == "http://nomad.test:4646"
-    assert env["NOMAD_TOKEN"] == "t"  # noqa: S105
-    assert env["SENTINEL_VAR"] == "keep-me"
+    assert result["NOMAD_ADDR"] == "http://nomad.test:4646"
+    assert result["NOMAD_TOKEN"] == "t"  # noqa: S105
+    assert result["SENTINEL_VAR"] == "keep-me"
 
 
 def test_validate_passes(monkeypatch, nomad_config) -> None:
@@ -96,14 +95,14 @@ def test_compile_to_json_forwards_config_env(monkeypatch, nomad_config) -> None:
 
 
 def test_compile_to_json_failure_raises(monkeypatch, nomad_config) -> None:
-    """Verify a non-zero compile raises JobSpecError with stderr."""
+    """Verify a non-zero compile raises NomadBinaryError with stderr."""
     from nclutils.sh import ShellCommandFailedError
 
     def fake_run(argv, **kw) -> None:
         raise ShellCommandFailedError(msg="boom")
 
     monkeypatch.setattr(jobspec, "run_command", fake_run)
-    with pytest.raises(JobSpecError):
+    with pytest.raises(NomadBinaryError):
         jobspec.compile_to_json(
             Path("/home/user/web.hcl"), nomad_config, nomad_bin=Path("/usr/bin/nomad")
         )
@@ -139,7 +138,7 @@ def test_plan_returns_exit_code(monkeypatch, nomad_config) -> None:
 
 
 def test_plan_launch_failure_raises(monkeypatch, nomad_config) -> None:
-    """Verify a binary that cannot launch raises JobSpecError."""
+    """Verify a binary that cannot launch raises NomadBinaryError."""
     from nclutils.sh import ShellCommandError
 
     def fake_run(argv, **kwargs) -> None:
@@ -149,6 +148,6 @@ def test_plan_launch_failure_raises(monkeypatch, nomad_config) -> None:
 
     monkeypatch.setattr(jobspec, "run_command", fake_run)
 
-    # When / Then plan propagates the error as JobSpecError
-    with pytest.raises(JobSpecError):
+    # When / Then plan propagates the error as NomadBinaryError
+    with pytest.raises(NomadBinaryError):
         jobspec.plan(Path("/home/user/web.hcl"), nomad_config, nomad_bin=Path("/usr/bin/nomad"))

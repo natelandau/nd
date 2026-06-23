@@ -5,8 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from nd import allocio
-from nd.jobspec import JobSpecError
+from nd.binary import NomadBinaryError, allocio
 from nd.nomad.config import NomadConfig
 
 
@@ -171,13 +170,13 @@ def test_stream_logs_export_both_concatenates_streams(monkeypatch, tmp_path, _co
 
 
 def test_stream_logs_export_failure_raises(monkeypatch, tmp_path, _config):  # noqa: PT019
-    """Verify export raises JobSpecError when the binary exits non-zero."""
+    """Verify export raises NomadBinaryError when the binary exits non-zero."""
     # Given a patched binary that fails with stderr
     _patch_binary(monkeypatch, returncode=1, stderr=b"boom")
     out = tmp_path / "web.log"
 
     # When exporting logs
-    with pytest.raises(JobSpecError):
+    with pytest.raises(NomadBinaryError):
         allocio.stream_logs(_config, "alloc-1", "web", streams=("stdout",), export_path=out)
 
     # Then the export file was not written

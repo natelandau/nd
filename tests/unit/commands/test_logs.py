@@ -6,8 +6,8 @@ from unittest.mock import MagicMock
 from typer.testing import CliRunner
 
 from nd.alloc_target import ResolvedTarget
+from nd.binary import NomadBinaryError
 from nd.cli import app
-from nd.jobspec import JobSpecError
 
 runner = CliRunner()
 
@@ -87,8 +87,8 @@ def test_logs_missing_binary_exits_one(monkeypatch):
     """Verify a missing nomad binary surfaces a friendly error and exits 1."""
     # Given a resolver that returns a concrete target
     stream = _patch(monkeypatch, target=ResolvedTarget("web", "alloc-1", "server"))
-    # And stream_logs raises JobSpecError because the binary is absent
-    stream.side_effect = JobSpecError("nomad not found")
+    # And stream_logs raises NomadBinaryError because the binary is absent
+    stream.side_effect = NomadBinaryError("nomad not found")
 
     # When invoking logs
     result = runner.invoke(app, ["logs", "web"])
