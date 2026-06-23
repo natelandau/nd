@@ -40,3 +40,13 @@ uv run nd stop [JOB] [--purge/-p] [--force/-f] [--dry-run/-n]
 - **`--dry-run` / `-n`** — resolve and report the targets without actually stopping anything.
 
 Each selected job is stopped concurrently, with a live panel that tracks it until its allocations have fully drained (including any `poststop` tasks). Press `Ctrl-C` at any time to abort cleanly.
+
+### `nd clean`
+
+Run cluster housekeeping: force garbage collection of dead jobs, terminal allocations and evaluations, and GC-eligible nodes, then reconcile any drifted job summary counts.
+
+```bash
+uv run nd clean
+```
+
+Both operations are safe and idempotent (they only remove or correct already-terminal state), so the command takes no arguments and no confirmation. Add `-v` to name each `PUT` request or `-vv` to also show its elapsed time.

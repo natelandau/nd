@@ -9,7 +9,7 @@ import typer
 from nclutils import pp
 
 from nd import __version__
-from nd.commands import status, stop
+from nd.commands import clean, status, stop
 from nd.nomad import (
     NomadAuthError,
     NomadConfigError,
@@ -24,6 +24,7 @@ app = typer.Typer(
 )
 app.add_typer(status.app, name="status")
 app.add_typer(stop.app, name="stop")
+app.add_typer(clean.app, name="clean")
 
 
 @dataclass
