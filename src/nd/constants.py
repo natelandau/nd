@@ -16,7 +16,19 @@ DEFAULT_REQUEST_TIMEOUT_SECONDS = 60.0
 # poststop lifecycle tasks. An alloc only reaches "complete" after every task
 # (poststop included) has finished, so this is the signal a job is truly stopped.
 TERMINAL_ALLOC_STATUSES = frozenset({"complete", "failed", "lost"})
+# Allocation client statuses considered healthy: the alloc is placed and either
+# running or finished cleanly. Used to judge cluster health and deploy success.
+HEALTHY_ALLOC_STATUSES = frozenset({"running", "complete"})
 # How often to poll a stopped job's allocations, and how long to wait for them to
 # drain before warning that the job is still stopping.
 POLL_INTERVAL_SECONDS = 1.0
 STOP_TIMEOUT_SECONDS = 120.0
+
+# --- Job file discovery ----------------------------------------------------------------
+# Globs used to find Nomad job specs inside each configured directory.
+JOB_FILE_GLOBS = ["*.hcl", "*.nomad"]
+
+# --- Job run / deploy watching ---------------------------------------------------------
+# How long to wait for a registered job's deployment (or allocations, for batch/system
+# jobs that create no deployment) to reach a terminal state before warning.
+DEPLOY_TIMEOUT_SECONDS = 300.0
