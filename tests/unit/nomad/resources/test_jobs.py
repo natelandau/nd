@@ -128,3 +128,51 @@ def test_allocations_lists_job_allocations(httpx2_mock: respx.Router):
     # Then the allocation decodes and the expected path was called
     assert allocs[0].client_status == "running"
     assert route.calls.last.request.url.path == "/v1/job/web/allocations"
+
+
+def test_jobs_register_posts_compiled_body(httpx2_mock: respx.Router):
+    """Verify jobs.register POSTs the compiled job and decodes the eval id."""
+    # Given a mocked register endpoint
+    route = httpx2_mock.post(f"{_ADDR}/v1/jobs").respond(json={"EvalID": "e1", "JobModifyIndex": 7})
+    resource = JobsResource(AsyncTransport(NomadConfig(address=_ADDR)))
+
+    # When registering a compiled job payload
+    async def run() -> object:
+        result = await resource.register(b'{"Job": {"ID": "web"}}')
+        await resource._transport.aclose()
+        return result
+
+    resp = asyncio.run(run())
+
+    # Then the eval id decodes and the expected path was called
+    assert resp.eval_id == "e1"
+    assert resp.job_modify_index == 7
+    assert route.calls.last.request.url.path == "/v1/jobs"
+
+
+_DEPLOY_STUB = {
+    "ID": "d1",
+    "JobID": "web",
+    "Status": "running",
+    "CreateIndex": 1,
+    "ModifyIndex": 2,
+}
+
+
+def test_jobs_deployments_lists_for_job(httpx2_mock: respx.Router):
+    """Verify jobs.deployments lists a job's deployments."""
+    # Given a mocked job-deployments endpoint
+    route = httpx2_mock.get(f"{_ADDR}/v1/job/web/deployments").respond(json=[_DEPLOY_STUB])
+    resource = JobsResource(AsyncTransport(NomadConfig(address=_ADDR)))
+
+    # When listing the job's deployments
+    async def run() -> list:
+        result = await resource.deployments("web")
+        await resource._transport.aclose()
+        return result
+
+    deps = asyncio.run(run())
+
+    # Then the stub decodes and the expected path was called
+    assert [d.id for d in deps] == ["d1"]
+    assert route.calls.last.request.url.path == "/v1/job/web/deployments"

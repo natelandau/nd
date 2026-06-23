@@ -1,8 +1,10 @@
 """Tests for job models."""
 
+from __future__ import annotations
+
 import msgspec
 
-from nd.nomad.models.job import Job, JobDeregisterResponse, JobListStub
+from nd.nomad.models.job import Job, JobDeregisterResponse, JobListStub, JobRegisterResponse
 
 
 def test_job_list_stub_decodes():
@@ -70,3 +72,23 @@ def test_job_deregister_response_defaults_empty_eval():
     assert resp.eval_id == ""
     assert resp.eval_create_index == 0
     assert resp.job_modify_index == 0
+
+
+def test_job_register_response_decodes_pascal_keys() -> None:
+    """Verify the register response decodes Nomad's PascalCase keys."""
+    # Given a Nomad register response body
+    payload = b'{"EvalID":"abc","EvalCreateIndex":12,"JobModifyIndex":34,"Warnings":"none"}'
+    # When
+    resp = msgspec.json.decode(payload, type=JobRegisterResponse)
+    # Then
+    assert resp.eval_id == "abc"
+    assert resp.eval_create_index == 12
+    assert resp.job_modify_index == 34
+    assert resp.warnings == "none"
+
+
+def test_job_register_response_tolerates_missing_fields() -> None:
+    """Verify a minimal response decodes with defaults."""
+    resp = msgspec.json.decode(b"{}", type=JobRegisterResponse)
+    assert resp.eval_id == ""
+    assert resp.warnings == ""

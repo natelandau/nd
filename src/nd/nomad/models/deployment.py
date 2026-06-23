@@ -16,3 +16,26 @@ class DeploymentListStub(msgspec.Struct, rename="pascal", frozen=True, kw_only=T
     job_version: int = 0
     create_index: int
     modify_index: int
+
+
+class TaskGroupDeploymentState(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
+    """Per-task-group rollout counts within a deployment."""
+
+    desired_total: int = 0
+    placed_allocs: int = 0
+    healthy_allocs: int = 0
+    unhealthy_allocs: int = 0
+
+
+class Deployment(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
+    """A deployment as returned by ``GET /v1/deployment/:id``."""
+
+    id: str = msgspec.field(name="ID")
+    job_id: str = msgspec.field(name="JobID")
+    namespace: str = "default"
+    status: str
+    status_description: str = ""
+    job_version: int = 0
+    task_groups: dict[str, TaskGroupDeploymentState] = msgspec.field(
+        name="TaskGroups", default_factory=dict
+    )

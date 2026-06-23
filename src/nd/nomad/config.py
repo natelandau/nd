@@ -40,6 +40,15 @@ class NomadConfig(msgspec.Struct, frozen=True, kw_only=True):
     ui_url: str | None = None
     timeout: float = DEFAULT_REQUEST_TIMEOUT_SECONDS
 
+    @property
+    def ui_base(self) -> str:
+        """Return the base URL for web UI links, falling back to the API address.
+
+        Use when the browser-facing UI lives at a different URL than the API
+        endpoint; otherwise links point at the API address itself.
+        """
+        return (self.ui_url or self.address).rstrip("/")
+
     @classmethod
     def resolve(cls, config_path: Path | None = None) -> NomadConfig:
         """Resolve config from Nomad env vars, overridden by an nd TOML config file.
@@ -60,7 +69,7 @@ class NomadConfig(msgspec.Struct, frozen=True, kw_only=True):
             if env_val:
                 values[field_name] = env_val
 
-        path = config_path or _default_config_path()
+        path = config_path or default_config_path()
         if path.is_file():
             values.update(_load_config_file(path))
 
@@ -71,7 +80,7 @@ class NomadConfig(msgspec.Struct, frozen=True, kw_only=True):
             raise NomadConfigError(msg) from exc
 
 
-def _default_config_path() -> Path:
+def default_config_path() -> Path:
     """Return the XDG config path for nd's config file."""
     base = os.environ.get("XDG_CONFIG_HOME")
     root = Path(base) if base else Path.home() / ".config"

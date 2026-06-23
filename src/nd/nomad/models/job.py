@@ -39,3 +39,12 @@ class JobDeregisterResponse(msgspec.Struct, rename="pascal", frozen=True, kw_onl
     eval_id: str = msgspec.field(name="EvalID", default="")
     eval_create_index: int = 0
     job_modify_index: int = 0
+
+
+class JobRegisterResponse(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
+    """The response from registering a job (``POST /v1/jobs``)."""
+
+    eval_id: str = msgspec.field(name="EvalID", default="")
+    eval_create_index: int = 0
+    job_modify_index: int = 0
+    warnings: str = ""
