@@ -19,7 +19,7 @@ Add `-v` for debug output or `-vv` for request tracing on any command.
 
 ### `nd status`
 
-Show an at-a-glance overview of the cluster: servers and leader, client nodes, jobs, allocation health, and any in-progress deployments or stuck evaluations.
+Show an at-a-glance overview of the cluster: servers and leader, client nodes (with their active allocation counts), jobs (with the nodes each runs on), allocation health, and any in-progress deployments or stuck evaluations.
 
 ```bash
 uv run nd status

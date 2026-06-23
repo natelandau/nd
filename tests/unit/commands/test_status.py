@@ -82,13 +82,15 @@ def _job(*, name="web", status="running", submit_time=0) -> JobListStub:
     )
 
 
-def _alloc(*, name="web.alloc", client_status="running") -> AllocListStub:
+def _alloc(
+    *, name="web.alloc", client_status="running", node_id="srv1", job_id="web"
+) -> AllocListStub:
     return AllocListStub(
         id=name,
         name=name,
         namespace="default",
-        node_id="srv1",
-        job_id="web",
+        node_id=node_id,
+        job_id=job_id,
         task_group="web",
         client_status=client_status,
         desired_status="run",
@@ -115,6 +117,110 @@ def test_build_report_all_healthy():
     assert report.jobs_running == 2
     assert report.allocs_total == 2
     assert report.allocs_running == 1
+
+
+def test_build_report_counts_active_allocs_per_node():
+    """Verify per-node alloc counts include running/pending but exclude terminal allocs."""
+    # Given two nodes and a mix of active and terminal allocations across them
+    nodes = [_node(name="srv1"), _node(name="srv2")]
+    allocs = [
+        _alloc(name="a1", node_id="srv1", client_status="running"),
+        _alloc(name="a2", node_id="srv1", client_status="pending"),
+        _alloc(name="a3", node_id="srv1", client_status="complete"),
+        _alloc(name="a4", node_id="srv2", client_status="running"),
+    ]
+
+    # When building the report
+    report = build_report(nodes=nodes, jobs=[], allocs=allocs, config=_CONFIG)
+
+    # Then only active (running + pending) allocs are counted, keyed by node id
+    assert report.node_alloc_counts == {"srv1": 2, "srv2": 1}
+
+
+def test_build_report_maps_jobs_to_node_names():
+    """Verify each job maps to the sorted, de-duplicated names of its active alloc nodes."""
+    # Given nodes whose ids differ from their display names and active allocs spread across them
+    nodes = [
+        NodeListStub(
+            id="id-z",
+            datacenter="dc1",
+            name="zeta",
+            node_class="",
+            node_pool="default",
+            address="10.0.0.1",
+            drain=False,
+            scheduling_eligibility="eligible",
+            status="ready",
+            version="1.9.0",
+            create_index=1,
+            modify_index=2,
+        ),
+        NodeListStub(
+            id="id-a",
+            datacenter="dc1",
+            name="alpha",
+            node_class="",
+            node_pool="default",
+            address="10.0.0.2",
+            drain=False,
+            scheduling_eligibility="eligible",
+            status="ready",
+            version="1.9.0",
+            create_index=1,
+            modify_index=2,
+        ),
+    ]
+    allocs = [
+        _alloc(name="w1", job_id="web", node_id="id-z", client_status="running"),
+        _alloc(name="w2", job_id="web", node_id="id-a", client_status="running"),
+        _alloc(name="w3", job_id="web", node_id="id-z", client_status="running"),
+        _alloc(name="w4", job_id="web", node_id="id-a", client_status="complete"),
+        _alloc(name="a1", job_id="api", node_id="id-a", client_status="pending"),
+    ]
+
+    # When building the report
+    report = build_report(nodes=nodes, jobs=[], allocs=allocs, config=_CONFIG)
+
+    # Then job nodes are resolved to names, de-duplicated and sorted; terminal allocs excluded
+    assert report.job_nodes == {"web": ["alpha", "zeta"], "api": ["alpha"]}
+
+
+def test_render_report_nodes_panel_shows_alloc_count():
+    """Verify the nodes panel renders an ALLOCS column with each node's active count."""
+    # Given a node carrying three active allocations
+    nodes = [_node(name="srv1")]
+    allocs = [
+        _alloc(name="a1", node_id="srv1", client_status="running"),
+        _alloc(name="a2", node_id="srv1", client_status="running"),
+        _alloc(name="a3", node_id="srv1", client_status="pending"),
+    ]
+    report = build_report(nodes=nodes, jobs=[], allocs=allocs, config=_CONFIG)
+
+    # When rendering it
+    text = _render_to_text(report)
+
+    # Then the ALLOCS column header and the node's count appear
+    assert "ALLOCS" in text
+    assert "3" in text
+
+
+def test_render_report_jobs_panel_shows_nodes_column():
+    """Verify the jobs panel renders a NODES column listing comma-separated node names."""
+    # Given a job whose allocations are deployed on two nodes
+    nodes = [_node(name="srv1"), _node(name="srv2")]
+    jobs = [_job(name="web")]
+    allocs = [
+        _alloc(name="a1", job_id="web", node_id="srv1"),
+        _alloc(name="a2", job_id="web", node_id="srv2"),
+    ]
+    report = build_report(nodes=nodes, jobs=jobs, allocs=allocs, config=_CONFIG)
+
+    # When rendering it
+    text = _render_to_text(report)
+
+    # Then the NODES column header and the comma-separated node names appear
+    assert "NODES" in text
+    assert "srv1, srv2" in text
 
 
 def test_build_report_ui_url_defaults_to_address():

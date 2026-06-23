@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import enum
 import time
+from collections import Counter
 from dataclasses import dataclass
 from time import perf_counter
 from typing import TYPE_CHECKING, Annotated, Any, Protocol
@@ -34,6 +35,8 @@ if TYPE_CHECKING:
 
 # Allocation client statuses that are considered healthy.
 _HEALTHY_ALLOC_STATUSES = frozenset({"running", "complete"})
+# Allocation client statuses that represent live work (counted in the per-node/per-job columns).
+_ACTIVE_ALLOC_STATUSES = frozenset({"running", "pending"})
 # Deployment statuses that represent an in-progress (notable) rollout.
 _ACTIVE_DEPLOYMENT_STATUSES = frozenset({"running", "pending", "blocked", "paused", "unblocking"})
 # Evaluation statuses that indicate the scheduler is stuck.
@@ -98,6 +101,8 @@ class StatusReport:
     allocs_running: int
     allocs_failed: int
     allocs_pending: int
+    node_alloc_counts: dict[str, int]  # active alloc count, keyed by node id
+    job_nodes: dict[str, list[str]]  # sorted node names an active alloc lives on, keyed by job id
     deployments_active: list[DeploymentListStub]
     evals_problem: list[EvalListStub]
 
@@ -135,6 +140,10 @@ def build_report(  # noqa: PLR0913
     allocs_failed = sum(1 for a in allocs if a.client_status == "failed")
     allocs_pending = sum(1 for a in allocs if a.client_status == "pending")
     allocs_unhealthy = any(a.client_status not in _HEALTHY_ALLOC_STATUSES for a in allocs)
+    node_alloc_counts = Counter(
+        a.node_id for a in allocs if a.client_status in _ACTIVE_ALLOC_STATUSES
+    )
+    job_nodes = _job_node_names(allocs, nodes)
 
     return StatusReport(
         health=_assess_health(
@@ -163,9 +172,28 @@ def build_report(  # noqa: PLR0913
         allocs_running=sum(1 for a in allocs if a.client_status == "running"),
         allocs_failed=allocs_failed,
         allocs_pending=allocs_pending,
+        node_alloc_counts=node_alloc_counts,
+        job_nodes=job_nodes,
         deployments_active=deployments_active,
         evals_problem=evals_problem,
     )
+
+
+def _job_node_names(allocs: list[AllocListStub], nodes: list[NodeListStub]) -> dict[str, list[str]]:
+    """Map each job id to the sorted, de-duplicated names of nodes its active allocs run on.
+
+    Only running/pending allocations count, so the column reflects live placement rather than
+    the historical pile of terminal allocs. Node ids are resolved to display names, falling
+    back to a short id when a node is unknown.
+    """
+    node_names = {node.id: node.name for node in nodes}
+    job_node_sets: dict[str, set[str]] = {}
+    for alloc in allocs:
+        if alloc.client_status not in _ACTIVE_ALLOC_STATUSES:
+            continue
+        name = node_names.get(alloc.node_id, alloc.node_id[:8])
+        job_node_sets.setdefault(alloc.job_id, set()).add(name)
+    return {job_id: sorted(names) for job_id, names in job_node_sets.items()}
 
 
 def _build_servers(members: list[AgentMember], leader: str) -> list[ServerInfo]:
@@ -346,6 +374,13 @@ def _role_cell(row: NodeRow) -> str:
     return f"[{style}]{label}[/]"
 
 
+def _allocs_cell(row: NodeRow, counts: dict[str, int]) -> str:
+    """Render a node's active-alloc count, dashing server-only hosts that hold none."""
+    if row.link_id is None:
+        return "[dim]-[/]"
+    return str(counts.get(row.link_id, 0))
+
+
 def _format_uptime(submit_time_ns: int, now_s: float) -> str:
     """Format a job's time-since-submit as a compact human duration."""
     if submit_time_ns <= 0:
@@ -418,7 +453,7 @@ def _nodes_panel(report: StatusReport) -> Panel:
     rows = correlate_nodes(report.nodes, report.servers)
     if not rows:
         return _panel("[dim]No nodes[/]", "Nodes")
-    table = _table("NAME", "ADDRESS", "ROLE", "STATUS", "ELIGIBLE", "VERSION")
+    table = _table("NAME", "ADDRESS", "ROLE", "ALLOCS", "STATUS", "ELIGIBLE", "VERSION")
     for row in rows:
         name = _link(_node_url(report.ui_url, row.link_id), row.name) if row.link_id else row.name
         eligible = (
@@ -428,6 +463,7 @@ def _nodes_panel(report: StatusReport) -> Panel:
             name,
             row.address,
             _role_cell(row),
+            _allocs_cell(row, report.node_alloc_counts),
             _status_cell(row.status),
             eligible,
             row.version,
@@ -440,13 +476,15 @@ def _jobs_panel(report: StatusReport) -> Panel:
     if not report.jobs:
         return _panel("[dim]No jobs[/]", "Jobs")
     now_s = time.time()
-    table = _table("NAME", "TYPE", "STATUS", "UPTIME")
+    table = _table("NAME", "TYPE", "STATUS", "UPTIME", "NODES")
     for job in report.jobs:
+        nodes = report.job_nodes.get(job.id, [])
         table.add_row(
             _link(_job_url(report.ui_url, job.id), job.name),
             job.type,
             _status_cell(job.status),
             _format_uptime(job.submit_time, now_s),
+            ", ".join(nodes) if nodes else "[dim]-[/]",
         )
     return _panel(table, "Jobs")
 
