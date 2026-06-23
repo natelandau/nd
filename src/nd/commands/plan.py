@@ -80,7 +80,7 @@ def _plan_all(targets: list[JobCandidate]) -> int:
     failed validation or the binary could not run.
     """
     try:
-        jobspec.ensure_nomad()
+        nomad_bin = jobspec.ensure_nomad()
     except JobSpecError as exc:
         pp.error(str(exc))
         return 1
@@ -93,8 +93,8 @@ def _plan_all(targets: list[JobCandidate]) -> int:
     for path in dict.fromkeys(c.file.path for c in targets):
         pp.header(f"plan: {path.name}")
         try:
-            jobspec.validate(path, config)
-            jobspec.plan(path, config)
+            jobspec.validate(path, config, nomad_bin=nomad_bin)
+            jobspec.plan(path, config, nomad_bin=nomad_bin)
         except JobSpecError as exc:
             pp.error(str(exc))
             failures += 1

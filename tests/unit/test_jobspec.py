@@ -54,26 +54,25 @@ def test_validate_passes(monkeypatch, nomad_config) -> None:
         calls.append((argv, kwargs))
         return _FakeResult()
 
-    # Given a nomad binary on PATH
-    monkeypatch.setattr(jobspec, "which", lambda name: Path("/usr/bin/nomad"))
     monkeypatch.setattr(jobspec, "run_command", fake_run)
 
-    # When validating a job file
-    jobspec.validate(Path("/home/user/web.hcl"), nomad_config)
+    # When validating a job file with a resolved binary path
+    jobspec.validate(Path("/home/user/web.hcl"), nomad_config, nomad_bin=Path("/usr/bin/nomad"))
 
     # Then the correct argv runs with the config's cluster address in the env
     argv, kwargs = calls[0]
-    assert argv == ["nomad", "job", "validate", "/home/user/web.hcl"]
+    assert argv == ["/usr/bin/nomad", "job", "validate", "/home/user/web.hcl"]
     assert kwargs["env"]["NOMAD_ADDR"] == "http://nomad.test:4646"
 
 
 def test_compile_to_json_returns_stdout(monkeypatch, nomad_config) -> None:
     """Verify compile_to_json returns the binary's JSON stdout as bytes."""
-    monkeypatch.setattr(jobspec, "which", lambda name: Path("/usr/bin/nomad"))
     monkeypatch.setattr(
         jobspec, "run_command", lambda argv, **kw: _FakeResult(stdout='{"Job": {"ID": "web"}}')
     )
-    out = jobspec.compile_to_json(Path("/home/user/web.hcl"), nomad_config)
+    out = jobspec.compile_to_json(
+        Path("/home/user/web.hcl"), nomad_config, nomad_bin=Path("/usr/bin/nomad")
+    )
     assert out == b'{"Job": {"ID": "web"}}'
 
 
@@ -85,12 +84,12 @@ def test_compile_to_json_forwards_config_env(monkeypatch, nomad_config) -> None:
         calls.append(kwargs)
         return _FakeResult(stdout="{}")
 
-    # Given a nomad binary on PATH
-    monkeypatch.setattr(jobspec, "which", lambda name: Path("/usr/bin/nomad"))
     monkeypatch.setattr(jobspec, "run_command", fake_run)
 
-    # When compiling a job file
-    jobspec.compile_to_json(Path("/home/user/web.hcl"), nomad_config)
+    # When compiling a job file with a resolved binary path
+    jobspec.compile_to_json(
+        Path("/home/user/web.hcl"), nomad_config, nomad_bin=Path("/usr/bin/nomad")
+    )
 
     # Then the config's cluster address rides along in the env
     assert calls[0]["env"]["NOMAD_ADDR"] == "http://nomad.test:4646"
@@ -103,10 +102,11 @@ def test_compile_to_json_failure_raises(monkeypatch, nomad_config) -> None:
     def fake_run(argv, **kw) -> None:
         raise ShellCommandFailedError(msg="boom")
 
-    monkeypatch.setattr(jobspec, "which", lambda name: Path("/usr/bin/nomad"))
     monkeypatch.setattr(jobspec, "run_command", fake_run)
     with pytest.raises(JobSpecError):
-        jobspec.compile_to_json(Path("/home/user/web.hcl"), nomad_config)
+        jobspec.compile_to_json(
+            Path("/home/user/web.hcl"), nomad_config, nomad_bin=Path("/usr/bin/nomad")
+        )
 
 
 def test_plan_returns_exit_code(monkeypatch, nomad_config) -> None:
@@ -120,17 +120,17 @@ def test_plan_returns_exit_code(monkeypatch, nomad_config) -> None:
         recorded_kwargs.append(kwargs)
         return _FakeResult(returncode=1)
 
-    # Given a nomad binary on PATH
-    monkeypatch.setattr(jobspec, "which", lambda name: Path("/usr/bin/nomad"))
     monkeypatch.setattr(jobspec, "run_command", fake_run)
 
-    # When plan is called
-    result = jobspec.plan(Path("/home/user/web.hcl"), nomad_config)
+    # When plan is called with a resolved binary path
+    result = jobspec.plan(
+        Path("/home/user/web.hcl"), nomad_config, nomad_bin=Path("/usr/bin/nomad")
+    )
 
     # Then the exit code is forwarded as-is
     assert result == 1
     # Then the correct argv was used
-    assert recorded_argv == [["nomad", "job", "plan", "/home/user/web.hcl"]]
+    assert recorded_argv == [["/usr/bin/nomad", "job", "plan", "/home/user/web.hcl"]]
     # Then check=False and stream=True were passed so exit-1 is data, not a raised error
     assert recorded_kwargs[0]["check"] is False
     assert recorded_kwargs[0]["stream"] is True
@@ -147,10 +147,8 @@ def test_plan_launch_failure_raises(monkeypatch, nomad_config) -> None:
         msg = "cannot launch"
         raise ShellCommandError(msg)
 
-    # Given a nomad binary on PATH
-    monkeypatch.setattr(jobspec, "which", lambda name: Path("/usr/bin/nomad"))
     monkeypatch.setattr(jobspec, "run_command", fake_run)
 
     # When / Then plan propagates the error as JobSpecError
     with pytest.raises(JobSpecError):
-        jobspec.plan(Path("/home/user/web.hcl"), nomad_config)
+        jobspec.plan(Path("/home/user/web.hcl"), nomad_config, nomad_bin=Path("/usr/bin/nomad"))

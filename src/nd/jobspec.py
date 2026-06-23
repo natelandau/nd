@@ -41,33 +41,36 @@ def binary_env(config: NomadConfig) -> dict[str, str]:
     return {**os.environ, **config.to_env()}
 
 
-def validate(file: Path, config: NomadConfig) -> None:
+def validate(file: Path, config: NomadConfig, *, nomad_bin: Path) -> None:
     """Validate a job file with `nomad job validate`.
 
+    ``nomad_bin`` is the resolved binary path from :func:`ensure_nomad`, passed in by
+    the caller so a multi-file run resolves the binary once rather than per file.
+
     Raises:
-        JobSpecError: If the binary is missing or validation fails.
+        JobSpecError: If validation fails or the binary cannot run.
     """
-    ensure_nomad()
     try:
-        run_command(["nomad", "job", "validate", str(file)], env=binary_env(config))
+        run_command([str(nomad_bin), "job", "validate", str(file)], env=binary_env(config))
     except ShellCommandError as exc:
         detail = _stderr(exc)
         msg = f"`nomad job validate {file}` failed: {detail}"
         raise JobSpecError(msg) from exc
 
 
-def plan(file: Path, config: NomadConfig) -> int:
+def plan(file: Path, config: NomadConfig, *, nomad_bin: Path) -> int:
     """Preview a job with `nomad job plan`, streaming its output verbatim.
 
+    ``nomad_bin`` is the resolved binary path from :func:`ensure_nomad`, passed in by
+    the caller so a multi-file run resolves the binary once rather than per file.
     Returns the binary's exit code (1 means changes are present, 0 means none).
 
     Raises:
-        JobSpecError: If the binary is missing or cannot be launched.
+        JobSpecError: If the binary cannot be launched.
     """
-    ensure_nomad()
     try:
         result = run_command(
-            ["nomad", "job", "plan", str(file)],
+            [str(nomad_bin), "job", "plan", str(file)],
             env=binary_env(config),
             stream=True,
             check=False,
@@ -78,17 +81,20 @@ def plan(file: Path, config: NomadConfig) -> int:
     return result.returncode
 
 
-def compile_to_json(file: Path, config: NomadConfig) -> bytes:
+def compile_to_json(file: Path, config: NomadConfig, *, nomad_bin: Path) -> bytes:
     """Compile a job file to its JSON register payload via `nomad job run -output`.
 
+    ``nomad_bin`` is the resolved binary path from :func:`ensure_nomad`, passed in by
+    the caller so a multi-file run resolves the binary once rather than per file.
     Returns the ``{"Job": {...}}`` JSON bytes without submitting anything.
 
     Raises:
-        JobSpecError: If the binary is missing or compilation fails.
+        JobSpecError: If compilation fails.
     """
-    ensure_nomad()
     try:
-        result = run_command(["nomad", "job", "run", "-output", str(file)], env=binary_env(config))
+        result = run_command(
+            [str(nomad_bin), "job", "run", "-output", str(file)], env=binary_env(config)
+        )
     except ShellCommandError as exc:
         msg = f"`nomad job run -output {file}` failed: {_stderr(exc)}"
         raise JobSpecError(msg) from exc
