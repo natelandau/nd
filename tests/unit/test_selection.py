@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
-from nd.selection import resolve_targets
+from nd.selection import (
+    TargetResolution,
+    pick_single,
+    resolve_targets,
+    select_one_candidate,
+)
 
 
 @dataclass(frozen=True)
@@ -42,3 +48,51 @@ def test_resolve_targets_no_match() -> None:
     res = resolve_targets(_items(), "zzz", name_of=lambda i: i.name)
     assert res.needs_prompt is False
     assert res.candidates == []
+
+
+def test_select_one_candidate_unambiguous_returns_lone_item() -> None:
+    """Verify an unambiguous resolution returns its single candidate without prompting."""
+    # Given a resolution that matched exactly one item and needs no prompt
+    resolution = TargetResolution(candidates=["web"], needs_prompt=False)
+
+    # When selecting a single candidate
+    result = asyncio.run(select_one_candidate(resolution, "Pick", label_of=lambda s: s))
+
+    # Then the lone candidate is returned
+    assert result == "web"
+
+
+def test_select_one_candidate_empty_returns_none() -> None:
+    """Verify a resolution with no candidates returns None (caller reports the miss)."""
+    # Given a resolution that matched nothing
+    resolution = TargetResolution(candidates=[], needs_prompt=False)
+
+    # When selecting a single candidate
+    result = asyncio.run(select_one_candidate(resolution, "Pick", label_of=lambda s: s))
+
+    # Then None is returned
+    assert result is None
+
+
+def test_pick_single_one_item_returns_it() -> None:
+    """Verify a single item is returned without a prompt."""
+    # Given exactly one item
+    items = ["only"]
+
+    # When picking a single item
+    result = asyncio.run(pick_single(items, "Pick", label_of=lambda s: s))
+
+    # Then it is returned directly
+    assert result == "only"
+
+
+def test_pick_single_empty_returns_none() -> None:
+    """Verify an empty list returns None."""
+    # Given no items
+    items: list[str] = []
+
+    # When picking a single item
+    result = asyncio.run(pick_single(items, "Pick", label_of=lambda s: s))
+
+    # Then None is returned
+    assert result is None

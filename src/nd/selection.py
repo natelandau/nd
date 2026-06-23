@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from nclutils import pp
 
-from nd.ui.prompts import select_many
+from nd.ui.prompts import select_many, select_one
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -58,3 +58,34 @@ async def select_candidates[T](
         pp.info("Nothing selected")
         return None
     return chosen
+
+
+async def select_one_candidate[T](
+    resolution: TargetResolution[T], prompt: str, *, label_of: Callable[[T], str]
+) -> T | None:
+    """Resolve a single selection from a name-argument resolution.
+
+    The single-select sibling of ``select_candidates``: an unambiguous resolution
+    returns its lone candidate directly, while several matches are offered with
+    ``select_one``. Returns None when nothing matched (caller reports the miss) or
+    the user cancels.
+    """
+    if not resolution.needs_prompt:
+        return resolution.candidates[0] if resolution.candidates else None
+    choices = [(label_of(item), item) for item in resolution.candidates]
+    return await select_one(choices, prompt)
+
+
+async def pick_single[T](items: list[T], prompt: str, *, label_of: Callable[[T], str]) -> T | None:
+    """Auto-select a lone item, or prompt with ``select_one`` when several exist.
+
+    Used by the allocation and task steps, which take no name argument: one item is
+    returned without a prompt, more than one is offered for a single choice. Returns
+    None for an empty list or when the user cancels.
+    """
+    if not items:
+        return None
+    if len(items) == 1:
+        return items[0]
+    choices = [(label_of(item), item) for item in items]
+    return await select_one(choices, prompt)
