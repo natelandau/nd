@@ -29,17 +29,9 @@ class AllocListStub(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
     modify_index: int
 
 
-class Allocation(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
-    """An allocation as returned by ``GET /v1/allocation/:id``."""
+class Allocation(AllocListStub, frozen=True, kw_only=True):
+    """An allocation as returned by ``GET /v1/allocation/:id``.
 
-    id: str = msgspec.field(name="ID")
-    name: str
-    namespace: str = "default"
-    node_id: str = msgspec.field(name="NodeID")
-    job_id: str = msgspec.field(name="JobID")
-    task_group: str
-    client_status: str
-    desired_status: str
-    task_states: dict[str, TaskState] = msgspec.field(name="TaskStates", default_factory=dict)
-    create_index: int
-    modify_index: int
+    The single-allocation endpoint returns the same shape as the list endpoint, so
+    this carries the list stub's fields unchanged under a name that documents intent.
+    """
