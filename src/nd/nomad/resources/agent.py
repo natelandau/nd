@@ -22,4 +22,4 @@ class AgentResource(BaseResource):
     async def members(self) -> list[AgentMember]:
         """List the cluster's server members (``GET /v1/agent/members``)."""
         response = await self._transport.request("GET", "/agent/members")
-        return list(self._decode(response, AgentMembers).members)
+        return self._decode(response, AgentMembers).members

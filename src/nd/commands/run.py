@@ -57,12 +57,6 @@ def deploy_phase(dep: Deployment) -> str:
 
     Aggregates counts across all task groups so the live panel shows a single
     meaningful number rather than per-group noise.
-
-    Args:
-        dep: The deployment object with task_groups and status fields.
-
-    Returns:
-        Human-readable progress string for the live panel.
     """
     healthy = sum(tg.healthy_allocs for tg in dep.task_groups.values())
     desired = sum(tg.desired_total for tg in dep.task_groups.values())
@@ -94,7 +88,7 @@ def task_lifecycle(body: bytes) -> TaskLifecycle:
     return lifecycle
 
 
-def _task_role(lifecycle: dict | None, index: int) -> tuple[int, str] | None:
+def _task_role(lifecycle: dict[str, object] | None, index: int) -> tuple[int, str] | None:
     """Return a task's (sort order, label) from its lifecycle block, or None to skip.
 
     A task with no lifecycle block is a main task. Poststop tasks return None so
@@ -120,14 +114,7 @@ _OUTCOME_ROW: dict[DeployStatus, tuple[str, str]] = {
 
 
 async def _running_job_names(client: NomadClient) -> set[str]:
-    """Return the names of jobs currently running in the cluster.
-
-    Args:
-        client: Authenticated Nomad client.
-
-    Returns:
-        Set of job name strings that have ``status == "running"``.
-    """
+    """Return the names of jobs currently running in the cluster."""
     jobs = await client.jobs.list()
     return {j.name for j in jobs if j.status == "running"}
 

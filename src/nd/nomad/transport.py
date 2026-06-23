@@ -35,16 +35,9 @@ class AsyncTransport:
             verify=_build_verify(config),
             cert=_build_client_cert(config),
         )
-
-    @property
-    def default_params(self) -> dict[str, str]:
-        """Query params applied to every request when configured."""
-        params: dict[str, str] = {}
-        if self._config.namespace:
-            params["namespace"] = self._config.namespace
-        if self._config.region:
-            params["region"] = self._config.region
-        return params
+        # Config is frozen, so namespace/region never change: build the base query
+        # params once rather than rebuilding them on every request.
+        self.default_params = _default_params(config)
 
     async def request(
         self,
@@ -105,6 +98,16 @@ class AsyncTransport:
         await self.aclose()
 
 
+def _default_params(config: NomadConfig) -> dict[str, str]:
+    """Build the query params applied to every request when namespace/region are set."""
+    params: dict[str, str] = {}
+    if config.namespace:
+        params["namespace"] = config.namespace
+    if config.region:
+        params["region"] = config.region
+    return params
+
+
 def _build_verify(config: NomadConfig) -> ssl.SSLContext | bool:
     """Build the TLS verification context from the configured CA cert."""
     if config.ca_cert:
@@ -119,19 +122,20 @@ def _build_client_cert(config: NomadConfig) -> tuple[str, str] | str | None:
     return config.client_cert
 
 
+# Exact-match HTTP status -> typed exception; 5xx and anything else fall back below.
+_STATUS_ERRORS: dict[int, type[NomadHTTPError]] = {
+    400: NomadBadRequestError,
+    403: NomadAuthError,
+    404: NomadNotFoundError,
+}
+
+
 def _http_error(method: str, path: str, response: httpx2.Response) -> NomadHTTPError:
     """Map a non-2xx response to the matching typed exception."""
     status = response.status_code
     body = response.text
     message = f"Nomad {method} {path} returned {status}: {body}"
-    if status == 400:  # noqa: PLR2004
-        error_cls: type[NomadHTTPError] = NomadBadRequestError
-    elif status == 403:  # noqa: PLR2004
-        error_cls = NomadAuthError
-    elif status == 404:  # noqa: PLR2004
-        error_cls = NomadNotFoundError
-    elif status >= 500:  # noqa: PLR2004
-        error_cls = NomadServerError
-    else:
-        error_cls = NomadHTTPError
+    error_cls = _STATUS_ERRORS.get(status) or (
+        NomadServerError if status >= 500 else NomadHTTPError  # noqa: PLR2004
+    )
     return error_cls(message, status_code=status, method=method, path=path, body=body)

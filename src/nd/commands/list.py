@@ -63,22 +63,18 @@ def build_rows(files: list[JobFile], jobs: list[JobListStub]) -> list[ListRow]:
 
 
 def _render(rows: list[ListRow], ui_base: str) -> None:
-    """Print the job-file table inside a titled panel.
-
-    Args:
-        rows: The classified job-file rows to render.
-        ui_base: Base URL used to link deployed job names to the web UI.
-    """
+    """Print the job-file table inside a titled panel, linking deployed jobs to the web UI."""
     if not rows:
         pp.info("No job files found; set [jobs] directories in your nd config.")
         return
     table = status_table("JOB", "STATUS", "FILE")
     for row in rows:
         name = link(job_url(ui_base, row.link_id), row.job_name) if row.link_id else row.job_name
+        # "not deployed" is not a Nomad status, so style it muted rather than via status_cell.
         cell = (
             status_cell(row.cluster_status)
             if row.cluster_status != _NOT_DEPLOYED
-            else "[dim]• not deployed[/]"  # Dim "not deployed": it is not a Nomad status, so style it muted rather than via status_cell
+            else "[dim]• not deployed[/]"
         )
         table.add_row(name, cell, row.path)
     pp.console().print(titled_panel(table, "Job files"))

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import builtins
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING
 
 import msgspec
 
@@ -14,8 +14,6 @@ if TYPE_CHECKING:
 
     from nd.nomad.transport import AsyncTransport
 
-T = TypeVar("T")
-
 
 class BaseResource:
     """Base class holding a transport reference and msgspec decode helpers."""
@@ -23,7 +21,7 @@ class BaseResource:
     def __init__(self, transport: AsyncTransport) -> None:
         self._transport = transport
 
-    def _decode(self, response: httpx2.Response, type_: type[T]) -> T:
+    def _decode[T](self, response: httpx2.Response, type_: type[T]) -> T:
         """Decode a response body into ``type_``, mapping failures to NomadDecodeError."""
         try:
             return msgspec.json.decode(response.content, type=type_)
@@ -31,7 +29,7 @@ class BaseResource:
             msg = f"Failed to decode {type_.__name__}: {exc}"
             raise NomadDecodeError(msg, payload=response.text[:500]) from exc
 
-    def _decode_list(self, response: httpx2.Response, item_type: type[T]) -> list[T]:
+    def _decode_list[T](self, response: httpx2.Response, item_type: type[T]) -> list[T]:
         """Decode a JSON array into ``list[item_type]``."""
         try:
             return msgspec.json.decode(response.content, type=builtins.list[item_type])  # ty: ignore[invalid-type-form]
@@ -39,7 +37,7 @@ class BaseResource:
             msg = f"Failed to decode list[{item_type.__name__}]: {exc}"
             raise NomadDecodeError(msg, payload=response.text[:500]) from exc
 
-    async def _paginate_list(self, path: str, item_type: type[T]) -> list[T]:
+    async def _paginate_list[T](self, path: str, item_type: type[T]) -> list[T]:
         """Fetch every page of a list endpoint, decoding each into ``item_type``."""
         items: list[T] = []
         async for response in self._transport.paginate(path):

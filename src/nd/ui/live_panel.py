@@ -89,7 +89,7 @@ def _build_panel(rows: list[LiveRow], *, title: str, now: float) -> Panel:
             glyph, f"[bold]{row.label}[/]", row.phase, fmt_elapsed(ended - row.started_at)
         )
         for child in row.children:
-            cells = [*child.cells[:3], "", "", ""][:3]  # pad/truncate to the 3 detail columns
+            cells = [*child.cells, "", "", ""][:3]  # pad/truncate to the 3 detail columns
             label = f"[dim]{'  ' * child.depth}└[/] {cells[0]}"
             table.add_row("", label, cells[1], cells[2])
     return titled_panel(table, title)

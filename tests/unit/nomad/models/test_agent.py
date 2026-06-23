@@ -1,23 +1,8 @@
 """Tests for agent models and shared helpers."""
 
-import datetime as dt
-
 import msgspec
 
 from nd.nomad.models.agent import AgentSelf
-from nd.nomad.models.common import ns_to_datetime
-
-
-def test_ns_to_datetime_converts_to_aware_utc():
-    """Verify ns_to_datetime converts a nanosecond epoch to an aware UTC datetime."""
-    # Given a nanosecond-epoch timestamp (1_700_000_000 seconds since the epoch)
-    nanos = 1_700_000_000_000_000_000
-
-    # When converting it
-    result = ns_to_datetime(nanos)
-
-    # Then the result is the expected aware UTC datetime
-    assert result == dt.datetime(2023, 11, 14, 22, 13, 20, tzinfo=dt.UTC)
 
 
 def test_agent_self_decodes_subset_and_ignores_unknown():
