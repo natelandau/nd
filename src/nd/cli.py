@@ -19,7 +19,6 @@ from nd.nomad import (
 )
 
 app = typer.Typer(
-    no_args_is_help=True,
     add_completion=False,
     context_settings={"help_option_names": ["-h", "--help"]},
 )
@@ -48,7 +47,7 @@ def _version_callback(value: bool) -> None:  # noqa: FBT001
         raise typer.Exit
 
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def root(
     ctx: typer.Context,
     verbose: Annotated[
@@ -70,6 +69,10 @@ def root(
     """Run nd, a friendly wrapper around the Nomad API."""
     pp.configure(verbosity=verbose)
     ctx.obj = AppState(verbose=verbose)
+
+    # With no subcommand, default to the status dashboard rather than printing help.
+    if ctx.invoked_subcommand is None:
+        status.status(ctx, verbose=verbose)
 
 
 def main() -> None:

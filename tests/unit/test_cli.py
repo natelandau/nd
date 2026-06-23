@@ -35,6 +35,21 @@ def test_cli_dash_h_shows_help():
     assert "Usage:" in result.output
 
 
+def test_cli_no_subcommand_runs_status(mocker):
+    """Verify invoking nd with no subcommand defaults to the status dashboard."""
+    # Given the real status callback runs but its cluster query and rendering are stubbed
+    collect_mock = mocker.patch("nd.commands.status.command._collect")
+    render_mock = mocker.patch("nd.commands.status.command.render_report")
+
+    # When invoking the root app with no subcommand
+    result = CliRunner().invoke(app, [])
+
+    # Then the status dashboard is collected and rendered
+    assert result.exit_code == 0, result.output
+    assert collect_mock.called
+    assert render_mock.called
+
+
 def test_stop_command_is_registered():
     """Verify the stop subcommand is wired into the root app."""
     # Given the root CLI app

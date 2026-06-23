@@ -52,7 +52,7 @@ Public surface is re-exported from `nd.nomad`: `from nd.nomad import NomadClient
 The CLI entry point is `nd:main` (per `pyproject.toml`), implemented in `src/nd/cli.py`:
 
 - A root `typer.Typer()` registers subcommands via `app.add_typer()` (`status`, `stop`, `clean`, `list`, `plan`, `run`, `logs`, `exec`, `volume`).
-- The root `@app.callback()` wires `-v`/`-vv` into `pp.configure()` and stores an `AppState` on `ctx.obj`; `--version` prints and exits.
+- The root `@app.callback(invoke_without_command=True)` wires `-v`/`-vv` into `pp.configure()` and stores an `AppState` on `ctx.obj`; `--version` prints and exits. When no subcommand is given it defaults to running `status` (so bare `nd` shows the cluster dashboard rather than help).
 - `main()` wraps `app()` to translate `KeyboardInterrupt` into a clean exit 130 and the `NomadError` subclasses into non-zero exits with a friendly message (no traceback).
 - Each subcommand module exports its own `typer.Typer()` instance and uses `@app.callback(invoke_without_command=True)` to allow future sub-subcommands.
 
