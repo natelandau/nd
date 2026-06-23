@@ -457,7 +457,7 @@ wheels = [
 ]
 
 [[package]]
-name = "nd"
+name = "nomadctl"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

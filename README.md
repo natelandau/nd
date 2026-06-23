@@ -2,7 +2,31 @@
 
 `nd` is a command-line tool for managing a [Hashicorp Nomad](https://developer.hashicorp.com/nomad) homelab. It wraps the Nomad HTTP API behind a small, friendly CLI built with Typer and Rich.
 
-## Install and run
+> The package is published on PyPI as [`nomadctl`](https://pypi.org/project/nomadctl/); the installed command is `nd`.
+
+## Install
+
+Install the CLI as an isolated tool (recommended):
+
+```bash
+uv tool install nomadctl
+```
+
+Or install it into the current environment with pip:
+
+```bash
+pip install nomadctl
+```
+
+Either way the `nd` command is added to your `PATH`:
+
+```bash
+nd --help
+```
+
+### Run from source
+
+To work on `nd` from a checkout, install the dependencies and run it through uv:
 
 ```bash
 uv sync

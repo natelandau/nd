@@ -1,5 +1,17 @@
 [project]
     authors = [{ name = "Nathaniel Landau", email = "github@natelandau.com" }]
+    classifiers = [
+        "Development Status :: 4 - Beta",
+        "Environment :: Console",
+        "Intended Audience :: System Administrators",
+        "Operating System :: OS Independent",
+        "Programming Language :: Python :: 3 :: Only",
+        "Programming Language :: Python :: 3.13",
+        "Programming Language :: Python :: 3.14",
+        "Topic :: System :: Systems Administration",
+        "Topic :: Utilities",
+        "Typing :: Typed",
+    ]
     dependencies = [
         "httpx2>=2.4.0,<3.0.0",
         "msgspec>=0.21.1",
@@ -7,11 +19,19 @@
         "rich>=15.0.0",
         "typer>=0.26.7",
     ]
-    description = "Add your description here"
-    name = "nd"
+    description = "A friendly command-line tool for managing a HashiCorp Nomad homelab cluster."
+    keywords = ["cli", "devops", "hashicorp", "homelab", "nomad", "orchestration"]
+    license = "MIT"
+    license-files = ["LICENSE"]
+    name = "nomadctl"
     readme = "README.md"
     requires-python = ">=3.13, <3.15"
     version = "0.1.0"
+
+    [project.urls]
+        Homepage   = "https://github.com/natelandau/nd"
+        Issues     = "https://github.com/natelandau/nd/issues"
+        Repository = "https://github.com/natelandau/nd"
 
     [project.scripts]
         nd = "nd:main"
@@ -19,6 +39,11 @@
 [build-system]
     build-backend = "uv_build"
     requires      = ["uv_build>=0.11.23,<0.12.0"]
+
+    # Distribution is published as "nomadctl"; the importable module and `nd`
+    # CLI command stay "nd", so pin the packaged module name explicitly.
+    [tool.uv.build-backend]
+        module-name = "nd"
 
 [dependency-groups]
     dev = [
