@@ -14,12 +14,15 @@ runner = CliRunner()
 
 def _patch(monkeypatch, *, target: ResolvedTarget | None, exit_code: int = 0) -> MagicMock:
     """Patch the resolver to return a fixed target and capture exec_shell calls."""
+    from nd.commands import _common
     from nd.commands import exec as exec_module
 
-    async def _fake_resolve(config, *, job_arg, task_arg) -> tuple[int, ResolvedTarget | None]:
+    async def _fake_resolve(
+        config, *, job_arg, task_arg, running_only=True
+    ) -> tuple[int, ResolvedTarget | None]:
         return (exit_code, target)
 
-    monkeypatch.setattr(exec_module, "resolve_target", _fake_resolve)
+    monkeypatch.setattr(_common, "resolve_target", _fake_resolve)
     shell = MagicMock(return_value=0)
     monkeypatch.setattr(exec_module.allocio, "exec_shell", shell)
     return shell

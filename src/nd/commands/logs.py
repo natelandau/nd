@@ -2,17 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path  # noqa: TC003
 from typing import Annotated
 
 import typer
-from nclutils import pp
 
 from nd import allocio
-from nd.alloc_target import resolve_target
-from nd.commands._common import VerboseOption, configure_verbosity
-from nd.jobspec import JobSpecError
+from nd.commands._common import VerboseOption, configure_verbosity, run_alloc_action
 from nd.nomad import NomadConfig
 
 # allow_interspersed_args lets options follow the positional JOB (e.g. `nd logs web -e`).
@@ -63,26 +59,16 @@ def logs(  # noqa: PLR0913
     interrupted with Ctrl-C. Pass --stdout or --stderr to show a single stream.
     """
     configure_verbosity(ctx, verbose)
-
     config = NomadConfig.resolve()
+    streams = _streams(only_stdout=only_stdout, only_stderr=only_stderr)
     # running_only=False so logs of a dead, completed, or failed task stay reachable
     # (debugging a crash is the main reason to read logs).
-    exit_code, target = asyncio.run(
-        resolve_target(config, job_arg=job, task_arg=task, running_only=False)
+    run_alloc_action(
+        config,
+        job=job,
+        task=task,
+        running_only=False,
+        action=lambda alloc_id, task_name: allocio.stream_logs(
+            config, alloc_id, task_name, streams=streams, tail=tail, export_path=export
+        ),
     )
-    if target is None:
-        raise typer.Exit(exit_code)
-
-    try:
-        code = allocio.stream_logs(
-            config,
-            target.alloc_id,
-            target.task,
-            streams=_streams(only_stdout=only_stdout, only_stderr=only_stderr),
-            tail=tail,
-            export_path=export,
-        )
-    except JobSpecError as exc:
-        pp.error(str(exc))
-        raise typer.Exit(1) from exc
-    raise typer.Exit(code)

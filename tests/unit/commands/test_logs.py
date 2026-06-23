@@ -14,6 +14,7 @@ runner = CliRunner()
 
 def _patch(monkeypatch, *, target: ResolvedTarget | None, exit_code: int = 0) -> MagicMock:
     """Patch the resolver to return a fixed target and capture stream_logs calls."""
+    from nd.commands import _common
     from nd.commands import logs as logs_module
 
     async def _fake_resolve(
@@ -21,7 +22,7 @@ def _patch(monkeypatch, *, target: ResolvedTarget | None, exit_code: int = 0) ->
     ) -> tuple[int, ResolvedTarget | None]:
         return (exit_code, target)
 
-    monkeypatch.setattr(logs_module, "resolve_target", _fake_resolve)
+    monkeypatch.setattr(_common, "resolve_target", _fake_resolve)
     stream = MagicMock(return_value=0)
     monkeypatch.setattr(logs_module.allocio, "stream_logs", stream)
     return stream
@@ -126,6 +127,7 @@ def test_logs_propagates_nonzero_exit_code(monkeypatch):
 def test_logs_resolves_including_dead_targets(monkeypatch):
     """Verify logs resolves with running_only=False so dead tasks stay reachable."""
     # Given a resolver that records the running_only flag it is asked for
+    from nd.commands import _common
     from nd.commands import logs as logs_module
 
     captured: dict[str, bool] = {}
@@ -136,7 +138,7 @@ def test_logs_resolves_including_dead_targets(monkeypatch):
         captured["running_only"] = running_only
         return (0, ResolvedTarget("web", "alloc-1", "server"))
 
-    monkeypatch.setattr(logs_module, "resolve_target", _fake_resolve)
+    monkeypatch.setattr(_common, "resolve_target", _fake_resolve)
     monkeypatch.setattr(logs_module.allocio, "stream_logs", MagicMock(return_value=0))
 
     # When invoking logs

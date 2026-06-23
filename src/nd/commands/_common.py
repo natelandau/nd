@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 from time import perf_counter
-from typing import TYPE_CHECKING, Annotated, Any, Protocol
+from typing import TYPE_CHECKING, Annotated, Any, NoReturn, Protocol
 
 import typer
 from nclutils import pp
 from nclutils.pp import Verbosity
 
+from nd.alloc_target import resolve_target
+from nd.jobspec import JobSpecError
+
 if TYPE_CHECKING:
-    from collections.abc import Awaitable
+    from collections.abc import Awaitable, Callable
+
+    from nd.nomad.config import NomadConfig
 
 # Every subcommand accepts the same -v/--verbose count option; declare it once.
 VerboseOption = Annotated[
@@ -63,3 +69,32 @@ async def record_step(
         else:
             step.sub(f"{method} /v1{path}")
     return result
+
+
+def run_alloc_action(
+    config: NomadConfig,
+    *,
+    job: str | None,
+    task: str | None,
+    running_only: bool,
+    action: Callable[[str, str], int],
+) -> NoReturn:
+    """Resolve an exec/logs target, run a ``nomad`` binary action against it, then exit.
+
+    Shared tail of ``nd exec`` and ``nd logs``: resolve the (job, allocation, task)
+    target through the API client, exit cleanly when there is nothing to act on, then
+    hand the resolved alloc id and task name to ``action`` (a binary wrapper). A missing
+    binary or failed invocation becomes a friendly exit 1; otherwise the command exits
+    with the action's own return code.
+    """
+    exit_code, target = asyncio.run(
+        resolve_target(config, job_arg=job, task_arg=task, running_only=running_only)
+    )
+    if target is None:
+        raise typer.Exit(exit_code)
+    try:
+        code = action(target.alloc_id, target.task)
+    except JobSpecError as exc:
+        pp.error(str(exc))
+        raise typer.Exit(1) from exc
+    raise typer.Exit(code)
