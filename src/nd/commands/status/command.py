@@ -12,13 +12,26 @@ from nclutils import pp
 from nd.commands._common import VerboseOption, configure_verbosity, record_step
 from nd.commands.status.render import render_report
 from nd.commands.status.report import build_report
-from nd.nomad import NomadClient, NomadConfig
+from nd.nomad import NomadClient, NomadConfig, NomadError
 
 if TYPE_CHECKING:
     from nd.commands.status.report import StatusReport
 
 
 app = typer.Typer()
+
+
+async def _safe_volumes(client: NomadClient) -> list:
+    """Return host volumes, degrading to an empty list if the endpoint is unavailable.
+
+    Older Nomad versions and tokens lacking volume read access make the volumes
+    endpoint fail; the dashboard should still render the rest of the cluster state.
+    """
+    try:
+        return await client.volumes.list()
+    except NomadError as exc:
+        pp.debug(f"Skipping volumes in status: {exc}")
+        return []
 
 
 @app.callback(invoke_without_command=True)
@@ -57,7 +70,16 @@ async def _collect(*, verbose: int) -> StatusReport:
                     coro, step=step, verbose=verbose, method="GET", path=path, count_items=True
                 )
 
-            nodes, jobs, allocs, members, leader, deployments, evals = await asyncio.gather(
+            (
+                nodes,
+                jobs,
+                allocs,
+                members,
+                leader,
+                deployments,
+                evals,
+                volumes,
+            ) = await asyncio.gather(
                 fetch("/nodes", client.nodes.list()),
                 fetch("/jobs", client.jobs.list()),
                 fetch("/allocations", client.allocations.list()),
@@ -65,6 +87,7 @@ async def _collect(*, verbose: int) -> StatusReport:
                 fetch("/status/leader", client.status.leader()),
                 fetch("/deployments", client.deployments.list()),
                 fetch("/evaluations", client.evaluations.list()),
+                fetch("/volumes", _safe_volumes(client)),
             )
     return build_report(
         nodes=nodes,
@@ -75,4 +98,5 @@ async def _collect(*, verbose: int) -> StatusReport:
         leader=leader,
         deployments=deployments,
         evals=evals,
+        volumes=volumes,
     )

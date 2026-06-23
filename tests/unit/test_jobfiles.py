@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from nd.jobfiles import discover_job_files, extract_job_names, load_job_directories
+from nd.jobfiles import (
+    discover_job_files,
+    extract_job_names,
+    is_job_file,
+    load_job_directories,
+)
 from nd.nomad.errors import NomadConfigError
 
 
@@ -24,6 +29,29 @@ def test_extract_job_names_ignores_interpolated() -> None:
     """Verify an interpolated job name is skipped rather than parsed incorrectly."""
     text = 'job "${var.name}" {\n}\njob "static" {}\n'
     assert extract_job_names(text) == ["static"]
+
+
+def test_is_job_file_detects_literal_and_interpolated() -> None:
+    """Verify is_job_file recognizes job blocks with literal or interpolated names."""
+    # Given job-block text and non-job text
+    # When classifying each
+    # Then a literal job block, an interpolated one, and a non-job file are classified
+    assert is_job_file('job "web" {}') is True
+    assert is_job_file('job "${var.name}" {\n}') is True
+    assert is_job_file('type = "host"\nname = "data"') is False
+
+
+def test_discover_job_files_excludes_non_job_specs(tmp_path: Path) -> None:
+    """Verify discovery keeps only files containing a job block, dropping volume specs."""
+    # Given a directory holding a job file and a host-volume spec (both .hcl)
+    d = tmp_path / "jobs"
+    d.mkdir()
+    (d / "web.hcl").write_text('job "web" {}', encoding="utf-8")
+    (d / "vol-data.hcl").write_text('name = "data"\ntype = "host"', encoding="utf-8")
+    # When discovering
+    files = discover_job_files([d])
+    # Then only the job file is returned
+    assert {jf.path.name for jf in files} == {"web.hcl"}
 
 
 def test_discover_job_files_scans_existing_dirs(tmp_path: Path) -> None:

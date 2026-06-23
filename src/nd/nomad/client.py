@@ -13,6 +13,7 @@ from nd.nomad.resources.jobs import JobsResource
 from nd.nomad.resources.nodes import NodesResource
 from nd.nomad.resources.status import StatusResource
 from nd.nomad.resources.system import SystemResource
+from nd.nomad.resources.volumes import VolumesResource
 from nd.nomad.transport import AsyncTransport
 
 
@@ -30,6 +31,7 @@ class NomadClient:
         self.deployments = DeploymentsResource(self._transport)
         self.evaluations = EvaluationsResource(self._transport)
         self.system = SystemResource(self._transport)
+        self.volumes = VolumesResource(self._transport)
 
     @classmethod
     def from_config(cls, config: NomadConfig) -> NomadClient:

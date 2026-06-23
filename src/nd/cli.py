@@ -9,7 +9,7 @@ import typer
 from nclutils import pp
 
 from nd import __version__
-from nd.commands import clean, exec, logs, plan, run, status, stop  # noqa: A004
+from nd.commands import clean, exec, logs, plan, run, status, stop, volume  # noqa: A004
 from nd.commands import list as list_cmd
 from nd.nomad import (
     NomadAuthError,
@@ -31,6 +31,7 @@ app.add_typer(plan.app, name="plan")
 app.add_typer(run.app, name="run")
 app.add_typer(logs.app, name="logs")
 app.add_typer(exec.app, name="exec")
+app.add_typer(volume.app, name="volume")
 
 
 @dataclass

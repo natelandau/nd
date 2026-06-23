@@ -15,6 +15,7 @@ from nd.nomad.models.deployment import DeploymentListStub
 from nd.nomad.models.evaluation import EvalListStub
 from nd.nomad.models.job import JobListStub
 from nd.nomad.models.node import NodeListStub
+from nd.nomad.models.volume import HostVolumeListStub
 
 _CONFIG = NomadConfig(address="http://nomad.test:4646", region="global", namespace="default")
 
@@ -715,6 +716,7 @@ def _mock_all(router: respx.Router) -> None:
     router.get(f"{_ADDR}/v1/status/leader").respond(json="10.0.0.1:4647")
     router.get(f"{_ADDR}/v1/deployments").respond(json=[])
     router.get(f"{_ADDR}/v1/evaluations").respond(json=[])
+    router.get(f"{_ADDR}/v1/volumes", params={"type": "host"}).respond(json=[])
 
 
 def test_collect_aggregates_all_endpoints(httpx2_mock: respx.Router, monkeypatch, tmp_path):
@@ -771,3 +773,57 @@ def test_verbose_flag_works_before_or_after_command(
     # Then both positions are accepted and exit cleanly
     assert runner.invoke(cli.app, ["-v", "status"]).exit_code == 0
     assert runner.invoke(cli.app, ["status", "-v"]).exit_code == 0
+
+
+def test_build_report_counts_volumes() -> None:
+    """Verify build_report groups by distinct volume name for the total count."""
+    # Given two registrations of the same volume name on different nodes
+    vols = [
+        HostVolumeListStub(id="data:n1", name="data", node_id="n1"),
+        HostVolumeListStub(id="data:n2", name="data", node_id="n2"),
+    ]
+    nodes = [_node(name="n1"), _node(name="n2")]
+
+    # When building the report
+    report = build_report(nodes=nodes, jobs=[], allocs=[], config=_CONFIG, volumes=vols)
+
+    # Then volumes_total counts distinct volume names, not registrations
+    assert report.volumes_total == 1
+    # And volume_rows has one aggregated row with both node names
+    assert len(report.volume_rows) == 1
+    assert report.volume_rows[0].name == "data"
+    assert sorted(report.volume_rows[0].nodes) == ["n1", "n2"]
+
+
+def test_build_report_volume_rows_resolve_node_names() -> None:
+    """Verify volume_rows carry resolved node names, not raw node IDs."""
+    # Given a volume whose node_id maps to a display name
+    vols = [HostVolumeListStub(id="data:n1", name="data", node_id="n1", state="ready")]
+    nodes = [_node(name="n1")]
+
+    # When building the report
+    report = build_report(nodes=nodes, jobs=[], allocs=[], config=_CONFIG, volumes=vols)
+
+    # Then the row's nodes list contains the display name
+    assert report.volume_rows[0].nodes == ["n1"]
+    assert report.volume_rows[0].state == "ready"
+
+
+def test_render_report_shows_volumes_panel() -> None:
+    """Verify the dashboard renders a Volumes panel listing volumes with node names."""
+    # Given a report with one volume registered on two nodes
+    vols = [
+        HostVolumeListStub(id="data:n1", name="data", node_id="n1", state="ready"),
+        HostVolumeListStub(id="data:n2", name="data", node_id="n2", state="ready"),
+    ]
+    nodes = [_node(name="n1"), _node(name="n2")]
+    report = build_report(nodes=nodes, jobs=[], allocs=[], config=_CONFIG, volumes=vols)
+
+    # When rendering it
+    text = _render_to_text(report)
+
+    # Then the volume name and both node names appear under a Volumes heading
+    assert "Volumes" in text
+    assert "data" in text
+    assert "n1" in text
+    assert "n2" in text

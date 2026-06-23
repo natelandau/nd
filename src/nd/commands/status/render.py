@@ -35,6 +35,7 @@ def render_report(report: StatusReport) -> None:
     console.print(_banner(report))
     console.print(_nodes_panel(report))
     console.print(_jobs_panel(report))
+    console.print(_volumes_panel(report))
     if report.deployments_active or report.evals_problem:
         console.print(_activity_panel(report))
 
@@ -85,7 +86,8 @@ def _banner(report: StatusReport) -> Panel:
     )
     grid.add_row(
         f"Deployments {len(report.deployments_active)} active   "
-        f"Evals {len(report.evals_problem)} blocked"
+        f"Evals {len(report.evals_problem)} blocked   "
+        f"Volumes {report.volumes_total}"
     )
     return Panel(
         grid, title=_banner_title(report), title_align="left", border_style=style, expand=False
@@ -133,6 +135,22 @@ def _jobs_panel(report: StatusReport) -> Panel:
             ", ".join(nodes) if nodes else "[dim]-[/]",
         )
     return titled_panel(table, "Jobs", expand=True)
+
+
+def _volumes_panel(report: StatusReport) -> Panel:
+    """Build the host-volumes panel with one row per distinct volume name.
+
+    Node names are shown as plain comma-separated text rather than GUID-linked
+    hyperlinks because each row represents a volume (not a node), and embedding
+    per-node links here adds visual noise without adding navigation value.
+    """
+    if not report.volume_rows:
+        return titled_panel("[dim]No host volumes[/]", "Volumes", expand=True)
+    table = _table("NAME", "NODES", "STATE")
+    for row in report.volume_rows:
+        nodes_text = ", ".join(row.nodes) if row.nodes else "[dim]-[/]"
+        table.add_row(row.name, nodes_text, status_cell(row.state))
+    return titled_panel(table, "Volumes", expand=True)
 
 
 def _activity_panel(report: StatusReport) -> Panel:

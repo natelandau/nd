@@ -105,6 +105,43 @@ def default_config_path() -> Path:
     return root / "nd" / "config.toml"
 
 
+def load_config_directories(section: str, config_path: Path | None = None) -> list[Path]:
+    """Read a ``[<section>] directories`` path list from the nd TOML config, expanding ``~``.
+
+    Returns an empty list when the config file or the ``[<section>]`` table is absent.
+    Reused by the job-file and volume-file discovery layers.
+
+    Args:
+        section: The TOML table name to read (e.g. ``"jobs"`` or ``"volumes"``).
+        config_path: Explicit path to an nd config file. Defaults to the XDG config
+            location when omitted.
+
+    Returns:
+        Expanded Path objects for each configured directory.
+
+    Raises:
+        NomadConfigError: If the config cannot be read or the section / directories
+            value has the wrong type.
+    """
+    path = config_path or default_config_path()
+    if not path.is_file():
+        return []
+    try:
+        data: dict[str, Any] = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        msg = f"Could not read config file {path}: {exc}"
+        raise NomadConfigError(msg) from exc
+    section_data: Any = data.get(section, {})
+    if not isinstance(section_data, dict):
+        msg = f"[{section}] section in {path} must be a table"
+        raise NomadConfigError(msg)
+    directories: Any = section_data.get("directories", [])
+    if not isinstance(directories, list):
+        msg = f"[{section}] directories in {path} must be a list of paths"
+        raise NomadConfigError(msg)
+    return [Path(str(d)).expanduser() for d in directories]
+
+
 def _load_config_file(path: Path) -> dict[str, Any]:
     """Load and validate the ``[nomad]`` table from an nd TOML config file."""
     try:

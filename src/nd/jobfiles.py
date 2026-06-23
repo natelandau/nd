@@ -3,23 +3,26 @@
 from __future__ import annotations
 
 import re
-import tomllib
 from dataclasses import dataclass
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from nclutils.fs import find_files
 
 from nd.constants import JOB_FILE_GLOBS
-from nd.nomad.config import default_config_path
-from nd.nomad.errors import NomadConfigError
+from nd.nomad.config import load_config_directories
 
 if TYPE_CHECKING:
     from collections.abc import Set as AbstractSet
+    from pathlib import Path
 
 # Matches a top-level `job "name" {` block opener with a literal (non-interpolated)
 # name. Interpolated names (containing `${`) are intentionally skipped.
 _JOB_BLOCK_RE = re.compile(r'^\s*job\s+"([^"$]+)"\s*\{', re.MULTILINE)
+
+# Detects the presence of a top-level `job "..." {` block regardless of whether the
+# name is literal or interpolated, so a real job file with a computed name still
+# validates as a job file (its name just resolves to nothing via extract_job_names).
+_JOB_BLOCK_DETECT_RE = re.compile(r'^\s*job\s+"[^"]+"\s*\{', re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -70,6 +73,15 @@ def extract_job_names(text: str) -> list[str]:
     return list(seen)
 
 
+def is_job_file(text: str) -> bool:
+    """Return whether ``text`` contains a top-level Nomad ``job`` block.
+
+    A ``.hcl``/``.nomad`` extension alone does not make a file a job spec, so callers
+    validate by content before treating a file as a job.
+    """
+    return _JOB_BLOCK_DETECT_RE.search(text) is not None
+
+
 def discover_job_files(directories: list[Path]) -> list[JobFile]:
     """Find job files in each existing directory and parse their job names.
 
@@ -86,10 +98,11 @@ def discover_job_files(directories: list[Path]) -> list[JobFile]:
     for directory in directories:
         if not directory.is_dir():
             continue
-        files.extend(
-            JobFile(path=path, job_names=extract_job_names(path.read_text(encoding="utf-8")))
-            for path in find_files(directory, globs=JOB_FILE_GLOBS)
-        )
+        for path in find_files(directory, globs=JOB_FILE_GLOBS):
+            text = path.read_text(encoding="utf-8")
+            if not is_job_file(text):
+                continue
+            files.append(JobFile(path=path, job_names=extract_job_names(text)))
     return sorted(files, key=lambda jf: str(jf.path))
 
 
@@ -109,20 +122,4 @@ def load_job_directories(config_path: Path | None = None) -> list[Path]:
         NomadConfigError: If the config file cannot be read or the ``[jobs]``
             section or ``directories`` value has the wrong type.
     """
-    path = config_path or default_config_path()
-    if not path.is_file():
-        return []
-    try:
-        data: dict[str, Any] = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        msg = f"Could not read config file {path}: {exc}"
-        raise NomadConfigError(msg) from exc
-    section: Any = data.get("jobs", {})
-    if not isinstance(section, dict):
-        msg = f"[jobs] section in {path} must be a table"
-        raise NomadConfigError(msg)
-    directories: Any = section.get("directories", [])
-    if not isinstance(directories, list):
-        msg = f"[jobs] directories in {path} must be a list of paths"
-        raise NomadConfigError(msg)
-    return [Path(str(d)).expanduser() for d in directories]
+    return load_config_directories(section="jobs", config_path=config_path)

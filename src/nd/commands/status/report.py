@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from nd.nomad.models.evaluation import EvalListStub
     from nd.nomad.models.job import JobListStub
     from nd.nomad.models.node import NodeListStub
+    from nd.nomad.models.volume import HostVolumeListStub
 
 # Allocation client statuses that represent live work (counted in the per-node/per-job columns).
 _ACTIVE_ALLOC_STATUSES = frozenset({"running", "pending"})
@@ -66,6 +67,15 @@ class NodeRow:
 
 
 @dataclass(frozen=True)
+class VolumeStatusRow:
+    """One aggregated row in the Volumes panel: one row per distinct volume name."""
+
+    name: str
+    nodes: list[str]  # sorted node NAMES the volume is registered on
+    state: str  # distinct states, comma-joined (usually "ready")
+
+
+@dataclass(frozen=True)
 class StatusReport:
     """A fully computed snapshot of cluster state, ready for rendering."""
 
@@ -92,6 +102,8 @@ class StatusReport:
     job_nodes: dict[str, list[str]]  # sorted node names an active alloc lives on, keyed by job id
     deployments_active: list[DeploymentListStub]
     evals_problem: list[EvalListStub]
+    volume_rows: list[VolumeStatusRow]  # one row per distinct volume name, aggregated
+    volumes_total: int  # count of distinct volume names
 
 
 def build_report(  # noqa: PLR0913
@@ -104,6 +116,7 @@ def build_report(  # noqa: PLR0913
     leader: str | None = None,
     deployments: list[DeploymentListStub] | None = None,
     evals: list[EvalListStub] | None = None,
+    volumes: list[HostVolumeListStub] | None = None,
 ) -> StatusReport:
     """Compute a `StatusReport` from raw Nomad listings.
 
@@ -131,6 +144,7 @@ def build_report(  # noqa: PLR0913
         a.node_id for a in allocs if a.client_status in _ACTIVE_ALLOC_STATUSES
     )
     job_nodes = _job_node_names(allocs, nodes)
+    volume_rows = _build_volume_rows(volumes or [], nodes)
 
     return StatusReport(
         health=_assess_health(
@@ -163,6 +177,39 @@ def build_report(  # noqa: PLR0913
         job_nodes=job_nodes,
         deployments_active=deployments_active,
         evals_problem=evals_problem,
+        volume_rows=volume_rows,
+        volumes_total=len(volume_rows),
+    )
+
+
+def _build_volume_rows(
+    volumes: list[HostVolumeListStub], nodes: list[NodeListStub]
+) -> list[VolumeStatusRow]:
+    """Aggregate per-registration volume stubs into one row per distinct volume name.
+
+    Node IDs are resolved to display names so the panel shows human-readable hostnames
+    rather than GUIDs. The fallback to ``node_id[:8]`` keeps unknown nodes readable when
+    a node is absent from the current node list (e.g. decommissioned hosts).
+    """
+    node_names = {n.id: n.name for n in nodes}
+    groups: dict[str, tuple[list[str], set[str]]] = {}
+    for vol in volumes:
+        display = node_names.get(vol.node_id, vol.node_id[:8])
+        if vol.name not in groups:
+            groups[vol.name] = ([], set())
+        groups[vol.name][0].append(display)
+        if vol.state:
+            groups[vol.name][1].add(vol.state)
+    return sorted(
+        [
+            VolumeStatusRow(
+                name=name,
+                nodes=sorted(node_list),
+                state=", ".join(sorted(states)) if states else "-",
+            )
+            for name, (node_list, states) in groups.items()
+        ],
+        key=lambda r: r.name,
     )
 
 

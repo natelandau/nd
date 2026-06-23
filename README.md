@@ -33,7 +33,7 @@ uv sync
 uv run nd --help
 ```
 
-The `nd plan`, `nd run`, `nd exec`, and `nd logs` commands also need the [`nomad` CLI binary](https://developer.hashicorp.com/nomad/install) on your `PATH`. `nd plan` and `nd run` use it because the HTTP API can't parse HCL2, so the local binary validates your job files and compiles them to JSON before deploying. `nd exec` and `nd logs` use it for the interactive shell session and log streaming, which the binary handles natively. The remaining commands (`status`, `stop`, `list`, `clean`) talk to the API directly and don't need it.
+The `nd plan`, `nd run`, `nd exec`, and `nd logs` commands also need the [`nomad` CLI binary](https://developer.hashicorp.com/nomad/install) on your `PATH`. `nd plan` and `nd run` use it because the HTTP API can't parse HCL2, so the local binary validates your job files and compiles them to JSON before deploying. `nd exec` and `nd logs` use it for the interactive shell session and log streaming, which the binary handles natively. The remaining commands (`status`, `stop`, `list`, `clean`, `volume`) talk to the API directly and don't need it.
 
 ## Configuration
 
@@ -56,6 +56,9 @@ ui_url = "https://nomad.example.com"
 
 [jobs]
 directories = ["~/homelab/nomad-jobs", "/srv/nomad/services"]
+
+[volumes]
+directories = ["~/homelab/nomad-volumes", "/srv/nomad/volumes"]
 ```
 
 Every key is optional. Set only the ones you need.
@@ -87,7 +90,17 @@ This table tells `nd` where your Nomad job files live so that `nd list`, `nd pla
 | --- | --- | --- |
 | `directories` | List of directories to scan for job files (`*.hcl` and `*.nomad`) | empty |
 
-`nd` scans each listed directory for job files, expands a leading `~` to your home directory, and skips any directory that does not exist. Without a `[jobs]` table, the job-file commands have nothing to work with.
+`nd` scans each listed directory for job files, expands a leading `~` to your home directory, and skips any directory that does not exist. Files are classified by content: a file with a `job "..." {}` block is treated as a job, so a host-volume spec sharing the same directory is not mistaken for one. Without a `[jobs]` table, the job-file commands have nothing to work with.
+
+### `[volumes]` table
+
+This table tells `nd` where your Nomad host-volume spec files live so that `nd volume register`, `nd volume delete`, and `nd volume list` can find them.
+
+| Key | What it sets | Default |
+| --- | --- | --- |
+| `directories` | List of directories to scan for host-volume specs (`*.hcl` and `*.nomad`) | empty |
+
+`nd` scans each listed directory with the same `*.hcl` and `*.nomad` globs it uses for job files. Files are classified by content: a file with `type = "host"` is treated as a volume spec; a file with a `job "..." {}` block is treated as a job. A single directory can therefore hold both kinds of file. `nd` expands a leading `~` and silently skips directories that do not exist. Without a `[volumes]` table, the volume commands have nothing to work with.
 
 Add `-v` for debug output or `-vv` for request tracing on any command.
 
@@ -95,7 +108,7 @@ Add `-v` for debug output or `-vv` for request tracing on any command.
 
 ### `nd status`
 
-Show an at-a-glance overview of the cluster: servers and leader, client nodes (with their active allocation counts), jobs (with the nodes each runs on), allocation health, and any in-progress deployments or stuck evaluations.
+Show an at-a-glance overview of the cluster: servers and leader, client nodes (with their active allocation counts), jobs (with the nodes each runs on), allocation health, registered host volumes, and any in-progress deployments or stuck evaluations. The Volumes panel and count are empty when the cluster or token cannot read host volumes (for example on older Nomad versions), so the rest of the dashboard still renders.
 
 ```bash
 uv run nd status
@@ -160,6 +173,36 @@ uv run nd clean
 ```
 
 Both operations are safe and idempotent (they only remove or correct already-terminal state), so the command takes no arguments and no confirmation. Add `-v` to name each `PUT` request or `-vv` to also show its elapsed time.
+
+The next three commands manage dynamic host volumes. They use the spec files you point `nd` at with the [`[volumes]` table](#volumes-table).
+
+### `nd volume list`
+
+List every discovered host-volume spec alongside its registration status on the cluster. There is one row per discovered spec, including specs not yet registered on any node (those show no nodes). Each row shows the volume name and which nodes it is currently registered on.
+
+```bash
+uv run nd volume list
+```
+
+### `nd volume register`
+
+Register discovered host-volume specs on every eligible cluster node. `nd` reads each node's `nfsStorageRoot` metadata key and combines it with the spec's `relative_path` parameter to compute the host path, then calls the Nomad API to register the volume. Already-registered volumes are skipped.
+
+```bash
+uv run nd volume register [--dry-run/-n]
+```
+
+- **`--dry-run` / `-n`** — report what would be registered without changing the cluster.
+
+### `nd volume delete`
+
+Delete every registered host volume whose name matches a discovered spec.
+
+```bash
+uv run nd volume delete [--dry-run/-n]
+```
+
+- **`--dry-run` / `-n`** — report what would be deleted without changing the cluster.
 
 The next two commands act on a single task inside a running allocation.
 
