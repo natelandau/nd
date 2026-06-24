@@ -47,6 +47,22 @@ def test_build_rows_sets_link_id_for_deployed_jobs() -> None:
     assert by_link == {"web": "web-prod", "new": None}
 
 
+def test_build_rows_hides_running_jobs_when_requested() -> None:
+    """Verify hide_running drops only running jobs, keeping dead and not-deployed files."""
+    # Given files where one job runs, one is dead, and one is not deployed
+    files = [
+        JobFile(path=Path("/j/web.hcl"), job_names=["web"]),
+        JobFile(path=Path("/j/db.hcl"), job_names=["db"]),
+        JobFile(path=Path("/j/new.hcl"), job_names=["new"]),
+    ]
+    jobs = [_Job("web", "running"), _Job("db", "dead")]
+    # When building rows with running jobs hidden
+    rows = build_rows(files, jobs, hide_running=True)
+    # Then the running job is gone but dead and not-deployed remain
+    by_name = {r.job_name: r.cluster_status for r in rows}
+    assert by_name == {"db": "dead", "new": "not deployed"}
+
+
 def test_build_rows_surfaces_unresolved_job_name() -> None:
     """Verify a job file with no resolved name is surfaced as a '?' row, not dropped."""
     # Given a job file whose name could not be parsed (e.g. interpolated)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 from nclutils import pp
@@ -35,7 +35,9 @@ class ListRow:
     link_id: str | None
 
 
-def build_rows(files: list[JobFile], jobs: list[JobListStub]) -> list[ListRow]:
+def build_rows(
+    files: list[JobFile], jobs: list[JobListStub], *, hide_running: bool = False
+) -> list[ListRow]:
     """Join discovered job files to cluster jobs by name, classifying each.
 
     A file with no resolved job name still appears (named ``?``) so unresolved
@@ -45,6 +47,8 @@ def build_rows(files: list[JobFile], jobs: list[JobListStub]) -> list[ListRow]:
     Args:
         files: Discovered job files to classify.
         jobs: Live cluster jobs to join against.
+        hide_running: When True, omit jobs whose cluster status is ``running`` so
+            only dead and not-deployed files remain.
 
     Returns:
         Sorted list of rows, one per job name per file.
@@ -56,6 +60,8 @@ def build_rows(files: list[JobFile], jobs: list[JobListStub]) -> list[ListRow]:
         for name in names:
             job = jobs_by_name.get(name)
             status = job.status if job else _NOT_DEPLOYED
+            if hide_running and status == "running":
+                continue
             link_id = job.id if job else None
             rows.append(
                 ListRow(job_name=name, path=str(jf.path), cluster_status=status, link_id=link_id)
@@ -86,13 +92,24 @@ app = typer.Typer()
 
 
 @app.callback(invoke_without_command=True)
-def list_(ctx: typer.Context, verbose: VerboseOption = 0) -> None:
+def list_(
+    ctx: typer.Context,
+    hide_running: Annotated[  # noqa: FBT002
+        bool,
+        typer.Option(
+            "--hide-running",
+            "-R",
+            help="Hide jobs that are currently running, leaving only dead and not-deployed files.",
+        ),
+    ] = False,
+    verbose: VerboseOption = 0,
+) -> None:
     """List known job files and whether each is running, dead, or not deployed."""
     configure_verbosity(ctx, verbose)
-    asyncio.run(_run())
+    asyncio.run(_run(hide_running=hide_running))
 
 
-async def _run() -> None:
+async def _run(*, hide_running: bool = False) -> None:
     """Discover job files, fetch cluster jobs, and render the joined table."""
     directories = load_job_directories()
     files = discover_job_files(directories)
@@ -100,4 +117,4 @@ async def _run() -> None:
     config = NomadConfig.resolve()
     async with NomadClient.from_config(config) as client:
         jobs = await client.jobs.list()
-    _render(build_rows(files, jobs), config.ui_base)
+    _render(build_rows(files, jobs, hide_running=hide_running), config.ui_base)
