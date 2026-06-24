@@ -1,3 +1,16 @@
+## v0.3.0 (2026-06-24)
+
+### Feat
+
+- **update**: add the nd update command to recreate running jobs
+- **ui**: make run, stop, and volume result panels easier to read
+
+### Fix
+
+- **status**: show accurate cluster health with a clearer dashboard
+- **run**: show the live rollout when re-running a stopped job
+- no longer report healthy deploys and stops as failed
+
 ## v0.2.0 (2026-06-23)
 
 ### Feat
