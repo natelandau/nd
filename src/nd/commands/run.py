@@ -17,7 +17,7 @@ from nd.commands._common import VerboseOption, configure_verbosity
 from nd.constants import DEPLOY_TIMEOUT_SECONDS, HEALTHY_ALLOC_STATUSES, POLL_INTERVAL_SECONDS
 from nd.jobfiles import candidates_for, discover_job_files, load_job_directories
 from nd.nomad import NomadClient, NomadConfig
-from nd.nomad.errors import NomadError
+from nd.nomad.errors import NomadDecodeError, NomadError
 from nd.targets import resolve_targets, select_candidates
 from nd.ui.alloc_rows import alloc_children
 from nd.ui.duration import summary_title
@@ -352,21 +352,29 @@ async def _watch(
     """
     deadline = time.monotonic() + DEPLOY_TIMEOUT_SECONDS
     while True:
-        allocs = await client.jobs.allocations(job_id)
-        children = alloc_children(allocs, node_names, lifecycle)
-        deployments = await client.jobs.deployments(job_id)
-        if deployments:  # service job: follow the most-recent deployment
-            dep = await client.deployments.read(deployments[0].id)
-            if dep.status == _DEPLOY_SUCCESS:
-                return DeployOutcome(job_id, DeployStatus.DEPLOYED)
-            if dep.status in _DEPLOY_FAILURE:
-                return DeployOutcome(job_id, DeployStatus.FAILED, dep.status_description)
-            update(deploy_phase(dep), children)
-        else:  # batch/system job: follow allocations
-            running = sum(1 for a in allocs if a.client_status in HEALTHY_ALLOC_STATUSES)
-            if allocs and running == len(allocs):
-                return DeployOutcome(job_id, DeployStatus.DEPLOYED)
-            update(f"placing {running}/{len(allocs) or '?'} allocs", children)
+        try:
+            allocs = await client.jobs.allocations(job_id)
+            deployments = await client.jobs.deployments(job_id)
+            dep = await client.deployments.read(deployments[0].id) if deployments else None
+        except NomadDecodeError as exc:
+            # A freshly-placed allocation can momentarily serialize in a shape we
+            # cannot decode (e.g. TaskStates: null before its tasks start). Skip
+            # this tick and retry rather than failing an otherwise-healthy deploy;
+            # the deadline below is the backstop if it never recovers.
+            pp.debug(f"{job_id}: skipping poll after transient decode error: {exc}")
+        else:
+            children = alloc_children(allocs, node_names, lifecycle)
+            if dep is not None:  # service job: follow the most-recent deployment
+                if dep.status == _DEPLOY_SUCCESS:
+                    return DeployOutcome(job_id, DeployStatus.DEPLOYED)
+                if dep.status in _DEPLOY_FAILURE:
+                    return DeployOutcome(job_id, DeployStatus.FAILED, dep.status_description)
+                update(deploy_phase(dep), children)
+            else:  # batch/system job: follow allocations
+                running = sum(1 for a in allocs if a.client_status in HEALTHY_ALLOC_STATUSES)
+                if allocs and running == len(allocs):
+                    return DeployOutcome(job_id, DeployStatus.DEPLOYED)
+                update(f"placing {running}/{len(allocs) or '?'} allocs", children)
         if time.monotonic() >= deadline:
             return DeployOutcome(job_id, DeployStatus.TIMEOUT, "deploy still in progress")
         await asyncio.sleep(POLL_INTERVAL_SECONDS)

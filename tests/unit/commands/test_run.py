@@ -6,6 +6,7 @@ import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import httpx  # respx-bundled; used to build sequenced mock responses
 from typer.testing import CliRunner
 
 import nd.commands.run as run_mod
@@ -288,6 +289,41 @@ def test_watch_batch_all_allocs_complete_reports_deployed(httpx2_mock: respx.Rou
     # Then the outcome status is DEPLOYED
     assert outcome.status is run_mod.DeployStatus.DEPLOYED
     assert outcome.name == "batch"
+
+
+def test_watch_skips_transient_alloc_decode_error(httpx2_mock: respx.Router, mocker) -> None:
+    """Verify a one-off allocation decode error skips the poll instead of failing the deploy."""
+    # Given the first allocations poll returns an undecodable body, then a clean one
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").mock(
+        side_effect=[
+            httpx.Response(200, json=[{"unexpected": "shape"}]),
+            httpx.Response(200, json=[]),
+        ]
+    )
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/deployments").respond(json=[_DEPLOY_LIST_STUB])
+    httpx2_mock.get(f"{_ADDR}/v1/deployment/d1").respond(
+        json={
+            "ID": "d1",
+            "JobID": "web",
+            "Status": "successful",
+            "StatusDescription": "Deployment completed successfully",
+            "TaskGroups": {"app": {"DesiredTotal": 1, "HealthyAllocs": 1}},
+        }
+    )
+    # And a no-op sleep so the retry runs instantly
+    mocker.patch("nd.commands.run.asyncio.sleep", autospec=True)
+
+    # When watching a job whose first poll cannot decode its allocations
+    async def go() -> run_mod.DeployOutcome:
+        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+            return await run_mod._watch(
+                client, "web", node_names={}, lifecycle={}, update=lambda *_a: None
+            )
+
+    outcome = asyncio.run(go())
+
+    # Then the transient error is skipped and the next poll resolves to DEPLOYED
+    assert outcome.status is run_mod.DeployStatus.DEPLOYED
 
 
 def test_watch_times_out_when_never_terminal(

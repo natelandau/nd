@@ -211,6 +211,32 @@ def test_stop_and_wait_returns_stopped_when_allocs_drain(httpx2_mock: respx.Rout
     assert outcome.status is StopStatus.STOPPED
 
 
+def test_stop_and_wait_skips_transient_alloc_decode_error(httpx2_mock: respx.Router, mocker):
+    """Verify a one-off allocation decode error skips the poll instead of failing the stop."""
+    # Given a stop call whose first drain poll is undecodable, then drains to complete
+    httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").mock(
+        side_effect=[
+            httpx.Response(200, json=[{"unexpected": "shape"}]),
+            httpx.Response(200, json=[_alloc_json("complete")]),
+        ]
+    )
+    # And a no-op sleep so the retry runs instantly
+    mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
+
+    # When stopping and waiting through the transient decode error
+    async def run() -> object:
+        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+            return await stop_and_wait(
+                client, _job("web"), purge=False, node_names={}, update=lambda *_a: None
+            )
+
+    outcome = asyncio.run(run())
+
+    # Then the transient error is skipped and the drain resolves to STOPPED, not FAILED
+    assert outcome.status is StopStatus.STOPPED
+
+
 def test_stop_and_wait_times_out_when_never_terminal(httpx2_mock: respx.Router, mocker):
     """Verify stop_and_wait reports TIMEOUT when allocations never drain."""
     # Given a stop call and allocations that stay running

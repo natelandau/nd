@@ -19,7 +19,7 @@ from nd.constants import (
     TERMINAL_ALLOC_STATUSES,
 )
 from nd.nomad import NomadClient, NomadConfig
-from nd.nomad.errors import NomadError
+from nd.nomad.errors import NomadDecodeError, NomadError
 from nd.targets import resolve_targets, select_candidates
 from nd.ui.alloc_rows import alloc_children
 from nd.ui.duration import summary_title
@@ -153,21 +153,29 @@ async def stop_and_wait(
 
         deadline = time.monotonic() + STOP_TIMEOUT_SECONDS
         while True:
-            start = time.perf_counter()
-            allocs = await client.jobs.allocations(job.id)
-            pending = sum(1 for a in allocs if a.client_status not in TERMINAL_ALLOC_STATUSES)
-            elapsed_ms = (time.perf_counter() - start) * 1000
-            pp.trace(
-                f"GET /v1/job/{job.id}/allocations -> {len(allocs)} allocs "
-                f"({pending} not terminal), {elapsed_ms:.0f}ms"
-            )
-            if all_allocs_terminal(allocs):
-                if purge:
-                    return await _purge_dead_job(client, job, update=update)
-                return StopOutcome(job, StopStatus.STOPPED)
+            try:
+                start = time.perf_counter()
+                allocs = await client.jobs.allocations(job.id)
+            except NomadDecodeError as exc:
+                # A post-stop/cleanup task that just (re)started can momentarily
+                # serialize in a shape we cannot decode; skip this tick and retry
+                # rather than reporting the stop as failed. The deadline below is
+                # the backstop if it never recovers.
+                pp.debug(f"{job.id}: skipping drain poll after transient decode error: {exc}")
+            else:
+                pending = sum(1 for a in allocs if a.client_status not in TERMINAL_ALLOC_STATUSES)
+                elapsed_ms = (time.perf_counter() - start) * 1000
+                pp.trace(
+                    f"GET /v1/job/{job.id}/allocations -> {len(allocs)} allocs "
+                    f"({pending} not terminal), {elapsed_ms:.0f}ms"
+                )
+                if all_allocs_terminal(allocs):
+                    if purge:
+                        return await _purge_dead_job(client, job, update=update)
+                    return StopOutcome(job, StopStatus.STOPPED)
+                update(phase_text(allocs), alloc_children(allocs, node_names, None))
             if time.monotonic() >= deadline:
                 return StopOutcome(job, StopStatus.TIMEOUT, "stop requested, still draining")
-            update(phase_text(allocs), alloc_children(allocs, node_names, None))
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
     except NomadError as exc:
         return StopOutcome(job, StopStatus.FAILED, str(exc))

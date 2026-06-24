@@ -81,3 +81,21 @@ def test_alloc_list_stub_defaults_task_states_empty():
 
     # Then task_states is empty
     assert stub.task_states == {}
+
+
+def test_alloc_list_stub_decodes_null_task_states():
+    """Verify the allocation list stub coerces an explicit null TaskStates to an empty dict."""
+    # Given a freshly-placed alloc whose tasks have not started, so Nomad sends null
+    payload = b"""
+    {
+      "ID": "a1", "Name": "web.web[0]", "NodeID": "n1", "JobID": "web",
+      "TaskGroup": "web", "ClientStatus": "pending", "DesiredStatus": "run",
+      "CreateIndex": 1, "ModifyIndex": 2, "TaskStates": null
+    }
+    """
+
+    # When decoding
+    stub = msgspec.json.decode(payload, type=AllocListStub)
+
+    # Then task_states is an empty dict rather than raising a decode error
+    assert stub.task_states == {}

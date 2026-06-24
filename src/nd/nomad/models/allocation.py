@@ -24,9 +24,16 @@ class AllocListStub(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
     task_group: str
     client_status: str
     desired_status: str
-    task_states: dict[str, TaskState] = msgspec.field(name="TaskStates", default_factory=dict)
+    # Nomad sends TaskStates: null (not an empty object) for a freshly-placed
+    # allocation whose tasks have not started yet, so this must tolerate null.
+    task_states_raw: dict[str, TaskState] | None = msgspec.field(name="TaskStates", default=None)
     create_index: int
     modify_index: int
+
+    @property
+    def task_states(self) -> dict[str, TaskState]:
+        """Per-task run state, with Nomad's null (tasks not yet started) read as empty."""
+        return self.task_states_raw or {}
 
 
 class Allocation(AllocListStub, frozen=True, kw_only=True):
