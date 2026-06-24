@@ -53,14 +53,15 @@ class StopOutcome:
     detail: str = ""
 
 
-# Maps each terminal stop status to its outcome glyph and row label.
+# Maps each terminal stop status to its outcome glyph and row label. Each label
+# carries its glyph's color so the status word reads as success/failure on its own.
 _OUTCOME_ROW: dict[StopStatus, tuple[str, str]] = {
-    StopStatus.STOPPED: (OUTCOME_GLYPH["ok"], "stopped"),
-    StopStatus.TIMEOUT: (OUTCOME_GLYPH["warn"], "still draining"),
-    StopStatus.FAILED: (OUTCOME_GLYPH["fail"], "failed"),
+    StopStatus.STOPPED: (OUTCOME_GLYPH["ok"], "[green]stopped[/]"),
+    StopStatus.TIMEOUT: (OUTCOME_GLYPH["warn"], "[yellow]still draining[/]"),
+    StopStatus.FAILED: (OUTCOME_GLYPH["fail"], "[red]failed[/]"),
     # The workload did stop; only the follow-up garbage-collection failed, so this
     # warns rather than reading as a hard "failed to stop".
-    StopStatus.PURGE_FAILED: (OUTCOME_GLYPH["warn"], "stopped, purge failed"),
+    StopStatus.PURGE_FAILED: (OUTCOME_GLYPH["warn"], "[yellow]stopped, purge failed[/]"),
 }
 
 

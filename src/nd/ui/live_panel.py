@@ -13,12 +13,14 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
 from nclutils import pp
+from rich import box
 from rich.live import Live
 from rich.spinner import Spinner
 from rich.table import Table
 
 from nd.ui.duration import fmt_elapsed
 from nd.ui.panels import titled_panel
+from nd.ui.styles import OUTCOME_GLYPH
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -68,30 +70,70 @@ def finish_row(
     row.ended_at = clock()
 
 
+def _last_siblings(children: list[LiveChild]) -> list[bool]:
+    """Flag whether each child is the last among its siblings at its own depth.
+
+    Lets the tree close a branch with ``└`` and continue it with ``├`` so the
+    indentation reads as a real tree instead of every row looking like a leaf.
+    A child is the last sibling when no later row shares its depth before the
+    indentation drops back out of its branch.
+    """
+    result = [True] * len(children)
+    for i, child in enumerate(children):
+        for nxt in children[i + 1 :]:
+            if nxt.depth < child.depth:
+                break  # left this branch; later rows belong to an outer level
+            if nxt.depth == child.depth:
+                result[i] = False
+                break
+    return result
+
+
 def _build_panel(rows: list[LiveRow], *, title: str, now: float) -> Panel:
     """Render the panel: a spinner for in-flight rows, a glyph for finished ones.
 
     Parent rows are bold and carry the spinner/glyph; child rows nest under them
     with a tree marker indented inside the label column so the text follows the
-    tree rather than staying flush left.
+    tree rather than staying flush left. A dim hairline separates each parent
+    group, and a parent's detail rows dim once it finishes healthy so the eye
+    stays on the rows still in flight.
     """
-    table = Table.grid(padding=(0, 2))
+    # A real table (not Table.grid) so add_section() can draw a dim hairline
+    # between groups; show_edge=False keeps the rule internal, collapse_padding
+    # reproduces the grid's tight column spacing.
+    table = Table(
+        box=box.HORIZONTALS,
+        show_header=False,
+        show_edge=False,
+        pad_edge=False,
+        collapse_padding=True,
+        padding=(0, 2),
+        border_style="dim",
+    )
     table.add_column()  # spinner / glyph (parent rows only)
     # no_wrap keeps the tree marker attached to its label on a narrow terminal
     # (the label truncates with an ellipsis instead of splitting across lines).
     table.add_column(no_wrap=True)  # label, tree-indented for children
     table.add_column()  # phase / role
     table.add_column(justify="right")  # elapsed / status
-    for row in rows:
+    for index, row in enumerate(rows):
+        if index:
+            table.add_section()  # dim hairline giving each group room to breathe
         glyph = Spinner("dots") if row.glyph is None else row.glyph
         ended = row.ended_at if row.ended_at is not None else now
         table.add_row(
             glyph, f"[bold]{row.label}[/]", row.phase, fmt_elapsed(ended - row.started_at)
         )
-        for child in row.children:
+        # A healthy finish lets the detail rows recede; failures stay bright so
+        # the tasks remain readable while debugging.
+        recede = row.glyph == OUTCOME_GLYPH["ok"]
+        for child, is_last in zip(row.children, _last_siblings(row.children), strict=True):
             cells = [*child.cells, "", "", ""][:3]  # pad/truncate to the 3 detail columns
-            label = f"[dim]{'  ' * child.depth}└[/] {cells[0]}"
-            table.add_row("", label, cells[1], cells[2])
+            connector = "└" if is_last else "├"
+            detail = (f"[dim]{'  ' * child.depth}{connector}[/] {cells[0]}", cells[1], cells[2])
+            if recede:
+                detail = tuple(f"[dim]{cell}[/]" for cell in detail)
+            table.add_row("", *detail)
     return titled_panel(table, title)
 
 

@@ -6,7 +6,15 @@ import asyncio
 
 from rich.console import Console
 
-from nd.ui.live_panel import LiveChild, LiveRow, _build_panel, finish_row, run_live_panel
+from nd.ui.live_panel import (
+    LiveChild,
+    LiveRow,
+    _build_panel,
+    _last_siblings,
+    finish_row,
+    run_live_panel,
+)
+from nd.ui.styles import OUTCOME_GLYPH
 
 
 def test_run_live_panel_runs_all_workers() -> None:
@@ -64,3 +72,93 @@ def test_build_panel_renders_nested_child_rows() -> None:
     node_indent = next(line.index("└") for line in text.splitlines() if "rpi2" in line)
     task_indent = next(line.index("└") for line in text.splitlines() if "create_filesystem" in line)
     assert task_indent > node_indent
+
+
+def test_last_siblings_marks_branch_ends() -> None:
+    """Verify only the final sibling at each depth is flagged, across nested branches."""
+    # Given two node branches, the first with two tasks and the second with one
+    children = [
+        LiveChild(cells=["node1"], depth=1),
+        LiveChild(cells=["task1"], depth=2),
+        LiveChild(cells=["task2"], depth=2),
+        LiveChild(cells=["node2"], depth=1),
+        LiveChild(cells=["task3"], depth=2),
+    ]
+
+    # When computing which rows close their branch
+    # Then a row is last only when no later row shares its depth before the branch closes
+    assert _last_siblings(children) == [False, False, True, True, True]
+
+
+def test_build_panel_uses_branch_connectors() -> None:
+    """Verify mid-branch children use ├ and only the final sibling uses └."""
+    # Given a node with two tasks beneath it
+    row = LiveRow(
+        label="seer",
+        phase="running",
+        started_at=0.0,
+        children=[
+            LiveChild(cells=["rpi2", "", "running"], depth=1),
+            LiveChild(cells=["create_filesystem", "prestart", "complete"], depth=2),
+            LiveChild(cells=["seer", "main", "running"], depth=2),
+        ],
+    )
+    console = Console(record=True, force_terminal=False, width=80)
+
+    # When rendering the panel
+    console.print(_build_panel([row], title="Deploying 1 job", now=1.0))
+    lines = console.export_text().splitlines()
+
+    # Then the only node closes its branch, the non-final task continues, the final closes
+    assert "└" in next(line for line in lines if "rpi2" in line)
+    assert "├" in next(line for line in lines if "create_filesystem" in line)
+    assert "└" in next(line for line in lines if "main" in line)
+
+
+def test_build_panel_separates_groups_with_a_rule() -> None:
+    """Verify a horizontal rule divides adjacent job groups but never leads the first."""
+    # Given two parent rows
+    rows = [
+        LiveRow(label="ladder", phase="deployed", started_at=0.0),
+        LiveRow(label="seer", phase="deployed", started_at=0.0),
+    ]
+    console = Console(record=True, force_terminal=False, width=60)
+
+    # When rendering the panel
+    console.print(_build_panel(rows, title="Deployed 2 jobs", now=1.0))
+    lines = console.export_text().splitlines()
+
+    # Then a run of box-drawing dashes appears between the two groups
+    rule_lines = [
+        i for i, line in enumerate(lines) if "────" in line and "╭" not in line and "╰" not in line
+    ]
+    ladder_line = next(i for i, line in enumerate(lines) if "ladder" in line)
+    seer_line = next(i for i, line in enumerate(lines) if "seer" in line)
+    assert any(ladder_line < i < seer_line for i in rule_lines)
+
+
+def test_build_panel_dims_children_after_healthy_finish() -> None:
+    """Verify a healthy-finished parent's detail rows dim while an in-flight one's stay bright."""
+    # Given one finished-healthy parent and one still-running parent, each with a child
+    child = LiveChild(cells=["worker", "main", "running"], depth=1)
+    finished = LiveRow(
+        label="seer",
+        phase="deployed",
+        started_at=0.0,
+        glyph=OUTCOME_GLYPH["ok"],
+        ended_at=5.0,
+        children=[child],
+    )
+    running = LiveRow(label="sonarr", phase="deploying", started_at=0.0, children=[child])
+
+    def child_line(row: LiveRow) -> str:
+        console = Console(record=True, force_terminal=True, width=60)
+        console.print(_build_panel([row], title="t", now=9.0))
+        return next(
+            line for line in console.export_text(styles=True).splitlines() if "running" in line
+        )
+
+    # When rendering each parent's child row with styling
+    # Then the finished parent's child status is dim-wrapped and the in-flight one's is not
+    assert "\x1b[2mrunning" in child_line(finished)
+    assert "\x1b[2mrunning" not in child_line(running)

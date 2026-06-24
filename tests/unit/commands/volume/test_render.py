@@ -1,5 +1,6 @@
 """Tests for volume command rendering."""
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,7 @@ from nd.volumefiles import VolumeSpec
 
 
 @pytest.fixture(autouse=True)
-def _restore_pp() -> None:  # type: ignore[return]
+def _restore_pp() -> Iterator[None]:
     """Restore the global pp emitter after each test."""
     original = pp.get_default()
     yield
@@ -206,6 +207,33 @@ def test_render_registration_results_groups_by_volume() -> None:
     assert "n2" in out
 
 
+def test_render_registration_results_frames_groups_in_a_titled_panel() -> None:
+    """Verify results render inside a titled panel that counts the volumes registered."""
+    # Given successful registrations across two volumes
+    console = _record()
+    results = [
+        (_reg(spec_name="alpha", node_name="n1"), "ok"),
+        (_reg(spec_name="beta", node_name="n2"), "ok"),
+    ]
+    # When rendering
+    render_registration_results(results)
+    out = console.export_text()
+    # Then a panel titled with the registered count frames the groups
+    assert "Registered 2 volumes" in out
+    assert "╭" in out  # the panel border
+
+
+def test_render_registration_results_dryrun_title_does_not_claim_success() -> None:
+    """Verify a dry-run frames the panel as 'would register' rather than 'registered'."""
+    # Given a dry-run registration result
+    console = _record()
+    render_registration_results([(_reg(spec_name="alpha"), "dryrun")])
+    out = console.export_text()
+    # Then the panel title reflects the dry-run, not a real registration
+    assert "Would register 1 volume" in out
+    assert "Registered" not in out
+
+
 # ---------------------------------------------------------------------------
 # render_deletion_results tests
 # ---------------------------------------------------------------------------
@@ -240,6 +268,19 @@ def test_render_deletion_results_dryrun_shows_would_delete() -> None:
     assert "cache" in out
     assert "would delete on" in out
     assert "node-beta" in out
+
+
+def test_render_deletion_results_frames_groups_in_a_titled_panel() -> None:
+    """Verify deletions render inside a titled panel that counts the volumes deleted."""
+    # Given a deleted volume
+    console = _record()
+    vol = HostVolumeListStub(id="vol-1", name="data", node_id="n1")
+    # When rendering
+    render_deletion_results([(vol, "deleted")], node_names={"n1": "my-node"})
+    out = console.export_text()
+    # Then a panel titled with the deleted count frames the group
+    assert "Deleted 1 volume" in out
+    assert "╭" in out  # the panel border
 
 
 def test_render_deletion_results_failed_shows_error() -> None:

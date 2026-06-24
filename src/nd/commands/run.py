@@ -106,10 +106,12 @@ def _task_role(lifecycle: dict[str, object] | None, index: int) -> tuple[int, st
     return (1_000 + index, "main")
 
 
+# Outcome labels carry the same color as their glyph so the status word reads as
+# success/failure at a glance, not just the leading mark.
 _OUTCOME_ROW: dict[DeployStatus, tuple[str, str]] = {
-    DeployStatus.DEPLOYED: (OUTCOME_GLYPH["ok"], "deployed"),
-    DeployStatus.FAILED: (OUTCOME_GLYPH["fail"], "failed"),
-    DeployStatus.TIMEOUT: (OUTCOME_GLYPH["warn"], "still deploying"),
+    DeployStatus.DEPLOYED: (OUTCOME_GLYPH["ok"], "[green]deployed[/]"),
+    DeployStatus.FAILED: (OUTCOME_GLYPH["fail"], "[red]failed[/]"),
+    DeployStatus.TIMEOUT: (OUTCOME_GLYPH["warn"], "[yellow]still deploying[/]"),
 }
 
 

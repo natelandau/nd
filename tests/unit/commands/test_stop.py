@@ -652,10 +652,13 @@ def test_outcome_row_maps_status_to_glyph_and_label():
     # Given the three terminal statuses
     # When looking up each status in _OUTCOME_ROW
     # Then each maps to the expected (glyph, label) pair
-    assert _OUTCOME_ROW[StopStatus.STOPPED] == (OUTCOME_GLYPH["ok"], "stopped")
-    assert _OUTCOME_ROW[StopStatus.TIMEOUT] == (OUTCOME_GLYPH["warn"], "still draining")
-    assert _OUTCOME_ROW[StopStatus.FAILED] == (OUTCOME_GLYPH["fail"], "failed")
-    assert _OUTCOME_ROW[StopStatus.PURGE_FAILED] == (OUTCOME_GLYPH["warn"], "stopped, purge failed")
+    assert _OUTCOME_ROW[StopStatus.STOPPED] == (OUTCOME_GLYPH["ok"], "[green]stopped[/]")
+    assert _OUTCOME_ROW[StopStatus.TIMEOUT] == (OUTCOME_GLYPH["warn"], "[yellow]still draining[/]")
+    assert _OUTCOME_ROW[StopStatus.FAILED] == (OUTCOME_GLYPH["fail"], "[red]failed[/]")
+    assert _OUTCOME_ROW[StopStatus.PURGE_FAILED] == (
+        OUTCOME_GLYPH["warn"],
+        "[yellow]stopped, purge failed[/]",
+    )
 
 
 def test_build_dry_run_panel_names_targets():

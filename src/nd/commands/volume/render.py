@@ -5,14 +5,34 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from nclutils import pp
+from rich.console import Group
 from rich.tree import Tree
 
 from nd.commands.volume.report import ALREADY_REGISTERED_REASON
 from nd.ui.panels import status_table, titled_panel
 
 if TYPE_CHECKING:
+    from rich.console import RenderableType
+
     from nd.commands.volume.report import Registration, VolumeRow
     from nd.nomad.models.volume import HostVolumeListStub
+
+
+def _print_volume_groups(title: str, trees: list[Tree]) -> None:
+    """Print per-volume trees stacked in one titled panel, blank-line separated.
+
+    Mirrors the framed result panels of ``nd run``/``nd stop`` so every command
+    speaks the same visual language, and the blank line between groups gives each
+    volume room to breathe instead of crowding the next one.
+    """
+    if not trees:
+        return
+    body: list[RenderableType] = []
+    for index, tree in enumerate(trees):
+        if index:
+            body.append("")  # blank line so adjacent volume groups stay distinct
+        body.append(tree)
+    pp.console().print(titled_panel(Group(*body), title))
 
 
 def render_list(rows: list[VolumeRow]) -> None:
@@ -77,11 +97,17 @@ def render_registration_results(
     for reg, outcome in results:
         groups.setdefault(reg.spec.name, []).append((reg, outcome))
 
+    trees: list[Tree] = []
     for name, items in groups.items():
         tree = Tree(f"[bold]{name}[/]")
         for reg, outcome in items:
             tree.add(_registration_leaf(reg, outcome))
-        pp.console().print(tree)
+        trees.append(tree)
+
+    # A dry-run never actually registers, so the title must not claim it did.
+    verb = "Would register" if any(outcome == "dryrun" for _, outcome in results) else "Registered"
+    count = len(groups)
+    _print_volume_groups(f"{verb} {count} volume{'s' if count != 1 else ''}", trees)
 
 
 def _deletion_leaf(vol: HostVolumeListStub, outcome: str, node_names: dict[str, str]) -> str:
@@ -125,8 +151,14 @@ def render_deletion_results(
     for vol, outcome in results:
         groups.setdefault(vol.name, []).append((vol, outcome))
 
+    trees: list[Tree] = []
     for name, items in groups.items():
         tree = Tree(f"[bold]{name}[/]")
         for vol, outcome in items:
             tree.add(_deletion_leaf(vol, outcome, node_names))
-        pp.console().print(tree)
+        trees.append(tree)
+
+    # A dry-run never actually deletes, so the title must not claim it did.
+    verb = "Would delete" if any(outcome == "would-delete" for _, outcome in results) else "Deleted"
+    count = len(groups)
+    _print_volume_groups(f"{verb} {count} volume{'s' if count != 1 else ''}", trees)
