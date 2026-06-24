@@ -25,6 +25,9 @@ if TYPE_CHECKING:
 
 # Allocation client statuses that represent live work (counted in the per-node/per-job columns).
 _ACTIVE_ALLOC_STATUSES = frozenset({"running", "pending"})
+# Desired statuses Nomad assigns to allocations it has retired (rescheduled, drained, superseded).
+# Their client_status is historical, so they must not count toward current cluster health.
+_RETIRED_DESIRED_STATUSES = frozenset({"stop", "evict"})
 # Deployment statuses that represent an in-progress (notable) rollout.
 _ACTIVE_DEPLOYMENT_STATUSES = frozenset({"running", "pending", "blocked", "paused", "unblocking"})
 # Evaluation statuses that indicate the scheduler is stuck.
@@ -137,9 +140,12 @@ def build_report(  # noqa: PLR0913
         key=lambda e: e.job_id,
     )
 
-    allocs_failed = sum(1 for a in allocs if a.client_status == "failed")
-    allocs_pending = sum(1 for a in allocs if a.client_status == "pending")
-    allocs_unhealthy = any(a.client_status not in HEALTHY_ALLOC_STATUSES for a in allocs)
+    # Only allocs Nomad still wants running reflect current health; a "failed" corpse that has
+    # already been rescheduled carries desired_status "stop"/"evict" and must be ignored.
+    live_allocs = [a for a in allocs if a.desired_status not in _RETIRED_DESIRED_STATUSES]
+    allocs_failed = sum(1 for a in live_allocs if a.client_status == "failed")
+    allocs_pending = sum(1 for a in live_allocs if a.client_status == "pending")
+    allocs_unhealthy = any(a.client_status not in HEALTHY_ALLOC_STATUSES for a in live_allocs)
     node_alloc_counts = Counter(
         a.node_id for a in allocs if a.client_status in _ACTIVE_ALLOC_STATUSES
     )

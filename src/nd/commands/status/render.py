@@ -69,29 +69,67 @@ def _banner_title(report: StatusReport) -> str:
     return title
 
 
+def _fraction(part: int, whole: int, *, suffix: str = "") -> str:
+    """Render an ``n/total`` fraction, flagging a shortfall in yellow.
+
+    Values stay at full brightness so the data rail reads louder than the dim label rail.
+    """
+    value = f"{part}/{whole}"
+    colored = value if part >= whole else f"[yellow]{value}[/]"
+    return f"{colored} {suffix}" if suffix else colored
+
+
+def _count(value: int, label: str, *, style: str) -> str:
+    """Render a ``value label`` pair, applying ``style`` only when the count is non-zero."""
+    shown = f"[{style}]{value}[/]" if value else str(value)
+    return f"{shown} {label}"
+
+
+def _allocs_value(report: StatusReport) -> str:
+    """Render the running/failed/pending alloc breakdown with severity-coded counts."""
+    return "  ".join(
+        (
+            _count(report.allocs_running, "running", style="green"),
+            _count(report.allocs_failed, "failed", style="red"),
+            _count(report.allocs_pending, "pending", style="yellow"),
+        )
+    )
+
+
 def _banner(report: StatusReport) -> Panel:
-    """Build the top summary banner."""
+    """Build the top summary banner as an aligned two-column key/value grid."""
     style = _HEALTH_STYLE[report.health]
-    grid = Table.grid(padding=(0, 0))
-    grid.add_row(f"[{style}]●[/] [bold {style}]{report.health.value}[/]")
-    grid.add_row(
-        f"Servers {report.servers_alive}/{report.servers_total} · "
-        f"leader {report.leader_name or 'none'}   "
-        f"Nodes {report.nodes_ready}/{report.nodes_total} ready"
-    )
-    grid.add_row(
-        f"Jobs {report.jobs_running}/{report.jobs_total} running   "
-        f"Allocs {report.allocs_running} running · "
-        f"{report.allocs_failed} failed · {report.allocs_pending} pending"
-    )
-    grid.add_row(
-        f"Deployments {len(report.deployments_active)} active   "
-        f"Evals {len(report.evals_problem)} blocked   "
-        f"Volumes {report.volumes_total}"
-    )
-    return Panel(
-        grid, title=_banner_title(report), title_align="left", border_style=style, expand=False
-    )
+
+    # Left group is infrastructure, right group is workload; uppercase labels echo the
+    # table column headers below so the banner and panels read as one type system.
+    left: list[tuple[str, str]] = [
+        ("SERVERS", _fraction(report.servers_alive, report.servers_total, suffix="alive")),
+        ("LEADER", report.leader_name or "[red]none[/]"),
+        ("NODES", _fraction(report.nodes_ready, report.nodes_total, suffix="ready")),
+        ("VOLUMES", str(report.volumes_total)),
+    ]
+    right: list[tuple[str, str]] = [
+        ("JOBS", _fraction(report.jobs_running, report.jobs_total, suffix="running")),
+        ("ALLOCS", _allocs_value(report)),
+        ("DEPLOYS", _count(len(report.deployments_active), "active", style="cyan")),
+        ("EVALS", _count(len(report.evals_problem), "blocked", style="yellow")),
+    ]
+
+    # Left-aligned label and value columns form four vertical rails the eye can follow; the
+    # dim divider stacks into a continuous hairline that splits infrastructure from workload.
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(justify="left", style="dim")  # left label
+    grid.add_column(justify="left")  # left value
+    grid.add_column(justify="left", style="dim")  # divider
+    grid.add_column(justify="left", style="dim")  # right label
+    grid.add_column(justify="left")  # right value
+    for (l_label, l_value), (r_label, r_value) in zip(left, right, strict=True):
+        grid.add_row(l_label, l_value, "│", r_label, r_value)
+
+    # The verdict lives in the title, right after the host, so the body is pure data.
+    verdict = f"[{style}]●[/] [bold {style}]{report.health.value}[/]"
+    title = f"{_banner_title(report)}  ·  {verdict}"
+    return Panel(grid, title=title, title_align="left", border_style=style, expand=False)
 
 
 def _nodes_panel(report: StatusReport) -> Panel:

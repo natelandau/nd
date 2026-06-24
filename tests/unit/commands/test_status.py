@@ -84,7 +84,12 @@ def _job(*, name="web", status="running", submit_time=0) -> JobListStub:
 
 
 def _alloc(
-    *, name="web.alloc", client_status="running", node_id="srv1", job_id="web"
+    *,
+    name="web.alloc",
+    client_status="running",
+    desired_status="run",
+    node_id="srv1",
+    job_id="web",
 ) -> AllocListStub:
     return AllocListStub(
         id=name,
@@ -94,7 +99,7 @@ def _alloc(
         job_id=job_id,
         task_group="web",
         client_status=client_status,
-        desired_status="run",
+        desired_status=desired_status,
         create_index=1,
         modify_index=2,
     )
@@ -320,6 +325,24 @@ def test_build_report_degraded_on_lost_alloc():
     assert report.health is Health.DEGRADED
 
 
+def test_build_report_ignores_retired_failed_alloc():
+    """Verify a failed corpse Nomad has retired (desired_status stop) does not degrade health."""
+    # Given a failed allocation that Nomad has already rescheduled away (desired_status "stop")
+    report = build_report(
+        nodes=[_node()],
+        jobs=[_job()],
+        allocs=[
+            _alloc(name="live", client_status="running"),
+            _alloc(name="corpse", client_status="failed", desired_status="stop"),
+        ],
+        config=_CONFIG,
+    )
+
+    # Then the corpse is excluded from the failed count and the cluster stays healthy
+    assert report.allocs_failed == 0
+    assert report.health is Health.HEALTHY
+
+
 def test_build_report_critical_when_no_leader():
     """Verify servers present without an elected leader is CRITICAL."""
     # Given servers but no leader address
@@ -490,8 +513,10 @@ def test_render_report_banner_includes_deployment_and_eval_metrics():
     text = _render_to_text(report)
 
     # Then the banner carries the deployment and eval metrics
-    assert "Deployments 0 active" in text
-    assert "Evals 0 blocked" in text
+    assert "DEPLOYS" in text
+    assert "0 active" in text
+    assert "EVALS" in text
+    assert "0 blocked" in text
 
 
 def test_render_report_lists_all_jobs():
