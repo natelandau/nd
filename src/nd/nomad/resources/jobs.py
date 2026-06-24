@@ -64,7 +64,7 @@ class JobsResource(BaseResource):
     async def deployments(self, job_id: str) -> builtins.list[DeploymentListStub]:
         """List a job's deployments (``GET /v1/job/:id/deployments``), following pagination.
 
-        Nomad returns the most recent deployment first, used to watch a freshly
-        registered service job roll out.
+        The endpoint's ordering is undocumented, so callers that need the most
+        recent deployment must select it by ``CreateIndex`` rather than position.
         """
         return await self._paginate_list(f"/job/{job_id}/deployments", DeploymentListStub)

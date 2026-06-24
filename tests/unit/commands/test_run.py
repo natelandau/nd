@@ -326,6 +326,100 @@ def test_watch_skips_transient_alloc_decode_error(httpx2_mock: respx.Router, moc
     assert outcome.status is run_mod.DeployStatus.DEPLOYED
 
 
+def test_watch_ignores_stale_successful_deployment_from_prior_run(
+    httpx2_mock: respx.Router, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a re-run job's watch ignores the prior run's already-successful deployment."""
+    # Given zero-duration timeout and poll interval so the test completes instantly
+    monkeypatch.setattr(run_mod, "DEPLOY_TIMEOUT_SECONDS", 0.0)
+    monkeypatch.setattr(run_mod, "POLL_INTERVAL_SECONDS", 0.0)
+
+    # Given the only deployment present is a stale, already-successful one from the
+    # previous run (created at index 1), while this registration happened at index 10
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/deployments").respond(
+        json=[
+            {
+                "ID": "old",
+                "JobID": "web",
+                "Status": "successful",
+                "CreateIndex": 1,
+                "ModifyIndex": 2,
+            }
+        ]
+    )
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[])
+
+    # When watching with the new registration's modify index as the floor
+    async def go() -> run_mod.DeployOutcome:
+        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+            return await run_mod._watch(
+                client,
+                "web",
+                node_names={},
+                lifecycle={},
+                update=lambda *_a: None,
+                since_index=10,
+            )
+
+    outcome = asyncio.run(go())
+
+    # Then the stale deployment does not short-circuit the watch; it keeps waiting
+    assert outcome.status is run_mod.DeployStatus.TIMEOUT
+
+
+def test_watch_follows_fresh_deployment_past_stale_one(httpx2_mock: respx.Router) -> None:
+    """Verify the watch selects this run's deployment, not an earlier successful one."""
+    # Given a stale successful deployment (index 1) alongside this run's deployment
+    # (index 11), returned in an order that puts the stale one first
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/deployments").respond(
+        json=[
+            {
+                "ID": "old",
+                "JobID": "web",
+                "Status": "successful",
+                "CreateIndex": 1,
+                "ModifyIndex": 2,
+            },
+            {
+                "ID": "new",
+                "JobID": "web",
+                "Status": "running",
+                "CreateIndex": 11,
+                "ModifyIndex": 12,
+            },
+        ]
+    )
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[])
+    httpx2_mock.get(f"{_ADDR}/v1/deployment/new").respond(
+        json={
+            "ID": "new",
+            "JobID": "web",
+            "Status": "successful",
+            "StatusDescription": "Deployment completed successfully",
+            "TaskGroups": {"app": {"DesiredTotal": 1, "HealthyAllocs": 1}},
+        }
+    )
+
+    # When watching with this registration's modify index as the floor
+    async def go() -> run_mod.DeployOutcome:
+        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+            return await run_mod._watch(
+                client,
+                "web",
+                node_names={},
+                lifecycle={},
+                update=lambda *_a: None,
+                since_index=10,
+            )
+
+    outcome = asyncio.run(go())
+
+    # Then it reads this run's deployment (ID "new"), not the stale one, and reports DEPLOYED
+    assert outcome.status is run_mod.DeployStatus.DEPLOYED
+    assert any(call.request.url.path.endswith("/deployment/new") for call in httpx2_mock.calls)
+    assert not any(call.request.url.path.endswith("/deployment/old") for call in httpx2_mock.calls)
+
+
 def test_watch_times_out_when_never_terminal(
     httpx2_mock: respx.Router, monkeypatch: pytest.MonkeyPatch
 ) -> None:

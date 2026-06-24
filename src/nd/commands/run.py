@@ -319,7 +319,12 @@ async def _deploy_one(
         update("registering")
         resp = await client.jobs.register(body)
         outcome = await _watch(
-            client, candidate.name, node_names=node_names, lifecycle=lifecycle, update=update
+            client,
+            candidate.name,
+            node_names=node_names,
+            lifecycle=lifecycle,
+            update=update,
+            since_index=resp.job_modify_index,
         )
         # Attach any register warnings so the caller can surface them after the panel closes.
         return replace(outcome, warnings=resp.warnings)
@@ -334,6 +339,7 @@ async def _watch(
     node_names: dict[str, str],
     lifecycle: TaskLifecycle,
     update: PanelUpdate,
+    since_index: int = 0,
 ) -> DeployOutcome:
     """Poll a registered job until its deployment (or allocations) settle or time out.
 
@@ -348,6 +354,9 @@ async def _watch(
         node_names: Map of node ID to node name for the per-allocation detail rows.
         lifecycle: Task ordering and labels from the compiled job spec.
         update: Callback to update the live panel phase text and detail rows.
+        since_index: The ``JobModifyIndex`` from this registration. Deployments
+            created before it belong to a previous run and are ignored so a re-run
+            of a dead job is not reported as instantly deployed off a stale record.
 
     Returns:
         The terminal deploy outcome for this job.
@@ -357,7 +366,14 @@ async def _watch(
         try:
             allocs = await client.jobs.allocations(job_id)
             deployments = await client.jobs.deployments(job_id)
-            dep = await client.deployments.read(deployments[0].id) if deployments else None
+            # The plural endpoint's ordering is undocumented, so pick this run's
+            # deployment by index rather than trusting position. A job that has ever
+            # run keeps its prior deployments listed; ignoring those created before
+            # this registration is what stops a stale "successful" record from
+            # ending the watch the instant a dead job is re-run.
+            mine = [d for d in deployments if d.create_index >= since_index]
+            latest = max(mine, key=lambda d: d.create_index) if mine else None
+            dep = await client.deployments.read(latest.id) if latest else None
         except NomadDecodeError as exc:
             # A freshly-placed allocation can momentarily serialize in a shape we
             # cannot decode (e.g. TaskStates: null before its tasks start). Skip
@@ -366,12 +382,14 @@ async def _watch(
             pp.debug(f"{job_id}: skipping poll after transient decode error: {exc}")
         else:
             children = alloc_children(allocs, node_names, lifecycle)
-            if dep is not None:  # service job: follow the most-recent deployment
+            if dep is not None:  # service job: follow this run's deployment
                 if dep.status == _DEPLOY_SUCCESS:
                     return DeployOutcome(job_id, DeployStatus.DEPLOYED)
                 if dep.status in _DEPLOY_FAILURE:
                     return DeployOutcome(job_id, DeployStatus.FAILED, dep.status_description)
                 update(deploy_phase(dep), children)
+            elif deployments:  # service job whose new deployment has not appeared yet
+                update("registering", children)
             else:  # batch/system job: follow allocations
                 running = sum(1 for a in allocs if a.client_status in HEALTHY_ALLOC_STATUSES)
                 if allocs and running == len(allocs):
