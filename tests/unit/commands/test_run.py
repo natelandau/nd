@@ -181,7 +181,9 @@ def test_register_detached_registers_without_watching(httpx2_mock: respx.Router,
     )
 
 
-def test_run_app_detach_skips_watch(httpx2_mock: respx.Router, monkeypatch, mocker) -> None:
+def test_run_app_detach_skips_watch(
+    httpx2_mock: respx.Router, monkeypatch, mocker, tmp_path
+) -> None:
     """Verify the run command with --detach registers without entering the watch loop."""
     # Given one deployable file, a stubbed binary, and a register endpoint
     monkeypatch.setattr(run_mod, "load_job_directories", list)
@@ -191,6 +193,8 @@ def test_run_app_detach_skips_watch(httpx2_mock: respx.Router, monkeypatch, mock
         lambda dirs: [JobFile(path=Path("/j/web.hcl"), job_names=["web"])],
     )
     monkeypatch.setattr(run_mod, "_running_job_names", _async_return(set()))
+    # Isolate the config so NomadConfig.resolve() targets the mock, not a real ~/.config/nd.
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.setenv("NOMAD_ADDR", _ADDR)
     nomad = mocker.MagicMock()
     nomad.compile_to_json.return_value = b'{"Job": {"ID": "web"}}'

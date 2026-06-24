@@ -41,6 +41,7 @@ class StopStatus(enum.StrEnum):
     STOPPED = "stopped"
     TIMEOUT = "timeout"
     FAILED = "failed"
+    PURGE_FAILED = "purge_failed"
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,9 @@ _OUTCOME_ROW: dict[StopStatus, tuple[str, str]] = {
     StopStatus.STOPPED: (OUTCOME_GLYPH["ok"], "stopped"),
     StopStatus.TIMEOUT: (OUTCOME_GLYPH["warn"], "still draining"),
     StopStatus.FAILED: (OUTCOME_GLYPH["fail"], "failed"),
+    # The workload did stop; only the follow-up garbage-collection failed, so this
+    # warns rather than reading as a hard "failed to stop".
+    StopStatus.PURGE_FAILED: (OUTCOME_GLYPH["warn"], "stopped, purge failed"),
 }
 
 
@@ -126,6 +130,9 @@ async def stop_and_wait(
 
     Reports drain progress through ``update``: a phase summary plus a detail row
     per allocation and task (so post-stop tasks draining on each node are visible).
+    When ``purge`` is set the job is garbage-collected only after the drain reaches a
+    terminal state, so the post-stop tasks are watched first; a timed-out or failed
+    drain leaves the job queryable for inspection rather than purging it.
     Never raises: a Nomad failure becomes a ``FAILED`` outcome so a sibling job's
     progress is unaffected. The poll loop is bounded by a wall-clock deadline so a
     slow cluster cannot stretch the wait past ``STOP_TIMEOUT_SECONDS`` (the bound is
@@ -133,10 +140,12 @@ async def stop_and_wait(
     """
     try:
         update("stopping")
-        resp = await client.jobs.stop(job.id, purge=purge, no_shutdown_delay=no_shutdown_delay)
-        pp.debug(
-            f"DELETE /v1/job/{job.id}?purge={str(purge).lower()} -> eval {resp.eval_id or 'no-op'}"
-        )
+        # Stop without purging so the job stays queryable while its allocations (and any
+        # post-stop tasks) drain. A purge here deregisters the job immediately, leaving the
+        # allocations endpoint empty so the drain goes unwatched; the dead job is purged in
+        # _purge_dead_job below, only after it is confirmed terminal.
+        resp = await client.jobs.stop(job.id, purge=False, no_shutdown_delay=no_shutdown_delay)
+        pp.debug(f"DELETE /v1/job/{job.id}?purge=false -> eval {resp.eval_id or 'no-op'}")
         pp.trace(
             f"deregister {job.id}: create_index={resp.eval_create_index} "
             f"modify_index={resp.job_modify_index}"
@@ -153,6 +162,8 @@ async def stop_and_wait(
                 f"({pending} not terminal), {elapsed_ms:.0f}ms"
             )
             if all_allocs_terminal(allocs):
+                if purge:
+                    return await _purge_dead_job(client, job, update=update)
                 return StopOutcome(job, StopStatus.STOPPED)
             if time.monotonic() >= deadline:
                 return StopOutcome(job, StopStatus.TIMEOUT, "stop requested, still draining")
@@ -160,6 +171,27 @@ async def stop_and_wait(
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
     except NomadError as exc:
         return StopOutcome(job, StopStatus.FAILED, str(exc))
+
+
+async def _purge_dead_job(
+    client: NomadClient, job: JobListStub, *, update: PanelUpdate
+) -> StopOutcome:
+    """Garbage-collect a job that has already drained to a terminal state.
+
+    Nomad has no per-job GC endpoint other than the purging deregister, so a clean
+    stop is purged by re-issuing the deregister with ``purge=true`` once the drain has
+    been watched to completion. ``no_shutdown_delay`` is not forwarded: the job is
+    already dead here, so there are no live allocations for the flag to act on. A purge
+    failure becomes a ``PURGE_FAILED`` outcome (the workload stopped but was not
+    collected) so it is reported as a warning rather than a hard "failed to stop".
+    """
+    try:
+        update("purging")
+        await client.jobs.stop(job.id, purge=True)
+        pp.debug(f"DELETE /v1/job/{job.id}?purge=true -> garbage-collected dead job")
+    except NomadError as exc:
+        return StopOutcome(job, StopStatus.PURGE_FAILED, f"stopped but purge failed: {exc}")
+    return StopOutcome(job, StopStatus.STOPPED)
 
 
 def _build_dry_run_panel(targets: list[JobListStub], *, purge: bool) -> Panel:
@@ -373,7 +405,7 @@ async def _stop_all(
     # The live panel is transient on a pipe/CI; emit a durable line for any job
     # that did not stop cleanly so timeouts and failures are never silent.
     for outcome in ordered:
-        if outcome.status is StopStatus.TIMEOUT:
+        if outcome.status in (StopStatus.TIMEOUT, StopStatus.PURGE_FAILED):
             pp.warning(f"{outcome.job.name}: {outcome.detail}")
         elif outcome.status is StopStatus.FAILED:
             pp.error(f"{outcome.job.name} failed to stop", details=[outcome.detail])

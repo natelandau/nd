@@ -272,6 +272,81 @@ def test_stop_and_wait_reports_phase_and_drain_detail(httpx2_mock: respx.Router,
     assert any("cleanup" in label for label in detail_labels)
 
 
+def test_stop_and_wait_purges_after_drain(httpx2_mock: respx.Router, mocker):
+    """Verify a purge stop watches the drain first, then garbage-collects the dead job."""
+    # Given a job that drains running -> complete and a deregister endpoint
+    stop_route = httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").mock(
+        side_effect=[
+            httpx.Response(200, json=[_alloc_json("running")]),
+            httpx.Response(200, json=[_alloc_json("complete")]),
+        ]
+    )
+    mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
+
+    # When stopping with purge=True
+    async def run() -> object:
+        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+            return await stop_and_wait(
+                client, _job("web"), purge=True, node_names={}, update=lambda *_a: None
+            )
+
+    outcome = asyncio.run(run())
+
+    # Then the job stops, and the deregister was issued first plain then with purge=true
+    assert outcome.status is StopStatus.STOPPED
+    assert [c.request.url.params["purge"] for c in stop_route.calls] == ["false", "true"]
+
+
+def test_stop_and_wait_does_not_purge_on_timeout(httpx2_mock: respx.Router, mocker):
+    """Verify a purge stop that never drains times out without purging the job."""
+    # Given a job whose allocations stay running past a tiny timeout budget
+    stop_route = httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[_alloc_json("running")])
+    mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
+    mocker.patch("nd.commands.stop.STOP_TIMEOUT_SECONDS", 0.03)
+    mocker.patch("nd.commands.stop.POLL_INTERVAL_SECONDS", 0.01)
+
+    # When stopping with purge=True
+    async def run() -> object:
+        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+            return await stop_and_wait(
+                client, _job("web"), purge=True, node_names={}, update=lambda *_a: None
+            )
+
+    outcome = asyncio.run(run())
+
+    # Then it times out and the job was never purged (only the plain stop was issued)
+    assert outcome.status is StopStatus.TIMEOUT
+    assert "true" not in [c.request.url.params["purge"] for c in stop_route.calls]
+
+
+def test_stop_and_wait_reports_failed_when_purge_fails(httpx2_mock: respx.Router, mocker):
+    """Verify a clean stop whose follow-up purge errors is reported as FAILED."""
+    # Given a job that drains immediately, with the follow-up purge call erroring
+    httpx2_mock.delete(f"{_ADDR}/v1/job/web").mock(
+        side_effect=[
+            httpx.Response(200, json={"EvalID": "e1"}),
+            httpx.Response(500, text="boom"),
+        ]
+    )
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[_alloc_json("complete")])
+    mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
+
+    # When stopping with purge=True
+    async def run() -> object:
+        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+            return await stop_and_wait(
+                client, _job("web"), purge=True, node_names={}, update=lambda *_a: None
+            )
+
+    outcome = asyncio.run(run())
+
+    # Then the outcome flags the purge failure distinctly from a hard stop failure
+    assert outcome.status is StopStatus.PURGE_FAILED
+    assert "purge failed" in outcome.detail
+
+
 def test_stop_and_wait_reports_failed_on_nomad_error(httpx2_mock: respx.Router):
     """Verify stop_and_wait reports FAILED when the stop call errors."""
     # Given a stop endpoint that returns a server error
@@ -554,6 +629,7 @@ def test_outcome_row_maps_status_to_glyph_and_label():
     assert _OUTCOME_ROW[StopStatus.STOPPED] == (OUTCOME_GLYPH["ok"], "stopped")
     assert _OUTCOME_ROW[StopStatus.TIMEOUT] == (OUTCOME_GLYPH["warn"], "still draining")
     assert _OUTCOME_ROW[StopStatus.FAILED] == (OUTCOME_GLYPH["fail"], "failed")
+    assert _OUTCOME_ROW[StopStatus.PURGE_FAILED] == (OUTCOME_GLYPH["warn"], "stopped, purge failed")
 
 
 def test_build_dry_run_panel_names_targets():

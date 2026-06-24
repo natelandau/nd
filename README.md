@@ -1,3 +1,5 @@
+[![Automated Tests](https://github.com/natelandau/nd/actions/workflows/automated-tests.yml/badge.svg)](https://github.com/natelandau/nd/actions/workflows/automated-tests.yml) [![codecov](https://codecov.io/gh/natelandau/nd/graph/badge.svg?token=HpyhUwExqh)](https://codecov.io/gh/natelandau/nd)
+
 # nd
 
 A friendly command-line tool for managing a Nomad cluster.
