@@ -318,7 +318,7 @@ async def _deploy_one(
         lifecycle = task_lifecycle(body)
         update("registering")
         resp = await client.jobs.register(body)
-        outcome = await _watch(
+        outcome = await watch_deploy(
             client,
             candidate.name,
             node_names=node_names,
@@ -332,7 +332,7 @@ async def _deploy_one(
         return DeployOutcome(candidate.name, DeployStatus.FAILED, str(exc))
 
 
-async def _watch(
+async def watch_deploy(
     client: NomadClient,
     job_id: str,
     *,

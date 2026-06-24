@@ -56,6 +56,7 @@ Both kinds share the `*.hcl`/`*.nomad` globs, so a directory may hold both. **Cl
 - `nd list` — table of discovered job files with cluster status.
 - `nd plan` — `nomad job plan` diff, verbatim.
 - `nd run` — compile + register, then watch the rollout (`--detach / -d` skips the watch).
+- `nd update` - recreate a running job from its local file (stop, drain, purge, re-register, watch). Use for a changed job file or to force a fresh version. `--no-purge` keeps version history; `--force / -f` skips the prompt.
 - `nd stop` — stop/purge running jobs and watch the drain (`--detach`, `--no-shutdown-delay / -S`).
 - `nd volume register|delete|list` — manage dynamic host volumes from local specs.
 - `nd status` — cluster dashboard (jobs, nodes, volumes, deployments, evals), all fetched concurrently.

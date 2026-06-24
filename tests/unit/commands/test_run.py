@@ -231,7 +231,7 @@ def test_watch_service_success_reports_deployed(httpx2_mock: respx.Router) -> No
     # When watching the deployment to completion
     async def go() -> run_mod.DeployOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
-            return await run_mod._watch(
+            return await run_mod.watch_deploy(
                 client, "web", node_names={}, lifecycle={}, update=lambda *_a: None
             )
 
@@ -260,7 +260,7 @@ def test_watch_service_failure_reports_failed(httpx2_mock: respx.Router) -> None
     # When watching the deployment to completion
     async def go() -> run_mod.DeployOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
-            return await run_mod._watch(
+            return await run_mod.watch_deploy(
                 client, "web", node_names={}, lifecycle={}, update=lambda *_a: None
             )
 
@@ -280,7 +280,7 @@ def test_watch_batch_all_allocs_complete_reports_deployed(httpx2_mock: respx.Rou
     # When watching the job allocations to completion
     async def go() -> run_mod.DeployOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
-            return await run_mod._watch(
+            return await run_mod.watch_deploy(
                 client, "batch", node_names={}, lifecycle={}, update=lambda *_a: None
             )
 
@@ -316,7 +316,7 @@ def test_watch_skips_transient_alloc_decode_error(httpx2_mock: respx.Router, moc
     # When watching a job whose first poll cannot decode its allocations
     async def go() -> run_mod.DeployOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
-            return await run_mod._watch(
+            return await run_mod.watch_deploy(
                 client, "web", node_names={}, lifecycle={}, update=lambda *_a: None
             )
 
@@ -352,7 +352,7 @@ def test_watch_ignores_stale_successful_deployment_from_prior_run(
     # When watching with the new registration's modify index as the floor
     async def go() -> run_mod.DeployOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
-            return await run_mod._watch(
+            return await run_mod.watch_deploy(
                 client,
                 "web",
                 node_names={},
@@ -403,7 +403,7 @@ def test_watch_follows_fresh_deployment_past_stale_one(httpx2_mock: respx.Router
     # When watching with this registration's modify index as the floor
     async def go() -> run_mod.DeployOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
-            return await run_mod._watch(
+            return await run_mod.watch_deploy(
                 client,
                 "web",
                 node_names={},
@@ -423,7 +423,7 @@ def test_watch_follows_fresh_deployment_past_stale_one(httpx2_mock: respx.Router
 def test_watch_times_out_when_never_terminal(
     httpx2_mock: respx.Router, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify _watch returns TIMEOUT when the deployment never reaches a terminal state."""
+    """Verify watch_deploy returns TIMEOUT when the deployment never reaches a terminal state."""
     # Given zero-duration timeout and poll interval so the test completes instantly
     monkeypatch.setattr(run_mod, "DEPLOY_TIMEOUT_SECONDS", 0.0)
     monkeypatch.setattr(run_mod, "POLL_INTERVAL_SECONDS", 0.0)
@@ -444,7 +444,7 @@ def test_watch_times_out_when_never_terminal(
     # When watching a job that never becomes terminal
     async def go() -> run_mod.DeployOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
-            return await run_mod._watch(
+            return await run_mod.watch_deploy(
                 client, "web", node_names={}, lifecycle={}, update=lambda *_a: None
             )
 

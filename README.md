@@ -28,9 +28,9 @@ your easy to remember job and volume names and the cli does the rest.
 
 - Python 3.13 or 3.14.
 - A reachable Nomad cluster.
-- The `nomad` binary on your `PATH`. The `plan`, `run`, `exec`, and `logs` commands
-  shell out to it, because the HTTP API cannot parse HCL2 job files and does not own
-  the interactive exec protocol. The other commands use the API only.
+- The `nomad` binary on your `PATH`. The `plan`, `run`, `update`, `exec`, and `logs`
+  commands shell out to it, because the HTTP API cannot parse HCL2 job files and does
+  not own the interactive exec protocol. The other commands use the API only.
 
 ## Installation
 
@@ -139,6 +139,7 @@ Run `nd --help`, or `nd <command> --help`, for the full option list at any time.
 | `nd list`                   | List discovered job files and whether each is running, dead, or not deployed.     |
 | `nd plan [JOB]`             | Preview the changes one or more job files would apply, including to running jobs. |
 | `nd run [JOB]`              | Deploy not-yet-running job files and watch the rollout.                           |
+| `nd update [JOB]`           | Recreate a running job from its local file and watch the rollout.                 |
 | `nd stop [JOB]`             | Stop, and optionally purge, running jobs and watch them drain.                    |
 | `nd logs [JOB]`             | Stream, tail, or export a task's logs.                                            |
 | `nd exec [JOB]`             | Open an interactive shell inside a running task.                                  |
@@ -165,12 +166,13 @@ touching the cluster:
 
 ```bash
 nd run --dry-run
+nd update web --dry-run
 nd stop web --dry-run
 nd volume register --dry-run
 ```
 
-For `nd run`, a dry run still validates each job file locally, so it catches a
-broken spec without registering anything.
+For `nd run` and `nd update`, a dry run still validates each job file locally, so it
+catches a broken spec without registering anything.
 
 ### Deploying jobs
 
@@ -183,6 +185,30 @@ nd run                # choose from every deployable job
 nd run web            # deploy the job whose name starts with "web"
 nd run web --detach   # register and return immediately
 ```
+
+### Updating jobs
+
+`nd update` recreates a job that is already running. Reach for it to roll out an
+edited job file, or to pull a fresh version when the file is unchanged, such as a
+container that tracks a moving tag. It only offers jobs that are both running and
+have a local file.
+
+Each selected job is stopped, drained, purged, then re-registered from its local
+file and watched until the new rollout settles. The job is fully recreated, so
+expect brief downtime. `nd update` confirms before it acts unless you pass `--force`
+(`-f`), and purges by default (unlike `nd stop`, which keeps the job unless you pass
+`--purge`); pass `--no-purge` to keep the job's version history.
+
+```bash
+nd update                 # choose from every running job that has a local file
+nd update web             # recreate the job whose name starts with "web"
+nd update web --no-purge  # recreate but keep the version history
+nd update web --force     # skip the confirmation prompt
+```
+
+Whether a new container image is actually pulled depends on the job's Docker driver
+config, such as `force_pull` or a pinned digest, not on `nd`. The recreate
+guarantees fresh allocations; the image policy stays with your job spec.
 
 ### Working with logs
 
