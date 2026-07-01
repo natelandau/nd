@@ -346,6 +346,149 @@ def test_update_one_drain_timeout_maps_to_timeout(
     assert not any(call.request.method == "POST" for call in httpx2_mock.calls)
 
 
+def test_update_one_marks_previous_version_stopped(
+    httpx2_mock: respx.Router, monkeypatch, mocker
+) -> None:
+    """Verify the deploy phase keeps a persistent 'stopped previous version' marker row."""
+    # Given a clean stop that drained two allocations, then a successful re-deploy
+    target = _web_target()
+    nomad = mocker.MagicMock()
+    nomad.compile_to_json.return_value = b'{"Job": {"ID": "web"}}'
+    monkeypatch.setattr(
+        update_mod,
+        "stop_and_wait",
+        _async_return(StopOutcome(target.job, StopStatus.STOPPED, drained=2)),
+    )
+    httpx2_mock.post(f"{_ADDR}/v1/jobs").respond(
+        json={"EvalID": "e2", "JobModifyIndex": 5, "Warnings": ""}
+    )
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/deployments").respond(
+        json=[
+            {"ID": "d1", "JobID": "web", "Status": "running", "CreateIndex": 10, "ModifyIndex": 11}
+        ]
+    )
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[])
+    httpx2_mock.get(f"{_ADDR}/v1/deployment/d1").respond(
+        json={
+            "ID": "d1",
+            "JobID": "web",
+            "Status": "successful",
+            "StatusDescription": "ok",
+            "TaskGroups": {"app": {"DesiredTotal": 1, "HealthyAllocs": 1}},
+        }
+    )
+
+    # Capture the first child cell of every update that carries detail rows
+    lead_cells: list[str] = []
+
+    def _update(phase: str, children=()) -> None:
+        if children:
+            lead_cells.append(children[0].cells[0])
+
+    # When updating that target
+    async def go() -> UpdateOutcome:
+        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+            return await update_mod._update_one(
+                client, target, node_names={}, update=_update, nomad=nomad, purge=True
+            )
+
+    outcome = asyncio.run(go())
+
+    # Then the deploy phase leads every detail block with a durable stopped marker
+    assert outcome.status is UpdateStatus.UPDATED
+    assert lead_cells, "expected at least one update carrying detail rows after the stop"
+    assert all("stopped previous version" in cell for cell in lead_cells)
+    assert any("2 allocs drained" in cell for cell in lead_cells)
+
+
+def test_update_one_no_marker_when_stop_times_out(
+    httpx2_mock: respx.Router, monkeypatch, mocker
+) -> None:
+    """Verify a stop that never drained shows no 'stopped previous version' marker."""
+    # Given a good compile but a stop that times out (nothing cleanly stopped)
+    target = _web_target()
+    nomad = mocker.MagicMock()
+    nomad.compile_to_json.return_value = b'{"Job": {"ID": "web"}}'
+    monkeypatch.setattr(
+        update_mod,
+        "stop_and_wait",
+        _async_return(StopOutcome(target.job, StopStatus.TIMEOUT, "still draining", drained=0)),
+    )
+
+    marker_cells: list[str] = []
+
+    def _update(phase: str, children=()) -> None:
+        marker_cells.extend(
+            c.cells[0] for c in children if "stopped previous version" in c.cells[0]
+        )
+
+    # When updating that target
+    async def go() -> UpdateOutcome:
+        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+            return await update_mod._update_one(
+                client, target, node_names={}, update=_update, nomad=nomad, purge=True
+            )
+
+    outcome = asyncio.run(go())
+
+    # Then no marker is shown, because the early return skips the re-deploy entirely
+    assert outcome.status is UpdateStatus.TIMEOUT
+    assert not marker_cells
+
+
+def test_update_one_no_marker_when_nothing_was_running(
+    httpx2_mock: respx.Router, monkeypatch, mocker
+) -> None:
+    """Verify a stop that drained zero allocations shows no marker but still re-deploys."""
+    # Given a clean stop that drained nothing (drained == 0), then a successful re-deploy
+    target = _web_target()
+    nomad = mocker.MagicMock()
+    nomad.compile_to_json.return_value = b'{"Job": {"ID": "web"}}'
+    monkeypatch.setattr(
+        update_mod,
+        "stop_and_wait",
+        _async_return(StopOutcome(target.job, StopStatus.STOPPED, drained=0)),
+    )
+    httpx2_mock.post(f"{_ADDR}/v1/jobs").respond(
+        json={"EvalID": "e2", "JobModifyIndex": 5, "Warnings": ""}
+    )
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/deployments").respond(
+        json=[
+            {"ID": "d1", "JobID": "web", "Status": "running", "CreateIndex": 10, "ModifyIndex": 11}
+        ]
+    )
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[])
+    httpx2_mock.get(f"{_ADDR}/v1/deployment/d1").respond(
+        json={
+            "ID": "d1",
+            "JobID": "web",
+            "Status": "successful",
+            "StatusDescription": "ok",
+            "TaskGroups": {"app": {"DesiredTotal": 1, "HealthyAllocs": 1}},
+        }
+    )
+
+    marker_cells: list[str] = []
+
+    def _update(phase: str, children=()) -> None:
+        marker_cells.extend(
+            c.cells[0] for c in children if "stopped previous version" in c.cells[0]
+        )
+
+    # When updating that target
+    async def go() -> UpdateOutcome:
+        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+            return await update_mod._update_one(
+                client, target, node_names={}, update=_update, nomad=nomad, purge=True
+            )
+
+    outcome = asyncio.run(go())
+
+    # Then it re-deploys cleanly but shows no marker (there was nothing to report drained)
+    assert outcome.status is UpdateStatus.UPDATED
+    assert not marker_cells
+
+
 def test_update_no_candidates_exits_clean(monkeypatch, httpx2_mock: respx.Router, tmp_path) -> None:
     """Verify update exits 0 with a message when no running job has a local file."""
     # Given no local files and an empty cluster job list

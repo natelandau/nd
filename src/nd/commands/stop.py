@@ -57,6 +57,9 @@ class StopOutcome:
     job: JobListStub
     status: StopStatus
     detail: str = ""
+    # Allocations observed in the terminal drain frame; equals the alloc rows the
+    # user just watched drain. Consumed by ``nd update`` to label its stop marker.
+    drained: int = 0
 
 
 # Maps each terminal stop status to its outcome glyph and row label. Each label
@@ -182,8 +185,10 @@ async def stop_and_wait(
                 )
                 if all_allocs_terminal(allocs):
                     if purge:
-                        return await _purge_dead_job(client, job, update=update)
-                    return StopOutcome(job, StopStatus.STOPPED)
+                        return await _purge_dead_job(
+                            client, job, update=update, drained=len(allocs)
+                        )
+                    return StopOutcome(job, StopStatus.STOPPED, drained=len(allocs))
                 update(phase_text(allocs), alloc_children(allocs, node_names, None))
             if time.monotonic() >= deadline:
                 return StopOutcome(job, StopStatus.TIMEOUT, "stop requested, still draining")
@@ -193,7 +198,7 @@ async def stop_and_wait(
 
 
 async def _purge_dead_job(
-    client: NomadClient, job: JobListStub, *, update: PanelUpdate
+    client: NomadClient, job: JobListStub, *, update: PanelUpdate, drained: int = 0
 ) -> StopOutcome:
     """Garbage-collect a job that has already drained to a terminal state.
 
@@ -209,8 +214,10 @@ async def _purge_dead_job(
         await client.jobs.stop(job.id, purge=True)
         pp.debug(f"DELETE /v1/job/{job.id}?purge=true -> garbage-collected dead job")
     except NomadError as exc:
-        return StopOutcome(job, StopStatus.PURGE_FAILED, f"stopped but purge failed: {exc}")
-    return StopOutcome(job, StopStatus.STOPPED)
+        return StopOutcome(
+            job, StopStatus.PURGE_FAILED, f"stopped but purge failed: {exc}", drained=drained
+        )
+    return StopOutcome(job, StopStatus.STOPPED, drained=drained)
 
 
 def _build_dry_run_panel(targets: list[JobListStub], *, purge: bool) -> Panel:

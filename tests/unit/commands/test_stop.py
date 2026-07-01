@@ -324,6 +324,50 @@ def test_stop_and_wait_purges_after_drain(httpx2_mock: respx.Router, mocker):
     assert [c.request.url.params["purge"] for c in stop_route.calls] == ["false", "true"]
 
 
+def test_stop_and_wait_reports_drained_alloc_count(httpx2_mock: respx.Router, mocker):
+    """Verify a clean stop records the terminal-frame allocation count as drained."""
+    # Given two allocations that are already terminal on the first drain poll
+    httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(
+        json=[_alloc_json("complete"), _alloc_json("complete")]
+    )
+    mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
+
+    # When stopping without purge
+    async def run() -> object:
+        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+            return await stop_and_wait(
+                client, _job("web"), purge=False, node_names={}, update=lambda *_a: None
+            )
+
+    outcome = asyncio.run(run())
+
+    # Then the outcome carries the count of allocations that drained
+    assert outcome.status is StopStatus.STOPPED
+    assert outcome.drained == 2
+
+
+def test_stop_and_wait_purge_reports_drained_alloc_count(httpx2_mock: respx.Router, mocker):
+    """Verify a purge stop still records the drained allocation count on its outcome."""
+    # Given one allocation that is already terminal, with purge enabled
+    httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[_alloc_json("complete")])
+    mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
+
+    # When stopping with purge=True
+    async def run() -> object:
+        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+            return await stop_and_wait(
+                client, _job("web"), purge=True, node_names={}, update=lambda *_a: None
+            )
+
+    outcome = asyncio.run(run())
+
+    # Then the drained count survives the purge path
+    assert outcome.status is StopStatus.STOPPED
+    assert outcome.drained == 1
+
+
 def test_stop_and_wait_does_not_purge_on_timeout(httpx2_mock: respx.Router, mocker):
     """Verify a purge stop that never drains times out without purging the job."""
     # Given a job whose allocations stay running past a tiny timeout budget

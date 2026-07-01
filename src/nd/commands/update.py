@@ -27,9 +27,12 @@ from nd.jobfiles import candidates_for, discover_job_files, load_job_directories
 from nd.nomad import NomadClient, NomadConfig
 from nd.nomad.errors import NomadError
 from nd.targets import resolve_targets, select_candidates
-from nd.ui.live_panel import PanelUpdate, run_rows
+from nd.ui.live_panel import LiveChild, PanelUpdate, run_rows
+from nd.ui.styles import muted
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from nd.jobfiles import JobFile
     from nd.nomad.models.job import JobListStub
 
@@ -107,6 +110,27 @@ _DEPLOY_TO_UPDATE: dict[DeployStatus, UpdateStatus] = {
 _STOP_PROCEED = frozenset({StopStatus.STOPPED, StopStatus.PURGE_FAILED})
 
 
+def _with_stopped_marker(update: PanelUpdate, *, drained: int) -> PanelUpdate:
+    """Wrap ``update`` so every deploy-phase refresh keeps a stopped-version marker.
+
+    The recreate reuses one row for both halves of the job's life: the deploy rows
+    that arrive during the watch replace the drain rows the user just saw. Prepending
+    a persistent summary line keeps the "previous version is down" beat on screen
+    instead of letting it vanish. With ``drained`` of zero (nothing was running) there
+    is nothing to report, so the original callback is returned unwrapped.
+    """
+    if drained <= 0:
+        return update
+
+    allocs_word = "alloc" if drained == 1 else "allocs"
+    marker = LiveChild(cells=[muted(f"stopped previous version · {drained} {allocs_word} drained")])
+
+    def wrapped(phase: str, children: Sequence[LiveChild] = ()) -> None:
+        update(phase, [marker, *children])
+
+    return wrapped
+
+
 async def _update_one(
     client: NomadClient,
     target: UpdateTarget,
@@ -162,8 +186,12 @@ async def _update_one(
             f"not re-deployed (stop {stop_outcome.status}): {stop_outcome.detail}",
         )
 
+    # Keep a durable marker for the just-completed drain so the deploy rows that
+    # replace the drain rows do not erase the "previous version is down" beat.
+    deploy_update = _with_stopped_marker(update, drained=stop_outcome.drained)
+
     try:
-        update("registering")
+        deploy_update("registering")
         resp = await client.jobs.register(body)
     except NomadError as exc:
         # The old version is already gone here, so call out that the job is down.
@@ -177,7 +205,7 @@ async def _update_one(
             target.name,
             node_names=node_names,
             lifecycle=lifecycle,
-            update=update,
+            update=deploy_update,
             since_index=resp.job_modify_index,
         )
     except NomadError as exc:
