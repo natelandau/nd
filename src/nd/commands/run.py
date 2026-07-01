@@ -14,15 +14,21 @@ from nclutils import pp
 
 from nd.binary import NomadBinary, NomadBinaryError
 from nd.commands._common import VerboseOption, configure_verbosity
+from nd.commands._orchestration import (
+    fail_row,
+    final_panel_title,
+    node_names_by_id,
+    ok_row,
+    report_outcomes,
+    warn_row,
+)
 from nd.constants import DEPLOY_TIMEOUT_SECONDS, HEALTHY_ALLOC_STATUSES, POLL_INTERVAL_SECONDS
 from nd.jobfiles import candidates_for, discover_job_files, load_job_directories
 from nd.nomad import NomadClient, NomadConfig
 from nd.nomad.errors import NomadDecodeError, NomadError
 from nd.targets import resolve_targets, select_candidates
 from nd.ui.alloc_rows import alloc_children
-from nd.ui.duration import summary_title
 from nd.ui.live_panel import PanelUpdate, run_rows
-from nd.ui.styles import OUTCOME_GLYPH
 
 if TYPE_CHECKING:
     from nd.jobfiles import JobCandidate
@@ -109,9 +115,9 @@ def _task_role(lifecycle: dict[str, object] | None, index: int) -> tuple[int, st
 # Outcome labels carry the same color as their glyph so the status word reads as
 # success/failure at a glance, not just the leading mark.
 _OUTCOME_ROW: dict[DeployStatus, tuple[str, str]] = {
-    DeployStatus.DEPLOYED: (OUTCOME_GLYPH["ok"], "[green]deployed[/]"),
-    DeployStatus.FAILED: (OUTCOME_GLYPH["fail"], "[red]failed[/]"),
-    DeployStatus.TIMEOUT: (OUTCOME_GLYPH["warn"], "[yellow]still deploying[/]"),
+    DeployStatus.DEPLOYED: ok_row("deployed"),
+    DeployStatus.FAILED: fail_row("failed"),
+    DeployStatus.TIMEOUT: warn_row("still deploying"),
 }
 
 
@@ -253,7 +259,7 @@ async def _deploy_all(
         Ordered list of outcomes, one per target.
     """
     # Resolve node IDs to names once so every job's detail rows can show placement.
-    node_names = {node.id: node.name for node in await client.nodes.list()}
+    node_names = await node_names_by_id(client)
 
     async def do_work(candidate: JobCandidate, update: PanelUpdate) -> DeployOutcome:
         return await _deploy_one(
@@ -270,20 +276,27 @@ async def _deploy_all(
         final_title=_final_title,
     )
 
-    for o in ordered:
-        if o.status is DeployStatus.TIMEOUT:
-            pp.warning(f"{o.name}: {o.detail or 'still deploying'}")
-        elif o.status is DeployStatus.FAILED:
-            pp.error(f"{o.name} failed to deploy", details=[o.detail] if o.detail else None)
-        if o.warnings:
-            pp.warning(f"{o.name}: {o.warnings}")
+    report_outcomes(
+        ordered,
+        name_of=lambda o: o.name,
+        detail_of=lambda o: o.detail,
+        is_warn=lambda o: o.status is DeployStatus.TIMEOUT,
+        is_fail=lambda o: o.status is DeployStatus.FAILED,
+        fail_verb="deploy",
+        warn_fallback="still deploying",
+        warnings_of=lambda o: o.warnings,
+    )
     return ordered
 
 
 def _final_title(outcomes: list[DeployOutcome], elapsed_seconds: float) -> str:
     """Build the final panel title with deployed totals and elapsed seconds."""
-    ok = sum(1 for o in outcomes if o.status is DeployStatus.DEPLOYED)
-    return summary_title("Deployed", ok, len(outcomes), elapsed_seconds)
+    return final_panel_title(
+        outcomes,
+        elapsed_seconds,
+        verb="Deployed",
+        succeeded=lambda o: o.status is DeployStatus.DEPLOYED,
+    )
 
 
 async def _deploy_one(

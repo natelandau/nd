@@ -13,6 +13,15 @@ from nclutils import pp
 from rich.table import Table
 
 from nd.commands._common import VerboseOption, configure_verbosity
+from nd.commands._orchestration import (
+    confirm_jobs,
+    fail_row,
+    final_panel_title,
+    node_names_by_id,
+    ok_row,
+    report_outcomes,
+    warn_row,
+)
 from nd.constants import (
     POLL_INTERVAL_SECONDS,
     STOP_TIMEOUT_SECONDS,
@@ -22,11 +31,8 @@ from nd.nomad import NomadClient, NomadConfig
 from nd.nomad.errors import NomadDecodeError, NomadError
 from nd.targets import resolve_targets, select_candidates
 from nd.ui.alloc_rows import alloc_children
-from nd.ui.duration import summary_title
 from nd.ui.live_panel import PanelUpdate, run_rows
 from nd.ui.panels import titled_panel
-from nd.ui.prompts import select_one
-from nd.ui.styles import OUTCOME_GLYPH
 
 if TYPE_CHECKING:
     from rich.panel import Panel
@@ -56,12 +62,12 @@ class StopOutcome:
 # Maps each terminal stop status to its outcome glyph and row label. Each label
 # carries its glyph's color so the status word reads as success/failure on its own.
 _OUTCOME_ROW: dict[StopStatus, tuple[str, str]] = {
-    StopStatus.STOPPED: (OUTCOME_GLYPH["ok"], "[green]stopped[/]"),
-    StopStatus.TIMEOUT: (OUTCOME_GLYPH["warn"], "[yellow]still draining[/]"),
-    StopStatus.FAILED: (OUTCOME_GLYPH["fail"], "[red]failed[/]"),
+    StopStatus.STOPPED: ok_row("stopped"),
+    StopStatus.TIMEOUT: warn_row("still draining"),
+    StopStatus.FAILED: fail_row("failed"),
     # The workload did stop; only the follow-up garbage-collection failed, so this
     # warns rather than reading as a hard "failed to stop".
-    StopStatus.PURGE_FAILED: (OUTCOME_GLYPH["warn"], "[yellow]stopped, purge failed[/]"),
+    StopStatus.PURGE_FAILED: warn_row("stopped, purge failed"),
 }
 
 
@@ -114,8 +120,12 @@ def stopping_title(count: int, *, purge: bool) -> str:
 
 def final_title(outcomes: list[StopOutcome], *, elapsed_seconds: float) -> str:
     """Build the panel title for the final frame, with totals and elapsed time."""
-    stopped = sum(1 for o in outcomes if o.status is StopStatus.STOPPED)
-    return summary_title("Stopped", stopped, len(outcomes), elapsed_seconds)
+    return final_panel_title(
+        outcomes,
+        elapsed_seconds,
+        verb="Stopped",
+        succeeded=lambda o: o.status is StopStatus.STOPPED,
+    )
 
 
 async def stop_and_wait(
@@ -375,13 +385,8 @@ async def _stop_detached(
 
 async def _confirm(targets: list[JobListStub], *, purge: bool) -> bool:
     """Ask the user to confirm stopping the resolved jobs."""
-    names = ", ".join(job.name for job in targets)
     verb = "Stop and PURGE" if purge else "Stop"
-    answer = await select_one(
-        [("Yes", True), ("No", False)],
-        f"{verb} {len(targets)} job(s): {names}?",
-    )
-    return bool(answer)
+    return await confirm_jobs([job.name for job in targets], verb=verb)
 
 
 async def _stop_all(
@@ -389,7 +394,7 @@ async def _stop_all(
 ) -> list[StopOutcome]:
     """Stop every target concurrently, rendering one live panel that ends final."""
     # Resolve node IDs to names once so each job's detail rows can show placement.
-    node_names = {node.id: node.name for node in await client.nodes.list()}
+    node_names = await node_names_by_id(client)
 
     async def do_work(job: JobListStub, update: PanelUpdate) -> StopOutcome:
         return await stop_and_wait(
@@ -413,9 +418,12 @@ async def _stop_all(
 
     # The live panel is transient on a pipe/CI; emit a durable line for any job
     # that did not stop cleanly so timeouts and failures are never silent.
-    for outcome in ordered:
-        if outcome.status in (StopStatus.TIMEOUT, StopStatus.PURGE_FAILED):
-            pp.warning(f"{outcome.job.name}: {outcome.detail}")
-        elif outcome.status is StopStatus.FAILED:
-            pp.error(f"{outcome.job.name} failed to stop", details=[outcome.detail])
+    report_outcomes(
+        ordered,
+        name_of=lambda o: o.job.name,
+        detail_of=lambda o: o.detail,
+        is_warn=lambda o: o.status in (StopStatus.TIMEOUT, StopStatus.PURGE_FAILED),
+        is_fail=lambda o: o.status is StopStatus.FAILED,
+        fail_verb="stop",
+    )
     return ordered

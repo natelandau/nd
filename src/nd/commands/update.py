@@ -12,16 +12,22 @@ from nclutils import pp
 
 from nd.binary import NomadBinary, NomadBinaryError
 from nd.commands._common import VerboseOption, configure_verbosity
+from nd.commands._orchestration import (
+    confirm_jobs,
+    fail_row,
+    final_panel_title,
+    node_names_by_id,
+    ok_row,
+    report_outcomes,
+    warn_row,
+)
 from nd.commands.run import DeployStatus, task_lifecycle, watch_deploy
 from nd.commands.stop import StopStatus, stop_and_wait
 from nd.jobfiles import candidates_for, discover_job_files, load_job_directories
 from nd.nomad import NomadClient, NomadConfig
 from nd.nomad.errors import NomadError
 from nd.targets import resolve_targets, select_candidates
-from nd.ui.duration import summary_title
 from nd.ui.live_panel import PanelUpdate, run_rows
-from nd.ui.prompts import select_one
-from nd.ui.styles import OUTCOME_GLYPH
 
 if TYPE_CHECKING:
     from nd.jobfiles import JobFile
@@ -84,9 +90,9 @@ class UpdateOutcome:
 
 # Outcome labels carry their glyph's color so the status word reads on its own.
 _OUTCOME_ROW: dict[UpdateStatus, tuple[str, str]] = {
-    UpdateStatus.UPDATED: (OUTCOME_GLYPH["ok"], "[green]updated[/]"),
-    UpdateStatus.FAILED: (OUTCOME_GLYPH["fail"], "[red]failed[/]"),
-    UpdateStatus.TIMEOUT: (OUTCOME_GLYPH["warn"], "[yellow]still deploying[/]"),
+    UpdateStatus.UPDATED: ok_row("updated"),
+    UpdateStatus.FAILED: fail_row("failed"),
+    UpdateStatus.TIMEOUT: warn_row("still deploying"),
 }
 
 # Map the deploy watch's terminal status onto the update outcome.
@@ -286,13 +292,8 @@ async def _run(*, job_arg: str | None, no_purge: bool, force: bool, dry_run: boo
 
 async def _confirm(targets: list[UpdateTarget], *, purge: bool) -> bool:
     """Ask the user to confirm recreating the resolved jobs."""
-    names = ", ".join(t.name for t in targets)
     verb = "Stop, PURGE and re-deploy" if purge else "Stop and re-deploy"
-    answer = await select_one(
-        [("Yes", True), ("No", False)],
-        f"{verb} {len(targets)} job(s): {names}?",
-    )
-    return bool(answer)
+    return await confirm_jobs([t.name for t in targets], verb=verb)
 
 
 async def _update_all(
@@ -310,7 +311,7 @@ async def _update_all(
         Ordered list of outcomes, one per target.
     """
     # Resolve node IDs to names once so every job's detail rows can show placement.
-    node_names = {node.id: node.name for node in await client.nodes.list()}
+    node_names = await node_names_by_id(client)
 
     async def do_work(target: UpdateTarget, update: PanelUpdate) -> UpdateOutcome:
         return await _update_one(
@@ -329,17 +330,24 @@ async def _update_all(
 
     # The live panel is transient on a pipe/CI; emit a durable line for anything that
     # did not update cleanly so timeouts and a left-down job are never silent.
-    for o in ordered:
-        if o.status is UpdateStatus.TIMEOUT:
-            pp.warning(f"{o.name}: {o.detail or 'still deploying'}")
-        elif o.status is UpdateStatus.FAILED:
-            pp.error(f"{o.name} failed to update", details=[o.detail] if o.detail else None)
-        if o.warnings:
-            pp.warning(f"{o.name}: {o.warnings}")
+    report_outcomes(
+        ordered,
+        name_of=lambda o: o.name,
+        detail_of=lambda o: o.detail,
+        is_warn=lambda o: o.status is UpdateStatus.TIMEOUT,
+        is_fail=lambda o: o.status is UpdateStatus.FAILED,
+        fail_verb="update",
+        warn_fallback="still deploying",
+        warnings_of=lambda o: o.warnings,
+    )
     return ordered
 
 
 def _final_title(outcomes: list[UpdateOutcome], elapsed_seconds: float) -> str:
     """Build the final panel title with updated totals and elapsed seconds."""
-    ok = sum(1 for o in outcomes if o.status is UpdateStatus.UPDATED)
-    return summary_title("Updated", ok, len(outcomes), elapsed_seconds)
+    return final_panel_title(
+        outcomes,
+        elapsed_seconds,
+        verb="Updated",
+        succeeded=lambda o: o.status is UpdateStatus.UPDATED,
+    )
