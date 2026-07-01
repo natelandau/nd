@@ -1,3 +1,18 @@
+## v0.4.0 (2026-06-30)
+
+### Feat
+
+- **select**: match job and volume names by substring, not prefix
+- **volume**: confirm before deleting host volumes unless --force
+
+### Fix
+
+- **update**: describe job-name matching as substring in --help
+
+### Refactor
+
+- **commands**: share scaffolding across run, stop, and update
+
 ## v0.3.0 (2026-06-24)
 
 ### Feat
