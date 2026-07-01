@@ -13,13 +13,13 @@
         "Typing :: Typed",
     ]
     dependencies = [
-        "httpx2>=2.4.0,<3.0.0",
+        "httpx2>=2.5.0,<3.0.0",
         "lark>=1.3.1,<2.0.0",
         "msgspec>=0.21.1",
         "nclutils>=3.4.1,<4.0.0",
         "python-hcl2>=8.1.2,<9.0.0",
         "rich>=15.0.0",
-        "typer>=0.26.7",
+        "typer>=0.26.8",
     ]
     description = "A friendly command-line tool for managing a HashiCorp Nomad homelab cluster."
     keywords = ["cli", "devops", "hashicorp", "homelab", "nomad", "orchestration"]
@@ -62,9 +62,9 @@
         "pytest-sugar>=1.1.1",
         "pytest>=9.1.1",
         "respx>=0.23.1",
-        "ruff>=0.15.18",
-        "ty>=0.0.52",
-        "typos>=1.47.2",
+        "ruff>=0.15.20",
+        "ty>=0.0.55",
+        "typos>=1.48.0",
         "yamllint>=1.38.0",
     ]
 
