@@ -30,8 +30,7 @@ def plan(
     job: Annotated[
         str | None,
         typer.Argument(
-            help="Job to plan; matches any job whose name starts with this. "
-            "Omit to pick from a list."
+            help="Job to plan; matches any job whose name contains this. Omit to pick from a list."
         ),
     ] = None,
     dry_run: Annotated[  # noqa: FBT002

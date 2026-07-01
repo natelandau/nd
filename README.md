@@ -150,12 +150,13 @@ Run `nd --help`, or `nd <command> --help`, for the full option list at any time.
 
 ### Targeting jobs by name
 
-Commands that take a `JOB` or `NAME` argument match by case-insensitive name prefix.
+Commands that take a `JOB` or `NAME` argument match by case-insensitive substring:
+any name that contains the text matches, so `web` finds both `web` and `reverse-web`.
 A single match runs straight away; several matches open a prompt. Omit the argument
 to pick from a list of every candidate.
 
 ```bash
-nd run web          # runs the one job whose name starts with "web"
+nd run web          # runs the job whose name contains "web" (prompts if several match)
 nd stop             # prompts you to choose from all running jobs
 ```
 
@@ -182,7 +183,7 @@ settle. Use `--detach` to register and return without watching the rollout.
 
 ```bash
 nd run                # choose from every deployable job
-nd run web            # deploy the job whose name starts with "web"
+nd run web            # deploy the job whose name contains "web"
 nd run web --detach   # register and return immediately
 ```
 
@@ -201,7 +202,7 @@ expect brief downtime. `nd update` confirms before it acts unless you pass `--fo
 
 ```bash
 nd update                 # choose from every running job that has a local file
-nd update web             # recreate the job whose name starts with "web"
+nd update web             # recreate the job whose name contains "web"
 nd update web --no-purge  # recreate but keep the version history
 nd update web --force     # skip the confirmation prompt
 ```

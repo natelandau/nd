@@ -1,6 +1,6 @@
 """Resolve which job, allocation, and task a command should act on.
 
-`selection` is the generic name-prefix matching shared by every command that takes
+`selection` is the generic name-substring matching shared by every command that takes
 an optional name argument; `alloc_target` builds on it to resolve an exec/logs target
 through the API client. This module re-exports their public surface.
 """

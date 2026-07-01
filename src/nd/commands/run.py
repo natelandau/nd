@@ -132,7 +132,7 @@ def run(
     job: Annotated[
         str | None,
         typer.Argument(
-            help="Job to run; matches any not-running job whose name starts with this. "
+            help="Job to run; matches any not-running job whose name contains this. "
             "Omit to pick from a list."
         ),
     ] = None,

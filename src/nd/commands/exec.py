@@ -32,7 +32,7 @@ def exec_(
     job: Annotated[
         str | None,
         typer.Argument(
-            help="Running job to enter; matches any job whose name starts with this. "
+            help="Running job to enter; matches any job whose name contains this. "
             "Omit to pick from a list."
         ),
     ] = None,

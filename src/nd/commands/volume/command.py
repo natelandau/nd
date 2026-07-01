@@ -44,7 +44,7 @@ ForceOption = Annotated[
 ]
 NameArgument = Annotated[
     str | None,
-    typer.Argument(help="Volume to act on; matches any spec whose name starts with this."),
+    typer.Argument(help="Volume to act on; matches any spec whose name contains this."),
 ]
 
 
@@ -123,7 +123,7 @@ async def _select_specs(name_arg: str | None, action: str) -> list[VolumeSpec]:
 
     Shared by ``register`` and ``delete`` so both narrow to an optional name the same
     way ``run``/``stop`` do: a missing name offers every spec for a multi-select, a
-    prefix auto-selects a lone match or prompts among several. Always returns at least
+    name substring auto-selects a lone match or prompts among several. Always returns at least
     one spec; the three terminal cases raise ``typer.Exit`` here (rather than each
     caller re-decoding a tristate): no specs configured or a cancelled prompt exit 0,
     a name that matched nothing reports the miss and exits 1.
@@ -228,7 +228,7 @@ async def _run_delete(*, name_arg: str | None, force: bool, dry_run: bool) -> No
 async def _run_list(*, name_arg: str | None) -> None:
     """Discover specs, fetch nodes and registrations concurrently, and render the joined table.
 
-    A name argument narrows the listed specs by name prefix; with none, every spec is
+    A name argument narrows the listed specs by name substring; with none, every spec is
     shown. Unlike ``register``/``delete`` this read-only view never prompts, so a bare
     ``nd volume list`` stays a one-shot table.
     """

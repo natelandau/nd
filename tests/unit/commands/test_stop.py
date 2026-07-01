@@ -81,38 +81,38 @@ def test_resolve_targets_no_arg_prompts_all():
     assert [j.name for j in result.candidates] == ["web", "api"]
 
 
-def test_resolve_targets_single_prefix_match_auto():
-    """Verify a prefix matching exactly one job needs no prompt."""
-    # Given running jobs where only one starts with "we"
+def test_resolve_targets_single_substring_match_auto():
+    """Verify a substring matching exactly one job needs no prompt."""
+    # Given running jobs where only one contains "eb"
     running = [_job("web"), _job("api")]
 
-    # When resolving with that prefix
-    result = resolve_targets(running, "we", name_of=lambda j: j.name)
+    # When resolving with that substring
+    result = resolve_targets(running, "eb", name_of=lambda j: j.name)
 
     # Then it is auto-selected without a prompt
     assert result.needs_prompt is False
     assert [j.name for j in result.candidates] == ["web"]
 
 
-def test_resolve_targets_multi_prefix_match_prompts():
-    """Verify a prefix matching several jobs offers them for a prompt."""
-    # Given two jobs sharing a prefix
-    running = [_job("web-api"), _job("web-ui"), _job("db")]
+def test_resolve_targets_multi_substring_match_prompts():
+    """Verify a substring matching several jobs offers them for a prompt."""
+    # Given two jobs sharing an interior fragment
+    running = [_job("web-api"), _job("db-api"), _job("ui")]
 
-    # When resolving with the shared prefix (case-insensitive)
-    result = resolve_targets(running, "WEB", name_of=lambda j: j.name)
+    # When resolving with the shared fragment (case-insensitive)
+    result = resolve_targets(running, "API", name_of=lambda j: j.name)
 
     # Then both matches are candidates and a prompt is required
     assert result.needs_prompt is True
-    assert [j.name for j in result.candidates] == ["web-api", "web-ui"]
+    assert [j.name for j in result.candidates] == ["web-api", "db-api"]
 
 
 def test_resolve_targets_no_match_returns_empty():
-    """Verify a non-matching prefix yields no candidates and no prompt."""
+    """Verify a non-matching substring yields no candidates and no prompt."""
     # Given running jobs
     running = [_job("web")]
 
-    # When resolving with a prefix that matches nothing
+    # When resolving with a substring that matches nothing
     result = resolve_targets(running, "zzz", name_of=lambda j: j.name)
 
     # Then there are no candidates and no prompt
@@ -418,14 +418,14 @@ def test_stop_app_reports_no_running_jobs(httpx2_mock: respx.Router, monkeypatch
     assert result.exit_code == 0
 
 
-def test_stop_app_errors_on_no_prefix_match(httpx2_mock: respx.Router, monkeypatch, tmp_path):
+def test_stop_app_errors_on_no_substring_match(httpx2_mock: respx.Router, monkeypatch, tmp_path):
     """Verify a non-matching job argument exits non-zero."""
     # Given an isolated config and one running job
     monkeypatch.setenv("NOMAD_ADDR", _ADDR)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     httpx2_mock.get(f"{_ADDR}/v1/jobs").respond(json=[_running_job_json()])
 
-    # When invoking with a prefix that matches nothing
+    # When invoking with a substring that matches nothing
     result = CliRunner().invoke(stop_module.app, ["zzz"])
 
     # Then it exits non-zero
@@ -435,7 +435,7 @@ def test_stop_app_errors_on_no_prefix_match(httpx2_mock: respx.Router, monkeypat
 def test_stop_app_force_stops_single_match(
     httpx2_mock: respx.Router, monkeypatch, tmp_path, mocker
 ):
-    """Verify a single prefix match with --force stops without prompting."""
+    """Verify a single substring match with --force stops without prompting."""
     # Given an isolated config and one running job that drains immediately
     monkeypatch.setenv("NOMAD_ADDR", _ADDR)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
@@ -445,7 +445,7 @@ def test_stop_app_force_stops_single_match(
     httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[])
     mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
 
-    # When invoking with --force on the prefix
+    # When invoking with --force on the substring
     result = CliRunner().invoke(stop_module.app, ["we", "--force"])
 
     # Then it stops the job and exits cleanly

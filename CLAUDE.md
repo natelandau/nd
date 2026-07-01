@@ -51,7 +51,7 @@ Both kinds share the `*.hcl`/`*.nomad` globs, so a directory may hold both. **Cl
 
 **Binary wrappers (`src/nd/binary/`)** — the local `nomad` binary is wrapped because the HTTP API cannot parse HCL2 and does not own the raw-TTY exec protocol. Build once per command with `NomadBinary.create(config)` (resolves the binary on PATH, raising `NomadBinaryError` if absent; builds the `NOMAD_*` env so it targets the same cluster as the API client). It exposes `validate`, `plan`, and `compile_to_json` (HCL → `{"Job": {...}}` JSON for `client.jobs.register()`) for job specs, and `exec_shell` / `stream_logs` for running tasks.
 
-**Commands** (most accept an optional `NAME` prefix and `--dry-run / -n`):
+**Commands** (most accept an optional `NAME` substring and `--dry-run / -n`):
 
 - `nd list` — table of discovered job files with cluster status.
 - `nd plan` — `nomad job plan` diff, verbatim.
@@ -79,7 +79,7 @@ Reuse the shared helpers rather than reimplementing:
 
 - `commands/_common.py` — `VerboseOption`, `configure_verbosity`, `record_step`, `run_alloc_action` (exec/logs tail).
 - `ui/` — styles, panels, prompts, duration formatting, `live_panel.run_rows` (concurrent row orchestrator used by `stop`/`run`).
-- `targets/` — `resolve_targets(...)` for name-prefix matching/multi-select; `alloc_target.py` for single-task exec/logs resolution.
+- `targets/` — `resolve_targets(...)` for name-substring (contains) matching/multi-select; `alloc_target.py` for single-task exec/logs resolution.
 
 ## Testing
 

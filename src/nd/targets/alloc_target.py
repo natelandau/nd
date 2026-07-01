@@ -1,7 +1,7 @@
 """Resolve a job, allocation, and task through the Nomad API client.
 
 Shared by ``nd exec`` and ``nd logs``: both pick a single job (by optional name
-prefix), then its allocation (auto when one, prompt when several), then a task
+substring), then its allocation (auto when one, prompt when several), then a task
 (auto when one, prompt when several, or a ``--task`` override). ``nd exec`` needs a
 live target, so it resolves running jobs/allocations/tasks only; ``nd logs`` passes
 ``running_only=False`` so a dead or completed task's logs stay reachable. The

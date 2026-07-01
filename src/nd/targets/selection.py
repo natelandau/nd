@@ -1,4 +1,4 @@
-"""Generic target matching for commands that accept a name/prefix argument."""
+"""Generic target matching for commands that accept a name argument."""
 
 from __future__ import annotations
 
@@ -24,17 +24,17 @@ class TargetResolution[T]:
 def resolve_targets[T](
     items: list[T], arg: str | None, *, name_of: Callable[[T], str]
 ) -> TargetResolution[T]:
-    """Decide which items a name/prefix argument targets.
+    """Decide which items a name argument targets.
 
     With no argument every item is offered for a multi-select. With an argument,
-    items whose name starts with it (case-insensitive) are matched: a single match
+    items whose name contains it (case-insensitive) are matched: a single match
     is auto-selected, several matches are offered for a prompt, and no match yields
     no candidates.
     """
     if arg is None:
         return TargetResolution(candidates=list(items), needs_prompt=True)
     needle = arg.lower()
-    matches = [item for item in items if name_of(item).lower().startswith(needle)]
+    matches = [item for item in items if needle in name_of(item).lower()]
     if len(matches) <= 1:
         return TargetResolution(candidates=matches, needs_prompt=False)
     return TargetResolution(candidates=matches, needs_prompt=True)
