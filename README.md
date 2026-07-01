@@ -235,6 +235,21 @@ nd stop web --purge --force       # purge without a prompt
 nd stop web --detach              # request the stop and return immediately
 ```
 
+### Managing host volumes
+
+`nd volume register` and `nd volume delete` create and remove dynamic host volumes
+from your local spec files, and `nd volume list` shows where each spec is registered.
+Deleting a host volume is irreversible and orphans data for any job that mounts it,
+so `nd volume delete` confirms before it acts unless you pass `--force` (`-f`); a
+`--dry-run` (`-n`) previews the registrations that would be removed without prompting.
+
+```bash
+nd volume register data            # register the "data" volume on eligible nodes
+nd volume delete data              # confirm, then delete the "data" registrations
+nd volume delete data --force      # delete without a prompt
+nd volume delete data --dry-run    # preview what would be deleted
+```
+
 ### Verbosity
 
 Add `-v` for debug output or `-vv` to trace each API request with timings. The flag

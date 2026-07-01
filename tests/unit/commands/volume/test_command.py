@@ -154,3 +154,71 @@ def test_volume_delete_dry_run_with_name_selects_match(monkeypatch) -> None:
     # Then it exits cleanly and never issues a real delete
     assert result.exit_code == 0
     fake_client.volumes.delete.assert_not_awaited()
+
+
+def _delete_fixture(monkeypatch) -> tuple:
+    """Wire discovery and a fake client with one 'data' registration for delete tests.
+
+    Returns the command module and the fake client so a test can patch the prompt
+    and assert on ``volumes.delete``.
+    """
+    from pathlib import Path
+    from unittest.mock import AsyncMock, MagicMock
+
+    import msgspec
+
+    import nd.commands.volume.command as cmd
+    from nd.nomad.models.volume import HostVolumeListStub
+    from nd.volumefiles import VolumeSpec
+
+    spec = VolumeSpec(path=Path("/v/data.hcl"), name="data", capabilities=[], relative_path="data")
+    monkeypatch.setattr(cmd, "load_volume_directories", list)
+    monkeypatch.setattr(cmd, "discover_volume_files", lambda dirs: [spec])
+
+    registered = msgspec.convert(
+        {"ID": "v1", "Name": "data", "NodeID": "n1", "State": "ready"},
+        type=HostVolumeListStub,
+    )
+    fake_client = MagicMock()
+    fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+    fake_client.__aexit__ = AsyncMock(return_value=None)
+    fake_client.nodes.list = AsyncMock(return_value=[])
+    fake_client.volumes.list = AsyncMock(return_value=[registered])
+    fake_client.volumes.delete = AsyncMock()
+    monkeypatch.setattr(cmd.NomadClient, "from_config", lambda cfg: fake_client)
+    monkeypatch.setattr(cmd.NomadConfig, "resolve", lambda: MagicMock())
+    return cmd, fake_client
+
+
+def test_volume_delete_aborts_when_user_declines(monkeypatch) -> None:
+    """Verify a real delete declined at the confirmation prompt issues no delete."""
+    # Given a matching registration and a confirmation prompt the user declines
+    from unittest.mock import AsyncMock
+
+    cmd, fake_client = _delete_fixture(monkeypatch)
+    monkeypatch.setattr(cmd, "select_one", AsyncMock(return_value=False))
+
+    # When deleting the named spec without --force
+    result = runner.invoke(app, ["delete", "data"])
+
+    # Then it aborts cleanly and never issues a real delete
+    assert result.exit_code == 0
+    fake_client.volumes.delete.assert_not_awaited()
+
+
+def test_volume_delete_force_skips_confirmation(monkeypatch) -> None:
+    """Verify --force deletes without prompting for confirmation."""
+    # Given a matching registration and a confirmation prompt that must not be reached
+    from unittest.mock import AsyncMock
+
+    cmd, fake_client = _delete_fixture(monkeypatch)
+    prompt = AsyncMock(return_value=False)
+    monkeypatch.setattr(cmd, "select_one", prompt)
+
+    # When deleting the named spec with --force
+    result = runner.invoke(app, ["delete", "data", "--force"])
+
+    # Then it deletes the registration without ever prompting
+    assert result.exit_code == 0
+    prompt.assert_not_awaited()
+    fake_client.volumes.delete.assert_awaited_once_with("v1")

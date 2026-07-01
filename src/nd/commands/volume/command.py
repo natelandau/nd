@@ -22,6 +22,7 @@ from nd.commands.volume.report import (
 )
 from nd.nomad import NomadClient, NomadConfig
 from nd.targets import resolve_targets, select_candidates
+from nd.ui.prompts import select_one
 from nd.volumefiles import discover_volume_files, load_volume_directories
 
 if TYPE_CHECKING:
@@ -37,6 +38,9 @@ app = typer.Typer(
 
 DryRunOption = Annotated[
     bool, typer.Option("--dry-run", "-n", help="Report actions without changing the cluster.")
+]
+ForceOption = Annotated[
+    bool, typer.Option("--force", "-f", help="Skip the confirmation prompt before deleting.")
 ]
 NameArgument = Annotated[
     str | None,
@@ -87,17 +91,19 @@ def register(
 def delete(
     ctx: typer.Context,
     name: NameArgument = None,
+    force: ForceOption = False,  # noqa: FBT002
     dry_run: DryRunOption = False,  # noqa: FBT002
     verbose: VerboseOption = 0,
 ) -> None:
     """Delete registered host volumes matching the selected specs.
 
     Matches the selected specs against the volumes currently registered on the
-    cluster and deletes every registration whose name matches a spec. Use --dry-run
-    to preview which registrations would be removed.
+    cluster and deletes every registration whose name matches a spec. Deleting a
+    host volume is irreversible, so a real delete confirms first unless --force is
+    given. Use --dry-run to preview which registrations would be removed.
     """
     configure_verbosity(ctx, verbose)
-    asyncio.run(_run_delete(name_arg=name, dry_run=dry_run))
+    asyncio.run(_run_delete(name_arg=name, force=force, dry_run=dry_run))
 
 
 @app.command(name="list")
@@ -171,12 +177,28 @@ async def _run_register(*, name_arg: str | None, dry_run: bool) -> None:
     render_registration_results(results)
 
 
-async def _run_delete(*, name_arg: str | None, dry_run: bool) -> None:
+async def _confirm_delete(to_delete: list[HostVolumeListStub]) -> bool:
+    """Ask the user to confirm deleting the matched host volume registrations.
+
+    Deleting a dynamic host volume is irreversible and orphans data for any job that
+    mounts it, so a real delete confirms before touching the cluster unless --force is
+    passed. The prompt names the distinct volumes so the user sees exactly what goes.
+    """
+    names = ", ".join(sorted({vol.name for vol in to_delete}))
+    answer = await select_one(
+        [("Yes", True), ("No", False)],
+        f"Delete {len(to_delete)} host volume registration(s) ({names})? This cannot be undone.",
+    )
+    return bool(answer)
+
+
+async def _run_delete(*, name_arg: str | None, force: bool, dry_run: bool) -> None:
     """Discover specs, find matching registrations, and delete (unless dry-run).
 
     Fetches node names so deletion trees show human-readable names rather than
-    node GUIDs. In dry-run mode volumes are collected with a ``"would-delete"``
-    outcome and rendered as a tree consistent with a real run.
+    node GUIDs. A real delete confirms first unless ``force`` is set; dry-run never
+    prompts. In dry-run mode volumes are collected with a ``"would-delete"`` outcome
+    and rendered as a tree consistent with a real run.
     """
     specs = await _select_specs(name_arg, "delete")
     config = NomadConfig.resolve()
@@ -185,6 +207,9 @@ async def _run_delete(*, name_arg: str | None, dry_run: bool) -> None:
         to_delete = plan_deletions(specs=specs, registered=registered)
         if not to_delete:
             pp.info("No registered host volumes match the selected specs.")
+            return
+        if not dry_run and not force and not await _confirm_delete(to_delete):
+            pp.info("Aborted")
             return
         node_names: dict[str, str] = {n.id: n.name for n in nodes}
         results: list[tuple[HostVolumeListStub, str]] = []
