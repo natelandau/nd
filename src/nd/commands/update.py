@@ -203,8 +203,8 @@ def update(
     job: Annotated[
         str | None,
         typer.Argument(
-            help="Running job to update; matches any running job whose name starts "
-            "with this and has a local file. Omit to pick from a list."
+            help="Running job to update; matches any running job whose name contains "
+            "this and has a local file. Omit to pick from a list."
         ),
     ] = None,
     no_purge: Annotated[  # noqa: FBT002
