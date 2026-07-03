@@ -1,3 +1,11 @@
+## v0.5.0 (2026-07-03)
+
+### Feat
+
+- **run**: offer to purge a leftover dead job before deploying
+- **stop**: color still-draining allocations yellow, read "stopped"
+- **update**: keep the stopped version visible during redeploy
+
 ## v0.4.0 (2026-06-30)
 
 ### Feat
