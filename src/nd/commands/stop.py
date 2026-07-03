@@ -105,7 +105,10 @@ def phase_text(allocs: list[AllocListStub]) -> str:
         return "stopping"
     names = running_task_names(allocs)
     if names:
-        return "running: " + ", ".join(names)
+        # These are the tasks still alive mid-drain (shutdown-delay or post-stop
+        # cleanup tasks); "waiting on" reads with the stop rather than implying the
+        # task is happily running.
+        return "waiting on: " + ", ".join(names)
     pending = sum(1 for a in allocs if a.client_status not in TERMINAL_ALLOC_STATUSES)
     return f"draining {pending} allocs" if pending else "stopping"
 
@@ -189,7 +192,10 @@ async def stop_and_wait(
                             client, job, update=update, drained=len(allocs)
                         )
                     return StopOutcome(job, StopStatus.STOPPED, drained=len(allocs))
-                update(phase_text(allocs), alloc_children(allocs, node_names, None))
+                update(
+                    phase_text(allocs),
+                    alloc_children(allocs, node_names, None, stopping=True),
+                )
             if time.monotonic() >= deadline:
                 return StopOutcome(job, StopStatus.TIMEOUT, "stop requested, still draining")
             await asyncio.sleep(POLL_INTERVAL_SECONDS)

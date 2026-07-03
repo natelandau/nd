@@ -21,7 +21,11 @@ type TaskLifecycle = dict[str, dict[str, tuple[int, str]]]
 
 
 def alloc_children(
-    allocs: list[AllocListStub], node_names: dict[str, str], lifecycle: TaskLifecycle | None
+    allocs: list[AllocListStub],
+    node_names: dict[str, str],
+    lifecycle: TaskLifecycle | None,
+    *,
+    stopping: bool = False,
 ) -> list[LiveChild]:
     """Build the detail rows for a job: one node row per allocation, then its tasks.
 
@@ -35,6 +39,8 @@ def alloc_children(
         node_names: Map of node ID to node name for placement display.
         lifecycle: Task ordering and labels from a compiled job spec, or None when no
             spec is on hand (e.g. ``nd stop``), which shows every task by name.
+        stopping: When True (a drain), color a terminal allocation green as "stopped"
+            and every transitional state yellow, since only a stopped workload is done.
 
     Returns:
         The ordered detail rows: node rows at depth 1, task rows at depth 2.
@@ -44,10 +50,13 @@ def alloc_children(
     for alloc in sorted(allocs, key=lambda a: a.name):
         node = _alloc_node_label(alloc, node_names, ambiguous=node_counts[alloc.node_id] > 1)
         children.append(
-            LiveChild(cells=[accent(node), "", status_cell(alloc.client_status)], depth=1)
+            LiveChild(
+                cells=[accent(node), "", status_cell(alloc.client_status, stopping=stopping)],
+                depth=1,
+            )
         )
         roles = lifecycle.get(alloc.task_group, {}) if lifecycle is not None else None
-        children.extend(_task_rows(alloc, roles))
+        children.extend(_task_rows(alloc, roles, stopping=stopping))
     return children
 
 
@@ -61,7 +70,9 @@ def _alloc_node_label(alloc: AllocListStub, node_names: dict[str, str], *, ambig
     return f"{node} #{index}"
 
 
-def _task_rows(alloc: AllocListStub, roles: dict[str, tuple[int, str]] | None) -> list[LiveChild]:
+def _task_rows(
+    alloc: AllocListStub, roles: dict[str, tuple[int, str]] | None, *, stopping: bool = False
+) -> list[LiveChild]:
     """Build the depth-2 task rows for one allocation, ordered by lifecycle.
 
     With lifecycle metadata, only its tasks are shown (poststop already excluded),
@@ -77,7 +88,7 @@ def _task_rows(alloc: AllocListStub, roles: dict[str, tuple[int, str]] | None) -
     for name, role in labeled:
         ts = alloc.task_states[name]
         role_cell = muted(role) if role else ""
-        status = status_cell(_task_status(ts.state, failed=ts.failed))
+        status = status_cell(_task_status(ts.state, failed=ts.failed), stopping=stopping)
         rows.append(LiveChild(cells=[name, role_cell, status], depth=2))
     return rows
 

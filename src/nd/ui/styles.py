@@ -31,12 +31,29 @@ OUTCOME_GLYPH: dict[str, str] = {
 }
 
 
-def status_cell(status: str) -> str:
+# Statuses that mean a workload has finished stopping cleanly, rendered as green
+# "stopped" during a drain.
+_STOPPED_STATUSES = frozenset({"complete", "stopped"})
+# Statuses that are a genuine failure even mid-stop, kept red rather than yellow so a
+# crash on shutdown or a lost node does not blend in with the rows still draining.
+_STOP_FAILURE_STATUSES = frozenset({"failed", "lost"})
+
+
+def status_cell(status: str, *, stopping: bool = False) -> str:
     """Render a status string as a colored glyph plus label for a table cell.
 
     Centralizes status coloring so every command shows the same color for the
-    same Nomad state.
+    same Nomad state. With ``stopping`` set (during a stop/drain) the meaning of a
+    state inverts: the goal is a stopped workload, so a cleanly terminal allocation
+    reads green as "stopped" while every transitional state we are still waiting on
+    (running, pending, ...) reads yellow; a genuine failure stays red.
     """
+    if stopping:
+        if status in _STOPPED_STATUSES:
+            return "[green]✓ stopped[/]"
+        if status in _STOP_FAILURE_STATUSES:
+            return f"[red]✗ {status}[/]"
+        return f"[yellow]• {status}[/]"
     style = STATUS_STYLE.get(status, "default")
     glyph = {"green": "✓", "red": "✗"}.get(style, "•")
     return f"[{style}]{glyph} {status}[/]"

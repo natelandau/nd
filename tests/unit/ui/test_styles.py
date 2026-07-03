@@ -21,6 +21,23 @@ def test_status_cell_unknown_status() -> None:
     assert cell == "[default]• mystery[/]"
 
 
+def test_status_cell_stopping_terminal_reads_stopped() -> None:
+    """Verify a terminal allocation renders green "stopped" while stopping."""
+    assert status_cell("complete", stopping=True) == "[green]✓ stopped[/]"
+
+
+def test_status_cell_stopping_transitional_is_yellow() -> None:
+    """Verify a not-yet-stopped state (e.g. running) reads yellow while stopping."""
+    assert status_cell("running", stopping=True) == "[yellow]• running[/]"
+    assert status_cell("pending", stopping=True) == "[yellow]• pending[/]"
+
+
+def test_status_cell_stopping_failure_stays_red() -> None:
+    """Verify a genuine failure stays red while stopping instead of blending to yellow."""
+    assert status_cell("failed", stopping=True) == "[red]✗ failed[/]"
+    assert status_cell("lost", stopping=True) == "[red]✗ lost[/]"
+
+
 def test_status_style_covers_failed() -> None:
     """Verify failed-like statuses map to red."""
     assert STATUS_STYLE["failed"] == "red"

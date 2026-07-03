@@ -95,6 +95,32 @@ def test_alloc_children_shows_all_tasks_without_lifecycle() -> None:
     assert "complete" in task_rows[1].cells[2]  # a cleanly stopped task reads complete
 
 
+def test_alloc_children_stopping_colors_and_relabels() -> None:
+    """Verify stopping mode reads terminal rows as green "stopped" and others yellow."""
+    # Given an allocation still draining: node running, one task stopped, one still alive
+    allocs = [
+        _Alloc(
+            "web.web[0]",
+            "web",
+            "n1",
+            "running",
+            {"web": _TS("dead"), "cleanup": _TS("running")},
+        )
+    ]
+
+    # When building rows in stopping mode
+    children = alloc_children(allocs, {"n1": "rpi2"}, {}, stopping=True)  # type: ignore[arg-type]
+
+    # Then the still-running node row reads yellow (we are waiting on it)
+    node_row = next(c for c in children if c.depth == 1)
+    assert node_row.cells[2] == "[yellow]• running[/]"
+    # And the cleanly stopped task reads green "stopped", not "complete"
+    task_rows = {c.cells[0]: c for c in children if c.depth == 2}
+    assert task_rows["web"].cells[2] == "[green]✓ stopped[/]"
+    # And the still-alive cleanup task reads yellow
+    assert task_rows["cleanup"].cells[2] == "[yellow]• running[/]"
+
+
 def test_alloc_children_disambiguates_duplicate_nodes() -> None:
     """Verify two allocations on the same node get a #index suffix."""
     # Given two allocations placed on the same node

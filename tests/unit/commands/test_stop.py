@@ -292,9 +292,9 @@ def test_stop_and_wait_reports_phase_and_drain_detail(httpx2_mock: respx.Router,
 
     outcome = asyncio.run(run())
 
-    # Then it stops, the phase names the running task, and a detail row names it too
+    # Then it stops, the phase names the task still draining, and a detail row names it too
     assert outcome.status is StopStatus.STOPPED
-    assert "running: cleanup" in phases
+    assert "waiting on: cleanup" in phases
     assert any("cleanup" in label for label in detail_labels)
 
 
@@ -593,13 +593,13 @@ def test_running_task_names_empty_when_none_running():
 
 
 def test_phase_text_names_running_tasks():
-    """Verify phase_text surfaces the names of tasks still running."""
+    """Verify phase_text surfaces the names of tasks still draining."""
     # Given an allocation with a running cleanup task
     allocs = [_alloc_with_tasks("running", {"web": "dead", "cleanup": "running"})]
 
     # When building phase text
-    # Then it names the running task
-    assert phase_text(allocs) == "running: cleanup"
+    # Then it names the task still being waited on
+    assert phase_text(allocs) == "waiting on: cleanup"
 
 
 def test_phase_text_drains_when_no_task_running():
@@ -668,7 +668,7 @@ def test_build_panel_shows_running_and_finished_rows():
 
     # Given one in-flight row and one stopped row
     rows = [
-        LiveRow(label="ladder", phase="running: cleanup", started_at=0.0),
+        LiveRow(label="ladder", phase="waiting on: cleanup", started_at=0.0),
         LiveRow(
             label="linkding",
             phase="stopped",
@@ -681,11 +681,11 @@ def test_build_panel_shows_running_and_finished_rows():
     # When building the panel
     text = _panel_text(_build_panel(rows, title="Stopping 2 jobs", now=3.0))
 
-    # Then the title, both job names, the running phase, and a check glyph appear
+    # Then the title, both job names, the in-flight phase, and a check glyph appear
     assert "Stopping 2 jobs" in text
     assert "ladder" in text
     assert "linkding" in text
-    assert "running: cleanup" in text
+    assert "waiting on: cleanup" in text
     assert "✓" in text
 
 
