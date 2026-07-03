@@ -181,10 +181,17 @@ catches a broken spec without registering anything.
 validated and registered, then watched live until its deployment or allocations
 settle. Use `--detach` to register and return without watching the rollout.
 
+If a selected job is still present in the cluster as a dead job (stopped without
+`--purge`), `nd run` offers to garbage-collect it first so the new version deploys
+onto a clean slate rather than on top of stale deployment history. Pass `--clean`
+(`-c`) to purge it without prompting; a non-interactive run leaves the dead job in
+place and deploys on top.
+
 ```bash
 nd run                # choose from every deployable job
 nd run web            # deploy the job whose name contains "web"
 nd run web --detach   # register and return immediately
+nd run web --clean    # purge a leftover dead "web" first, then deploy
 ```
 
 ### Updating jobs

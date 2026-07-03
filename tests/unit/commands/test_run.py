@@ -22,6 +22,8 @@ if TYPE_CHECKING:
     import pytest
     import respx
 
+    from nd.jobfiles import JobCandidate
+
 _ADDR = "http://nomad.test:4646"
 
 # Reusable deployment list stub shape for mocking /v1/job/:id/deployments
@@ -53,6 +55,12 @@ def _async_return(value: object) -> Callable[..., Coroutine[Any, Any, object]]:
         return value
 
     return _inner
+
+
+def _dead_targets(*names: str) -> list[JobCandidate]:
+    """Build run candidates for the given job names (one file each)."""
+    files = [JobFile(path=Path(f"/j/{n}.hcl"), job_names=[n]) for n in names]
+    return candidates_for(files)
 
 
 def test_candidates_for_excludes_running() -> None:
@@ -139,13 +147,55 @@ def test_task_lifecycle_orders_tasks_and_excludes_poststop() -> None:
     assert group["cartlog_ezbak_sidecar"][1] == "sidecar"
 
 
+def test_cluster_job_states_splits_running_and_dead(
+    httpx2_mock: respx.Router, monkeypatch, tmp_path
+) -> None:
+    """Verify the cluster job list is split into running and dead name sets."""
+    # Given a cluster reporting one running and one dead job
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
+    httpx2_mock.get(f"{_ADDR}/v1/jobs").respond(
+        json=[
+            {
+                "ID": "web",
+                "Name": "web",
+                "Type": "service",
+                "Status": "running",
+                "Priority": 50,
+                "CreateIndex": 1,
+                "ModifyIndex": 2,
+            },
+            {
+                "ID": "api",
+                "Name": "api",
+                "Type": "service",
+                "Status": "dead",
+                "Priority": 50,
+                "CreateIndex": 3,
+                "ModifyIndex": 4,
+            },
+        ]
+    )
+
+    # When fetching the split job states
+    async def go() -> tuple[set[str], set[str]]:
+        async with NomadClient.from_config(NomadConfig.resolve()) as client:
+            return await run_mod._cluster_job_states(client)
+
+    running, dead = asyncio.run(go())
+
+    # Then running and dead are separated by status
+    assert running == {"web"}
+    assert dead == {"api"}
+
+
 def test_run_no_candidates_exits_clean(monkeypatch) -> None:
     """Verify run exits 0 with a message when no deployable files exist."""
     # Given no job directories and no running jobs
     monkeypatch.setattr(run_mod, "load_job_directories", list)
     monkeypatch.setattr(run_mod, "discover_job_files", lambda dirs: [])
     # Avoid a real Nomad call: stub the cluster job listing to empty.
-    monkeypatch.setattr(run_mod, "_running_job_names", _async_return(set()))
+    monkeypatch.setattr(run_mod, "_cluster_job_states", _async_return((set(), set())))
 
     # When invoking the run command
     result = CliRunner().invoke(app, ["run"])
@@ -193,7 +243,7 @@ def test_run_app_detach_skips_watch(
         "discover_job_files",
         lambda dirs: [JobFile(path=Path("/j/web.hcl"), job_names=["web"])],
     )
-    monkeypatch.setattr(run_mod, "_running_job_names", _async_return(set()))
+    monkeypatch.setattr(run_mod, "_cluster_job_states", _async_return((set(), set())))
     # Isolate the config so NomadConfig.resolve() targets the mock, not a real ~/.config/nd.
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.setenv("NOMAD_ADDR", _ADDR)
@@ -452,3 +502,149 @@ def test_watch_times_out_when_never_terminal(
 
     # Then the outcome is TIMEOUT, not a hang
     assert outcome.status is run_mod.DeployStatus.TIMEOUT
+
+
+def test_maybe_purge_dead_clean_purges_all(
+    httpx2_mock: respx.Router, monkeypatch, tmp_path
+) -> None:
+    """Verify --clean purges every dead target without prompting."""
+    # Given a dead target and clean=True
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
+    delete_route = httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
+
+    # When purging with clean set
+    async def go() -> None:
+        async with NomadClient.from_config(NomadConfig.resolve()) as client:
+            await run_mod._maybe_purge_dead(client, _dead_targets("web"), clean=True)
+
+    asyncio.run(go())
+
+    # Then a purging deregister is issued for the dead job
+    assert delete_route.called
+    assert delete_route.calls.last.request.url.params.get("purge") == "true"
+
+
+def test_maybe_purge_dead_declined_does_not_purge(
+    httpx2_mock: respx.Router, monkeypatch, tmp_path
+) -> None:
+    """Verify answering no to the prompt leaves the dead job in place."""
+    # Given an interactive session where the user declines
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
+    monkeypatch.setattr(run_mod, "is_interactive", lambda: True)
+    monkeypatch.setattr(run_mod, "confirm_jobs", _async_return(False))  # noqa: FBT003
+    # Don't register a delete route since we expect no deregister to be issued
+
+    # When purging without clean
+    async def go() -> None:
+        async with NomadClient.from_config(NomadConfig.resolve()) as client:
+            await run_mod._maybe_purge_dead(client, _dead_targets("web"), clean=False)
+
+    asyncio.run(go())
+
+    # Then no DELETE request is made
+    assert not any(call.request.method == "DELETE" for call in httpx2_mock.calls)
+
+
+def test_maybe_purge_dead_non_interactive_does_not_prompt(
+    httpx2_mock: respx.Router, monkeypatch, tmp_path
+) -> None:
+    """Verify a non-interactive session runs on top without prompting."""
+    # Given no TTY and clean=False
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
+    monkeypatch.setattr(run_mod, "is_interactive", lambda: False)
+    # Don't register a delete route since we expect no deregister to be issued
+
+    # When purging without clean
+    async def go() -> None:
+        async with NomadClient.from_config(NomadConfig.resolve()) as client:
+            await run_mod._maybe_purge_dead(client, _dead_targets("web"), clean=False)
+
+    asyncio.run(go())
+
+    # Then no DELETE request is made and the prompt is skipped
+    assert not any(call.request.method == "DELETE" for call in httpx2_mock.calls)
+
+
+def test_maybe_purge_dead_continues_after_one_failure(
+    httpx2_mock: respx.Router, monkeypatch, tmp_path
+) -> None:
+    """Verify a purge failure on one job does not stop purging the rest."""
+    # Given two dead targets where the first purge fails
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
+    fail_route = httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(500)
+    ok_route = httpx2_mock.delete(f"{_ADDR}/v1/job/api").respond(json={"EvalID": "e1"})
+
+    # When purging both with clean set
+    async def go() -> None:
+        async with NomadClient.from_config(NomadConfig.resolve()) as client:
+            await run_mod._maybe_purge_dead(client, _dead_targets("web", "api"), clean=True)
+
+    asyncio.run(go())
+
+    # Then both are attempted despite the first failing
+    assert fail_route.called
+    assert ok_route.called
+
+
+def test_run_clean_purges_dead_before_register(
+    httpx2_mock: respx.Router, monkeypatch, mocker, tmp_path
+) -> None:
+    """Verify --clean purges a dead job before registering the new version."""
+    # Given a discovered job "web" that the cluster reports as dead
+    monkeypatch.setattr(run_mod, "load_job_directories", list)
+    monkeypatch.setattr(
+        run_mod,
+        "discover_job_files",
+        lambda dirs: [JobFile(path=tmp_path / "web.hcl", job_names=["web"])],
+    )
+    monkeypatch.setattr(run_mod, "_cluster_job_states", _async_return((set(), {"web"})))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
+    nomad = mocker.Mock()
+    nomad.validate.return_value = None
+    nomad.compile_to_json.return_value = b'{"Job": {"ID": "web"}}'
+    monkeypatch.setattr(run_mod.NomadBinary, "create", classmethod(lambda cls, cfg: nomad))
+    delete_route = httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
+    register_route = httpx2_mock.post(f"{_ADDR}/v1/jobs").respond(
+        json={"EvalID": "e1", "Warnings": "", "JobModifyIndex": 5}
+    )
+
+    # When running with --clean --detach (detach skips the rollout watch)
+    result = CliRunner().invoke(app, ["run", "web", "--clean", "--detach"])
+
+    # Then the purge is issued before the register
+    assert result.exit_code == 0
+    assert delete_route.called
+    assert register_route.called
+    ops = [f"{c.request.method} {c.request.url.path}" for c in httpx2_mock.calls]
+    assert ops.index("DELETE /v1/job/web") < ops.index("POST /v1/jobs")
+
+
+def test_run_clean_dry_run_does_not_purge(
+    httpx2_mock: respx.Router, monkeypatch, mocker, tmp_path
+) -> None:
+    """Verify --dry-run reports the purge but never issues the deregister."""
+    # Given a discovered dead job and --clean --dry-run
+    monkeypatch.setattr(run_mod, "load_job_directories", list)
+    monkeypatch.setattr(
+        run_mod,
+        "discover_job_files",
+        lambda dirs: [JobFile(path=tmp_path / "web.hcl", job_names=["web"])],
+    )
+    monkeypatch.setattr(run_mod, "_cluster_job_states", _async_return((set(), {"web"})))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
+    nomad = mocker.Mock()
+    nomad.validate.return_value = None
+    monkeypatch.setattr(run_mod.NomadBinary, "create", classmethod(lambda cls, cfg: nomad))
+
+    # When running as a dry run
+    result = CliRunner().invoke(app, ["run", "web", "--clean", "--dry-run"])
+
+    # Then nothing is purged
+    assert result.exit_code == 0
+    assert not any(call.request.method == "DELETE" for call in httpx2_mock.calls)

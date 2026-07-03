@@ -15,6 +15,7 @@ from nclutils import pp
 from nd.binary import NomadBinary, NomadBinaryError
 from nd.commands._common import VerboseOption, configure_verbosity
 from nd.commands._orchestration import (
+    confirm_jobs,
     fail_row,
     final_panel_title,
     node_names_by_id,
@@ -29,6 +30,7 @@ from nd.nomad.errors import NomadDecodeError, NomadError
 from nd.targets import resolve_targets, select_candidates
 from nd.ui.alloc_rows import alloc_children
 from nd.ui.live_panel import PanelUpdate, run_rows
+from nd.ui.prompts import is_interactive
 
 if TYPE_CHECKING:
     from nd.jobfiles import JobCandidate
@@ -121,10 +123,71 @@ _OUTCOME_ROW: dict[DeployStatus, tuple[str, str]] = {
 }
 
 
-async def _running_job_names(client: NomadClient) -> set[str]:
-    """Return the names of jobs currently running in the cluster."""
+async def _cluster_job_states(client: NomadClient) -> tuple[set[str], set[str]]:
+    """Return the ``(running, dead)`` job-name sets from the cluster's job list.
+
+    ``run`` needs both halves from one fetch: running names are excluded from the
+    deployable candidates, and dead names mark jobs a prior ``stop`` (without purge)
+    left behind, which the user may want garbage-collected before deploying fresh.
+    """
     jobs = await client.jobs.list()
-    return {j.name for j in jobs if j.status == "running"}
+    running = {j.name for j in jobs if j.status == "running"}
+    dead = {j.name for j in jobs if j.status == "dead"}
+    return running, dead
+
+
+async def _maybe_purge_dead(
+    client: NomadClient, dead_targets: list[JobCandidate], *, clean: bool
+) -> None:
+    """Garbage-collect dead jobs among the selected targets before deploying fresh.
+
+    A ``stop`` without ``--purge`` leaves a job ``dead`` but still registered, so a
+    following ``run`` layers the new version onto stale deployment history and the
+    rollout view no longer reflects a clean start. When any selected target is present
+    as a dead job, offer to purge it first: ``clean`` purges without asking, an
+    interactive session prompts (default no), and a non-interactive session leaves the
+    job untouched (deploy on top, unchanged behavior). A purge failure on one job is
+    reported and skipped so the remaining jobs and the deploy still proceed.
+    """
+    if not dead_targets:
+        return
+
+    names = [t.name for t in dead_targets]
+    if not clean:
+        if not is_interactive():
+            return
+        if not await confirm_jobs(names, verb="Purge dead"):
+            return
+
+    async def purge_one(name: str) -> None:
+        try:
+            await client.jobs.stop(name, purge=True)
+        except NomadError as exc:
+            pp.warning(f"Could not purge dead job {name}", details=[str(exc)])
+        else:
+            pp.info(f"Purged dead job {name}")
+
+    # Purges are independent per job, so fan them out and let each report itself.
+    await asyncio.gather(*(purge_one(name) for name in names))
+
+
+def _report_dry_run(targets: list[JobCandidate], *, dead: set[str], clean: bool) -> None:
+    """Print what a real run would do for each target, calling out dead-job purges.
+
+    A target already present as a dead job is only purged on a real run when ``clean``
+    is set or the session is interactive, so the message for the plain dead case says
+    "an interactive run" rather than promising a prompt a non-interactive run never shows.
+    """
+    for c in targets:
+        if c.name in dead and clean:
+            pp.dryrun(f"would purge dead job {c.name}, then run {c.name} ({c.file.path})")
+        elif c.name in dead:
+            pp.dryrun(
+                f"would run {c.name} ({c.file.path}) on top of a dead job "
+                "(an interactive run offers to purge it)"
+            )
+        else:
+            pp.dryrun(f"would run {c.name} ({c.file.path})")
 
 
 # allow_interspersed_args lets options follow the positional JOB argument;
@@ -152,6 +215,15 @@ def run(
         bool,
         typer.Option("--dry-run", "-n", help="Resolve and validate without registering."),
     ] = False,
+    clean: Annotated[  # noqa: FBT002
+        bool,
+        typer.Option(
+            "--clean",
+            "-c",
+            help="Purge any selected job left dead by a prior stop before deploying, "
+            "skipping the prompt.",
+        ),
+    ] = False,
     verbose: VerboseOption = 0,
 ) -> None:
     """Deploy one or more not-yet-running job files and watch them roll out.
@@ -160,14 +232,16 @@ def run(
     to a running job. Each selected file is validated, registered, and watched live:
     service jobs follow their deployment to success, while batch and system jobs
     follow their allocations. Use --detach to register and return without watching.
+    If a selected job is still present in the cluster as a dead job (stopped without
+    purge), you are offered to garbage-collect it first; --clean purges without asking.
     """
     configure_verbosity(ctx, verbose)
-    exit_code = asyncio.run(_run(job_arg=job, detach=detach, dry_run=dry_run))
+    exit_code = asyncio.run(_run(job_arg=job, detach=detach, dry_run=dry_run, clean=clean))
     if exit_code != 0:
         raise typer.Exit(exit_code)
 
 
-async def _run(*, job_arg: str | None, detach: bool, dry_run: bool) -> int:  # noqa: PLR0911
+async def _run(*, job_arg: str | None, detach: bool, dry_run: bool, clean: bool) -> int:  # noqa: PLR0911
     """Resolve not-running candidates, validate, register, and watch the rollout.
 
     Returns the exit code: 0 on clean success, 1 on any failure. With ``detach`` the
@@ -176,7 +250,7 @@ async def _run(*, job_arg: str | None, detach: bool, dry_run: bool) -> int:  # n
     files = discover_job_files(load_job_directories())
     config = NomadConfig.resolve()
     async with NomadClient.from_config(config) as client:
-        running = await _running_job_names(client)
+        running, dead = await _cluster_job_states(client)
         candidates = candidates_for(files, exclude_names=running)
         if not candidates:
             pp.info("No deployable job files (all known jobs are already running).")
@@ -201,10 +275,13 @@ async def _run(*, job_arg: str | None, detach: bool, dry_run: bool) -> int:  # n
             pp.error(str(exc))
             return 1
 
+        dead_targets = [t for t in targets if t.name in dead]
+
         if dry_run:
-            for c in targets:
-                pp.dryrun(f"would run {c.name} ({c.file.path})")
+            _report_dry_run(targets, dead=dead, clean=clean)
             return 0
+
+        await _maybe_purge_dead(client, dead_targets, clean=clean)
 
         if detach:
             return await _register_detached(client, targets, nomad)

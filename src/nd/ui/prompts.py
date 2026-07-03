@@ -14,14 +14,23 @@ from nclutils import pp
 from nclutils.ask import choose_multiple_from_list, choose_one_from_list
 
 
+def is_interactive() -> bool:
+    """Return True when the console is a real terminal, so prompts are usable.
+
+    A single home for the terminal check so prompt-gating callers agree with the
+    residual-line clearing below on what "interactive" means.
+    """
+    return pp.console().is_terminal
+
+
 def clear_prompt_line(lines: int = 1) -> None:
     """Erase the residual questionary answer line(s) on an interactive terminal.
 
     A no-op off a terminal (pipes, tests) so control codes never leak into output.
     """
-    console = pp.console()
-    if not console.is_terminal:
+    if not is_interactive():
         return
+    console = pp.console()
     console.file.write(f"\x1b[{lines}A\x1b[J")
     console.file.flush()
 
