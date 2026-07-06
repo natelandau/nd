@@ -19,6 +19,10 @@ TERMINAL_ALLOC_STATUSES = frozenset({"complete", "failed", "lost"})
 # Allocation client statuses considered healthy: the alloc is placed and either
 # running or finished cleanly. Used to judge cluster health and deploy success.
 HEALTHY_ALLOC_STATUSES = frozenset({"running", "complete"})
+# Allocation client statuses that mean the alloc stopped because it broke (as opposed to
+# finishing cleanly). Used both to color a failure red mid-drain and to flag a job as
+# degraded when such an alloc is left unreplaced.
+FAILED_ALLOC_STATUSES = frozenset({"failed", "lost"})
 # How often to poll a stopped job's allocations, and how long to wait for them to
 # drain before warning that the job is still stopping.
 POLL_INTERVAL_SECONDS = 1.0

@@ -24,6 +24,10 @@ class AllocListStub(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
     task_group: str
     client_status: str
     desired_status: str
+    # Set to the id of the alloc that superseded this one in a reschedule chain; empty
+    # when this is the head (latest) attempt. Distinguishes a failed corpse that recovered
+    # (a replacement is running) from one Nomad has not been able to replace.
+    next_allocation: str = msgspec.field(name="NextAllocation", default="")
     # Nomad sends TaskStates: null (not an empty object) for a freshly-placed
     # allocation whose tasks have not started yet, so this must tolerate null.
     task_states_raw: dict[str, TaskState] | None = msgspec.field(name="TaskStates", default=None)

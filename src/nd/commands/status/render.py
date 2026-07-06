@@ -15,7 +15,7 @@ from nd.ui.duration import fmt_uptime
 from nd.ui.links import WebUi
 from nd.ui.panels import status_table as _table
 from nd.ui.panels import titled_panel
-from nd.ui.styles import status_cell
+from nd.ui.styles import status_cell, status_style
 
 if TYPE_CHECKING:
     from rich.console import RenderableType
@@ -165,10 +165,15 @@ def _jobs_panel(report: StatusReport) -> Panel:
     table = _table("NAME", "TYPE", "STATUS", "UPTIME", "NODES")
     for job in report.jobs:
         nodes = report.job_nodes.get(job.id, [])
+        status = report.job_statuses[job.id]
+        name = web.job(job.id, job.name)
+        # Tint a degraded job's name to match its status cell so the problem row reads as one unit.
+        if status == "degraded":
+            name = f"[{status_style(status)}]{name}[/]"
         table.add_row(
-            web.job(job.id, job.name),
+            name,
             job.type,
-            status_cell(job.status),
+            status_cell(status),
             fmt_uptime(job.submit_time, now_s),
             ", ".join(nodes) if nodes else "[dim]-[/]",
         )

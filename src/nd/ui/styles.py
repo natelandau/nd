@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from nd.constants import FAILED_ALLOC_STATUSES
+
 # Maps a Nomad status string to the Rich color used for its cell.
 STATUS_STYLE: dict[str, str] = {
     "ready": "green",
@@ -10,6 +12,7 @@ STATUS_STYLE: dict[str, str] = {
     "alive": "green",
     "successful": "green",
     "pending": "yellow",
+    "degraded": "yellow",
     "initializing": "yellow",
     "draining": "yellow",
     "leaving": "yellow",
@@ -34,9 +37,15 @@ OUTCOME_GLYPH: dict[str, str] = {
 # Statuses that mean a workload has finished stopping cleanly, rendered as green
 # "stopped" during a drain.
 _STOPPED_STATUSES = frozenset({"complete", "stopped"})
-# Statuses that are a genuine failure even mid-stop, kept red rather than yellow so a
-# crash on shutdown or a lost node does not blend in with the rows still draining.
-_STOP_FAILURE_STATUSES = frozenset({"failed", "lost"})
+
+
+def status_style(status: str) -> str:
+    """Return the Rich color registered for a status, or "default" when unknown.
+
+    Lets a caller tint other cells (e.g. a degraded job's name) with the exact color
+    ``status_cell`` uses for the same status, so they stay in sync from one source.
+    """
+    return STATUS_STYLE.get(status, "default")
 
 
 def status_cell(status: str, *, stopping: bool = False) -> str:
@@ -51,10 +60,12 @@ def status_cell(status: str, *, stopping: bool = False) -> str:
     if stopping:
         if status in _STOPPED_STATUSES:
             return "[green]✓ stopped[/]"
-        if status in _STOP_FAILURE_STATUSES:
+        # A genuine failure mid-stop stays red rather than yellow so a crash on shutdown or a
+        # lost node does not blend in with the rows still draining.
+        if status in FAILED_ALLOC_STATUSES:
             return f"[red]✗ {status}[/]"
         return f"[yellow]• {status}[/]"
-    style = STATUS_STYLE.get(status, "default")
+    style = status_style(status)
     glyph = {"green": "✓", "red": "✗"}.get(style, "•")
     return f"[{style}]{glyph} {status}[/]"
 

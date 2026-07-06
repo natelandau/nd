@@ -11,7 +11,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from nd.constants import HEALTHY_ALLOC_STATUSES
+from nd.constants import FAILED_ALLOC_STATUSES, HEALTHY_ALLOC_STATUSES
 
 if TYPE_CHECKING:
     from nd.nomad.config import NomadConfig
@@ -97,6 +97,7 @@ class StatusReport:
     jobs: list[JobListStub]
     jobs_total: int
     jobs_running: int
+    job_statuses: dict[str, str]  # effective display status keyed by job id (may be "degraded")
     allocs_total: int
     allocs_running: int
     allocs_failed: int
@@ -140,16 +141,23 @@ def build_report(  # noqa: PLR0913
         key=lambda e: e.job_id,
     )
 
-    # Only allocs Nomad still wants running reflect current health; a "failed" corpse that has
-    # already been rescheduled carries desired_status "stop"/"evict" and must be ignored.
+    # Only allocs Nomad still wants running reflect current health, so drop the ones it has
+    # intentionally retired (desired_status stop/evict). A failed corpse that was rescheduled
+    # keeps desired_status "run" and survives this filter; it is instead excluded per-check via
+    # _is_replaced, whose next_allocation points at the now-live replacement.
     live_allocs = [a for a in allocs if a.desired_status not in _RETIRED_DESIRED_STATUSES]
-    allocs_failed = sum(1 for a in live_allocs if a.client_status == "failed")
+    allocs_failed = sum(
+        1 for a in live_allocs if a.client_status == "failed" and not _is_replaced(a)
+    )
     allocs_pending = sum(1 for a in live_allocs if a.client_status == "pending")
-    allocs_unhealthy = any(a.client_status not in HEALTHY_ALLOC_STATUSES for a in live_allocs)
+    allocs_unhealthy = any(
+        a.client_status not in HEALTHY_ALLOC_STATUSES and not _is_replaced(a) for a in live_allocs
+    )
     node_alloc_counts = Counter(
         a.node_id for a in allocs if a.client_status in _ACTIVE_ALLOC_STATUSES
     )
     job_nodes = _job_node_names(allocs, nodes)
+    job_statuses = _job_display_statuses(jobs, live_allocs)
     volume_rows = _build_volume_rows(volumes or [], nodes)
 
     return StatusReport(
@@ -174,7 +182,8 @@ def build_report(  # noqa: PLR0913
         nodes_total=len(nodes),
         jobs=jobs,
         jobs_total=len(jobs),
-        jobs_running=sum(1 for j in jobs if j.status == "running"),
+        jobs_running=sum(1 for j in jobs if job_statuses[j.id] == "running"),
+        job_statuses=job_statuses,
         allocs_total=len(allocs),
         allocs_running=sum(1 for a in allocs if a.client_status == "running"),
         allocs_failed=allocs_failed,
@@ -217,6 +226,40 @@ def _build_volume_rows(
         ],
         key=lambda r: r.name,
     )
+
+
+def _is_replaced(alloc: AllocListStub) -> bool:
+    """Return True when Nomad has superseded this alloc with a newer one in a reschedule chain.
+
+    A failed/lost alloc keeps ``desired_status`` "run" while it lingers in history, so the empty
+    ``next_allocation`` (not the desired status) is what distinguishes the current head of the
+    chain from a corpse whose replacement is already running. A replaced corpse is not a live
+    problem, so cluster health, the failed count, and per-job degraded status all ignore it.
+    """
+    return bool(alloc.next_allocation)
+
+
+def _job_display_statuses(
+    jobs: list[JobListStub], live_allocs: list[AllocListStub]
+) -> dict[str, str]:
+    """Map each job id to the status to display, downgrading a real partial outage to "degraded".
+
+    Nomad's job-level ``Status`` stays "running" for a service/system job even when its latest
+    allocation on a node has failed (e.g. a system job that can't start on one node), so the raw
+    status hides the outage. A job is "degraded" only when it has a genuinely-stuck placement: a
+    ``failed``/``lost`` alloc that Nomad still wants running (not intentionally stopped) and has
+    NOT replaced (see ``_is_replaced``), so a failure that already recovered does not read as
+    degraded.
+    """
+    degraded_jobs = {
+        a.job_id
+        for a in live_allocs
+        if a.client_status in FAILED_ALLOC_STATUSES and not _is_replaced(a)
+    }
+    return {
+        job.id: "degraded" if job.status == "running" and job.id in degraded_jobs else job.status
+        for job in jobs
+    }
 
 
 def _job_node_names(allocs: list[AllocListStub], nodes: list[NodeListStub]) -> dict[str, list[str]]:

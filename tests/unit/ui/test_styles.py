@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from nd.ui.styles import OUTCOME_GLYPH, STATUS_STYLE, accent, muted, status_cell
+from nd.ui.styles import OUTCOME_GLYPH, STATUS_STYLE, accent, muted, status_cell, status_style
 
 
 def test_status_cell_known_status() -> None:
@@ -42,6 +42,17 @@ def test_status_style_covers_failed() -> None:
     """Verify failed-like statuses map to red."""
     assert STATUS_STYLE["failed"] == "red"
     assert STATUS_STYLE["dead"] == "red"
+
+
+def test_status_style_returns_registered_color() -> None:
+    """Verify status_style returns the same color status_cell uses for a status."""
+    assert status_style("degraded") == "yellow"
+    assert status_style("running") == "green"
+
+
+def test_status_style_unknown_defaults() -> None:
+    """Verify an unregistered status falls back to the neutral default color."""
+    assert status_style("mystery") == "default"
 
 
 def test_outcome_glyphs_present() -> None:

@@ -7,7 +7,7 @@ from nclutils import pp
 from rich.console import Console
 from typer.testing import CliRunner
 
-from nd.commands.status import Health, build_report
+from nd.commands.status import Health, StatusReport, build_report
 from nd.nomad.config import NomadConfig
 from nd.nomad.models.agent import AgentMember
 from nd.nomad.models.allocation import AllocListStub
@@ -90,6 +90,7 @@ def _alloc(
     desired_status="run",
     node_id="srv1",
     job_id="web",
+    next_allocation="",
 ) -> AllocListStub:
     return AllocListStub(
         id=name,
@@ -100,6 +101,7 @@ def _alloc(
         task_group="web",
         client_status=client_status,
         desired_status=desired_status,
+        next_allocation=next_allocation,
         create_index=1,
         modify_index=2,
     )
@@ -189,6 +191,128 @@ def test_build_report_maps_jobs_to_node_names():
 
     # Then job nodes are resolved to names, de-duplicated and sorted; terminal allocs excluded
     assert report.job_nodes == {"web": ["alpha", "zeta"], "api": ["alpha"]}
+
+
+def test_build_report_degrades_job_with_unreplaced_failed_alloc():
+    """Verify a running job whose latest alloc on a node failed with no replacement is degraded."""
+    # Given a system job (like diun) whose retry on one node keeps failing: a superseded failed
+    # attempt (points to a next alloc) plus the head failed attempt (no replacement)
+    nodes = [_node(name="srv1"), _node(name="srv2")]
+    jobs = [_job(name="diun", status="running"), _job(name="web", status="running")]
+    allocs = [
+        _alloc(name="d1", job_id="diun", node_id="srv1", client_status="running"),
+        _alloc(
+            name="d-old",
+            job_id="diun",
+            node_id="srv2",
+            client_status="failed",
+            next_allocation="d-head",
+        ),
+        _alloc(name="d-head", job_id="diun", node_id="srv2", client_status="failed"),
+        _alloc(name="w1", job_id="web", node_id="srv1", client_status="running"),
+    ]
+
+    # When building the report
+    report = build_report(nodes=nodes, jobs=jobs, allocs=allocs, config=_CONFIG)
+
+    # Then the unreplaced failure degrades diun and drops it from the running count
+    assert report.job_statuses["diun"] == "degraded"
+    assert report.job_statuses["web"] == "running"
+    assert report.jobs_running == 1
+    # And the banner agrees: the health verdict is degraded and only the unreplaced head counts
+    # as failed (the superseded d-old corpse is ignored, so it reads 1 failed, not 2)
+    assert report.health is Health.DEGRADED
+    assert report.allocs_failed == 1
+
+
+def test_build_report_ignores_recovered_failed_alloc():
+    """Verify a failed alloc that Nomad rescheduled onto a running replacement is not degraded."""
+    # Given a job (scenario 2: stopped on a node then restarted) whose failed alloc was superseded
+    # by a now-running replacement, so the failed corpse points at a next allocation
+    nodes = [_node(name="srv1")]
+    jobs = [_job(name="web", status="running")]
+    allocs = [
+        _alloc(
+            name="w-old",
+            job_id="web",
+            node_id="srv1",
+            client_status="failed",
+            next_allocation="w-new",
+        ),
+        _alloc(name="w-new", job_id="web", node_id="srv1", client_status="running"),
+    ]
+
+    # When building the report
+    report = build_report(nodes=nodes, jobs=jobs, allocs=allocs, config=_CONFIG)
+
+    # Then the recovered failure is ignored and the job stays running
+    assert report.job_statuses["web"] == "running"
+    assert report.jobs_running == 1
+    # And the banner agrees rather than raising a false alarm: no failed count, health stays green
+    assert report.allocs_failed == 0
+    assert report.health is Health.HEALTHY
+
+
+def test_build_report_keeps_running_status_when_failed_alloc_is_retired():
+    """Verify a failed alloc Nomad has intentionally stopped does not degrade its job."""
+    # Given a running job whose failed alloc was intentionally stopped (desired_status stop)
+    nodes = [_node(name="srv1")]
+    jobs = [_job(name="web", status="running")]
+    allocs = [
+        _alloc(name="w1", job_id="web", node_id="srv1", client_status="running"),
+        _alloc(
+            name="w0",
+            job_id="web",
+            node_id="srv1",
+            client_status="failed",
+            desired_status="stop",
+        ),
+    ]
+
+    # When building the report
+    report = build_report(nodes=nodes, jobs=jobs, allocs=allocs, config=_CONFIG)
+
+    # Then the retired corpse is ignored and the job stays running
+    assert report.job_statuses["web"] == "running"
+    assert report.jobs_running == 1
+
+
+def test_render_report_jobs_panel_shows_degraded_for_unreplaced_failure():
+    """Verify the jobs panel renders a degraded row when a job's latest alloc failed unreplaced."""
+    # Given a running job with a failed head allocation Nomad has not replaced
+    nodes = [_node(name="srv1"), _node(name="srv2")]
+    jobs = [_job(name="diun", status="running")]
+    allocs = [
+        _alloc(name="d1", job_id="diun", node_id="srv1", client_status="running"),
+        _alloc(name="d2", job_id="diun", node_id="srv2", client_status="failed"),
+    ]
+    report = build_report(nodes=nodes, jobs=jobs, allocs=allocs, config=_CONFIG)
+
+    # When rendering it
+    text = _render_to_text(report)
+
+    # Then the diun row shows degraded rather than running
+    assert "degraded" in text
+
+
+def test_render_report_tints_degraded_job_name_yellow():
+    """Verify a degraded job's name is tinted yellow to match its status, while others are not."""
+    # Given a degraded job (diun) alongside a healthy running job (web)
+    nodes = [_node(name="srv1"), _node(name="srv2")]
+    jobs = [_job(name="diun", status="running"), _job(name="web", status="running")]
+    allocs = [
+        _alloc(name="d1", job_id="diun", node_id="srv1", client_status="running"),
+        _alloc(name="d2", job_id="diun", node_id="srv2", client_status="failed"),
+        _alloc(name="w1", job_id="web", node_id="srv1", client_status="running"),
+    ]
+    report = build_report(nodes=nodes, jobs=jobs, allocs=allocs, config=_CONFIG)
+
+    # When rendering with ANSI styles retained (\x1b[33m is the yellow SGR code)
+    styled = _render_to_styled_text(report)
+
+    # Then the degraded job's name is wrapped in yellow, while the healthy job's name is not tinted
+    assert "\x1b[33mdiun\x1b[0m" in styled
+    assert "\x1b[33mweb" not in styled
 
 
 def test_render_report_nodes_panel_shows_alloc_count():
@@ -465,8 +589,8 @@ def test_build_report_degraded_on_failed_alloc():
     assert report.health is Health.DEGRADED
 
 
-def _render_to_text(report) -> str:
-    """Render a report through a recording emitter and return the captured text."""
+def _capture_render(report: StatusReport) -> Console:
+    """Render a report through a recording console and return that console."""
     capture = Console(theme=pp.THEME, record=True, force_terminal=True, width=100)
     emitter = pp.Emitter(console=capture, err_console=capture)
     original = pp.get_default()
@@ -477,7 +601,17 @@ def _render_to_text(report) -> str:
         render_report(report)
     finally:
         pp.set_default(original)
-    return capture.export_text()
+    return capture
+
+
+def _render_to_text(report: StatusReport) -> str:
+    """Render a report and return the captured plain text (styles stripped)."""
+    return _capture_render(report).export_text()
+
+
+def _render_to_styled_text(report: StatusReport) -> str:
+    """Render a report and return the captured text with ANSI style codes retained."""
+    return _capture_render(report).export_text(styles=True)
 
 
 def test_render_report_shows_health_nodes_and_addresses():
