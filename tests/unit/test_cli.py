@@ -39,6 +39,7 @@ def test_cli_no_subcommand_runs_status(mocker):
     """Verify invoking nd with no subcommand defaults to the status dashboard."""
     # Given the real status callback runs but its cluster query and rendering are stubbed
     collect_mock = mocker.patch("nd.commands.status.command._collect")
+    collect_mock.return_value = (mocker.MagicMock(), [])
     render_mock = mocker.patch("nd.commands.status.command.render_report")
 
     # When invoking the root app with no subcommand

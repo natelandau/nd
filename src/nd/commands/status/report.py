@@ -7,8 +7,10 @@ Kept free of I/O and Rich so the cluster-state logic is unit-testable on its own
 from __future__ import annotations
 
 import enum
+import re
 from collections import Counter
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from nd.constants import FAILED_ALLOC_STATUSES, HEALTHY_ALLOC_STATUSES
@@ -34,6 +36,42 @@ _ACTIVE_DEPLOYMENT_STATUSES = frozenset({"running", "pending", "blocked", "pause
 _PROBLEM_EVAL_STATUSES = frozenset({"blocked", "pending"})
 # Terminal evaluation statuses whose queued-allocation counts are historical, not live.
 _TERMINAL_EVAL_STATUSES = frozenset({"complete", "canceled", "cancelled", "failed"})
+
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+# Trims RFC3339 fractional seconds to microseconds: Python's fromisoformat rejects more
+# than 6 fractional digits, and Nomad emits 9 (nanoseconds).
+_RFC3339_SUBMICRO = re.compile(r"(\.\d{6})\d+")
+
+
+def _rfc3339_to_ns(value: str) -> int:
+    """Convert an RFC3339 timestamp to unix nanoseconds, or 0 when it is unusable.
+
+    Nomad emits a zero sentinel ("0001-01-01T00:00:00Z") before a task starts and 9
+    fractional digits once it has; both blanks and unparsable input collapse to 0 so the
+    caller can fall back to another anchor. Uses integer date math to stay exact.
+    """
+    if not value:
+        return 0
+    normalized = _RFC3339_SUBMICRO.sub(r"\1", value).replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return 0
+    delta = parsed - _EPOCH
+    ns = (delta.days * 86_400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1_000
+    return max(0, ns)
+
+
+def _alloc_run_start_ns(alloc: AllocListStub) -> int:
+    """Return the nanosecond anchor for how long an allocation has been running.
+
+    Prefers the earliest task ``StartedAt`` (when the alloc came up), falling back to the
+    alloc's ``CreateTime`` when no task has a usable start time yet.
+    """
+    starts = [
+        ns for task in alloc.task_states.values() if (ns := _rfc3339_to_ns(task.started_at)) > 0
+    ]
+    return min(starts) if starts else alloc.create_time
 
 
 class Health(enum.StrEnum):
@@ -76,6 +114,32 @@ class VolumeStatusRow:
     name: str
     nodes: list[str]  # sorted node NAMES the volume is registered on
     state: str  # distinct states, comma-joined (usually "ready")
+
+
+@dataclass(frozen=True)
+class HostJobRow:
+    """One allocation running on a host, as shown in a host panel's Jobs sub-table."""
+
+    job_id: str
+    name: str
+    job_type: str
+    group: str  # the allocation's task group
+    status: str  # the allocation's client_status
+    run_start_ns: int  # uptime anchor (earliest task start, else alloc create time), in unix nanos
+
+
+@dataclass(frozen=True)
+class HostPanel:
+    """A single client node's slice of cluster state for the ``--hosts`` view."""
+
+    name: str
+    link_id: str  # node id for the web UI link
+    address: str
+    status: str
+    eligible: bool  # scheduling-eligible and not draining
+    version: str
+    jobs: list[HostJobRow]
+    volumes: list[VolumeStatusRow]
 
 
 @dataclass(frozen=True)
@@ -194,6 +258,84 @@ def build_report(  # noqa: PLR0913
         evals_problem=evals_problem,
         volume_rows=volume_rows,
         volumes_total=len(volume_rows),
+    )
+
+
+def build_host_report(
+    *,
+    nodes: list[NodeListStub],
+    jobs: list[JobListStub],
+    allocs: list[AllocListStub],
+    volumes: list[HostVolumeListStub] | None = None,
+) -> list[HostPanel]:
+    """Compute one `HostPanel` per client node for the ``--hosts`` view.
+
+    Pivots the cluster snapshot to focus on machines: each panel carries the notable
+    allocations placed on its node (running/pending plus genuine unreplaced failures, the
+    same allocs the default view treats as live) and the host volumes registered to it.
+    Kept pure and Rich-free so the grouping logic is unit-testable on its own.
+    """
+    jobs_by_id = {job.id: job for job in jobs}
+    allocs_by_node: dict[str, list[AllocListStub]] = {}
+    for alloc in allocs:
+        if _is_host_job_alloc(alloc):
+            allocs_by_node.setdefault(alloc.node_id, []).append(alloc)
+
+    volumes_by_node: dict[str, list[VolumeStatusRow]] = {}
+    for vol in volumes or []:
+        volumes_by_node.setdefault(vol.node_id, []).append(
+            VolumeStatusRow(name=vol.name, nodes=[], state=vol.state or "-")
+        )
+
+    panels: list[HostPanel] = []
+    for node in sorted(nodes, key=lambda n: n.name):
+        job_rows = sorted(
+            (
+                _host_job_row(alloc, jobs_by_id.get(alloc.job_id))
+                for alloc in allocs_by_node.get(node.id, [])
+            ),
+            key=lambda r: (r.name, r.group),
+        )
+        volume_rows = sorted(volumes_by_node.get(node.id, []), key=lambda v: v.name)
+        panels.append(
+            HostPanel(
+                name=node.name,
+                link_id=node.id,
+                address=node.address,
+                status=node.status,
+                eligible=node.scheduling_eligibility == "eligible" and not node.drain,
+                version=node.version,
+                jobs=job_rows,
+                volumes=volume_rows,
+            )
+        )
+    return panels
+
+
+def _is_host_job_alloc(alloc: AllocListStub) -> bool:
+    """Return True when an allocation belongs in a host panel's Jobs sub-table.
+
+    Mirrors the default view's live-allocation rules: drop the ones Nomad has retired
+    (desired_status stop/evict) or already replaced, then keep the active work
+    (running/pending) plus a genuine failure (failed/lost) that has not recovered.
+    """
+    if alloc.desired_status in _RETIRED_DESIRED_STATUSES or _is_replaced(alloc):
+        return False
+    return (
+        alloc.client_status in _ACTIVE_ALLOC_STATUSES
+        or alloc.client_status in FAILED_ALLOC_STATUSES
+    )
+
+
+def _host_job_row(alloc: AllocListStub, job: JobListStub | None) -> HostJobRow:
+    """Build a host panel Jobs row, resolving the job's display name and type."""
+    return HostJobRow(
+        job_id=alloc.job_id,
+        name=job.name if job else alloc.job_id,
+        job_type=job.type if job else "",
+        group=alloc.task_group,
+        status=alloc.client_status,
+        run_start_ns=_alloc_run_start_ns(alloc),
     )
 
 

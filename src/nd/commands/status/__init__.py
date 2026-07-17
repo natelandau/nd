@@ -5,25 +5,30 @@ wiring plus async collection (`command`); this module re-exports the public surf
 """
 
 from nd.commands.status.command import _collect, app, status
-from nd.commands.status.render import render_report
+from nd.commands.status.render import render_hosts, render_report
 from nd.commands.status.report import (
     Health,
+    HostPanel,
     NodeRow,
     ServerInfo,
     StatusReport,
+    build_host_report,
     build_report,
     correlate_nodes,
 )
 
 __all__ = [
     "Health",
+    "HostPanel",
     "NodeRow",
     "ServerInfo",
     "StatusReport",
     "_collect",
     "app",
+    "build_host_report",
     "build_report",
     "correlate_nodes",
+    "render_hosts",
     "render_report",
     "status",
 ]

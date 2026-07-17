@@ -32,6 +32,11 @@ STOP_TIMEOUT_SECONDS = 120.0
 # Globs used to find Nomad job specs inside each configured directory.
 JOB_FILE_GLOBS = ["*.hcl", "*.nomad"]
 
+# --- Status dashboard ------------------------------------------------------------------
+# Minimum terminal width at which `nd status --hosts` lays its per-host panels into two
+# columns; below this the panels stack in a single column so each stays readable.
+HOSTS_TWO_COLUMN_MIN_WIDTH = 120
+
 # --- Job run / deploy watching ---------------------------------------------------------
 # How long to wait for a registered job's deployment (or allocations, for batch/system
 # jobs that create no deployment) to reach a terminal state before warning.

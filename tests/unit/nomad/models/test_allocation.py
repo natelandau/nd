@@ -83,6 +83,81 @@ def test_alloc_list_stub_defaults_task_states_empty():
     assert stub.task_states == {}
 
 
+def test_alloc_list_stub_decodes_create_time():
+    """Verify the allocation list stub decodes CreateTime into create_time nanoseconds."""
+    # Given a stub payload carrying a CreateTime unix-nanosecond timestamp
+    payload = b"""
+    {
+      "ID": "a1", "Name": "web.web[0]", "NodeID": "n1", "JobID": "web",
+      "TaskGroup": "web", "ClientStatus": "running", "DesiredStatus": "run",
+      "CreateIndex": 1, "ModifyIndex": 2, "CreateTime": 1717243200000000000
+    }
+    """
+
+    # When decoding
+    stub = msgspec.json.decode(payload, type=AllocListStub)
+
+    # Then create_time carries the raw nanoseconds, defaulting to 0 when absent
+    assert stub.create_time == 1717243200000000000
+
+
+def test_alloc_list_stub_defaults_create_time_zero():
+    """Verify the allocation list stub defaults create_time to 0 when CreateTime is absent."""
+    # Given a stub payload with no CreateTime
+    payload = b"""
+    {
+      "ID": "a1", "Name": "web.web[0]", "NodeID": "n1", "JobID": "web",
+      "TaskGroup": "web", "ClientStatus": "running", "DesiredStatus": "run",
+      "CreateIndex": 1, "ModifyIndex": 2
+    }
+    """
+
+    # When decoding
+    stub = msgspec.json.decode(payload, type=AllocListStub)
+
+    # Then create_time is 0
+    assert stub.create_time == 0
+
+
+def test_task_state_decodes_started_at():
+    """Verify TaskState decodes the StartedAt RFC3339 timestamp, defaulting to empty."""
+    # Given a stub payload whose task state carries a StartedAt timestamp
+    payload = b"""
+    {
+      "ID": "a1", "Name": "web.web[0]", "NodeID": "n1", "JobID": "web",
+      "TaskGroup": "web", "ClientStatus": "running", "DesiredStatus": "run",
+      "CreateIndex": 1, "ModifyIndex": 2,
+      "TaskStates": {"server": {"State": "running", "Failed": false, "Restarts": 0,
+        "StartedAt": "2024-06-01T12:00:00.000000000Z"}}
+    }
+    """
+
+    # When decoding
+    stub = msgspec.json.decode(payload, type=AllocListStub)
+
+    # Then the task state exposes the raw StartedAt string
+    assert stub.task_states["server"].started_at == "2024-06-01T12:00:00.000000000Z"
+
+
+def test_task_state_defaults_started_at_empty():
+    """Verify TaskState defaults started_at to an empty string when StartedAt is absent."""
+    # Given a task state with no StartedAt
+    payload = b"""
+    {
+      "ID": "a1", "Name": "web.web[0]", "NodeID": "n1", "JobID": "web",
+      "TaskGroup": "web", "ClientStatus": "running", "DesiredStatus": "run",
+      "CreateIndex": 1, "ModifyIndex": 2,
+      "TaskStates": {"server": {"State": "running", "Failed": false, "Restarts": 0}}
+    }
+    """
+
+    # When decoding
+    stub = msgspec.json.decode(payload, type=AllocListStub)
+
+    # Then started_at is the empty-string default
+    assert stub.task_states["server"].started_at == ""
+
+
 def test_alloc_list_stub_decodes_null_task_states():
     """Verify the allocation list stub coerces an explicit null TaskStates to an empty dict."""
     # Given a freshly-placed alloc whose tasks have not started, so Nomad sends null

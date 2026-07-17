@@ -11,6 +11,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from nd.commands.status.report import Health, correlate_nodes
+from nd.constants import HOSTS_TWO_COLUMN_MIN_WIDTH
 from nd.ui.duration import fmt_uptime
 from nd.ui.links import WebUi
 from nd.ui.panels import status_table as _table
@@ -20,7 +21,7 @@ from nd.ui.styles import status_cell, status_style
 if TYPE_CHECKING:
     from rich.console import RenderableType
 
-    from nd.commands.status.report import NodeRow, StatusReport
+    from nd.commands.status.report import HostPanel, NodeRow, StatusReport
 
 _HEALTH_STYLE: dict[Health, str] = {
     Health.HEALTHY: "green",
@@ -38,6 +39,89 @@ def render_report(report: StatusReport) -> None:
     console.print(_volumes_panel(report))
     if report.deployments_active or report.evals_problem:
         console.print(_activity_panel(report))
+
+
+def render_hosts(report: StatusReport, host_panels: list[HostPanel]) -> None:
+    """Print the host-focused dashboard: banner, one panel per host, then activity.
+
+    The banner is identical to the default view; the per-resource panels are replaced by
+    a panel per client node (laid out in two columns on wide terminals), and the Activity
+    panel still trails when there is in-progress work.
+    """
+    console = pp.console()
+    console.print(_banner(report))
+    if host_panels:
+        now_s = time.time()
+        web = WebUi(report.ui_url)
+        panels = [_host_panel(host, web, now_s) for host in host_panels]
+        console.print(_host_grid(panels, console.width))
+    else:
+        console.print(titled_panel("[dim]No client nodes[/]", "Hosts", expand=True))
+    if report.deployments_active or report.evals_problem:
+        console.print(_activity_panel(report))
+
+
+def _host_styles(host: HostPanel) -> tuple[str, str]:
+    """Return the (glyph, border) styles for a host, reserving color for problems.
+
+    A healthy host keeps the calm cyan border shared with the other panels and a green
+    status dot; a draining/ineligible or unreachable host escalates both to yellow or red.
+    """
+    if host.status in {"down", "disconnected"}:
+        return "red", "red"
+    if not host.eligible or host.status != "ready":
+        return "yellow", "yellow"
+    return "green", "cyan"
+
+
+def _host_panel(host: HostPanel, web: WebUi, now_s: float) -> Panel:
+    """Build one host's panel: a linked title plus Jobs and Volumes sub-tables."""
+    glyph_style, border_style = _host_styles(host)
+    eligibility = "eligible" if host.eligible else "ineligible"
+    title = (
+        f"[{glyph_style}]●[/] {web.node(host.link_id, host.name)}"
+        f" · {host.status} · {eligibility} · {host.version}"
+    )
+
+    if host.jobs:
+        jobs: RenderableType = _table("JOB", "TYPE", "GROUP", "STATUS", "UPTIME")
+        for row in host.jobs:
+            jobs.add_row(
+                web.job(row.job_id, row.name),
+                row.job_type,
+                row.group,
+                status_cell(row.status),
+                fmt_uptime(row.run_start_ns, now_s),
+            )
+    else:
+        jobs = "[dim]No jobs[/]"
+
+    if host.volumes:
+        volumes: RenderableType = _table("NAME", "STATE")
+        for vol in host.volumes:
+            volumes.add_row(vol.name, status_cell(vol.state))
+    else:
+        volumes = "[dim]No volumes[/]"
+
+    body = Group("[bold]Jobs[/]", jobs, "", "[bold]Volumes[/]", volumes)
+    return titled_panel(body, title, border_style=border_style, expand=True)
+
+
+def _host_grid(panels: list[Panel], width: int) -> RenderableType:
+    """Arrange host panels responsively: two columns when wide, one when narrow.
+
+    A single panel or a terminal narrower than the threshold stacks vertically; otherwise
+    the panels fill a two-column grid row-first (an odd final panel leaves an empty cell).
+    """
+    if width < HOSTS_TWO_COLUMN_MIN_WIDTH or len(panels) < 2:  # noqa: PLR2004
+        return Group(*panels)
+    grid = Table.grid(padding=(0, 1), expand=True)
+    grid.add_column(ratio=1)
+    grid.add_column(ratio=1)
+    for left in range(0, len(panels), 2):
+        right: RenderableType = panels[left + 1] if left + 1 < len(panels) else ""
+        grid.add_row(panels[left], right)
+    return grid
 
 
 def _role_cell(row: NodeRow) -> str:

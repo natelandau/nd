@@ -11,6 +11,9 @@ class TaskState(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
     state: str
     failed: bool
     restarts: int
+    # RFC3339 timestamp of when the task last started running; Nomad emits a zero
+    # sentinel ("0001-01-01T00:00:00Z") before the task has started.
+    started_at: str = msgspec.field(name="StartedAt", default="")
 
 
 class AllocListStub(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
@@ -31,6 +34,9 @@ class AllocListStub(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
     # Nomad sends TaskStates: null (not an empty object) for a freshly-placed
     # allocation whose tasks have not started yet, so this must tolerate null.
     task_states_raw: dict[str, TaskState] | None = msgspec.field(name="TaskStates", default=None)
+    # Unix-nanosecond timestamp of when Nomad created (placed) this allocation; used as
+    # the run-time anchor when a task's StartedAt is unavailable.
+    create_time: int = msgspec.field(name="CreateTime", default=0)
     create_index: int
     modify_index: int
 
