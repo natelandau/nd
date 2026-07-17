@@ -41,7 +41,7 @@ def status(
     hosts: Annotated[  # noqa: FBT002
         bool,
         typer.Option(
-            "--hosts", help="Pivot the dashboard to one panel per host (jobs, volumes, uptime)."
+            "--hosts", help="Pivot the dashboard to one panel per host (jobs, status, uptime)."
         ),
     ] = False,
 ) -> None:
