@@ -118,7 +118,7 @@ def _alloc(
 
 
 def _task_state(*, state="running", started_at="") -> TaskState:
-    return TaskState(state=state, failed=False, restarts=0, started_at=started_at)
+    return TaskState(state=state, failed=False, restarts=0, started_at_raw=started_at)
 
 
 def test_rfc3339_to_ns_parses_whole_and_fractional_seconds():

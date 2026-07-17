@@ -139,6 +139,26 @@ def test_task_state_decodes_started_at():
     assert stub.task_states["server"].started_at == "2024-06-01T12:00:00.000000000Z"
 
 
+def test_task_state_decodes_null_started_at():
+    """Verify TaskState coerces an explicit null StartedAt to an empty string."""
+    # Given a task Nomad has not started yet, so it sends StartedAt: null (not an absent key)
+    payload = b"""
+    {
+      "ID": "a1", "Name": "web.web[0]", "NodeID": "n1", "JobID": "web",
+      "TaskGroup": "web", "ClientStatus": "pending", "DesiredStatus": "run",
+      "CreateIndex": 1, "ModifyIndex": 2,
+      "TaskStates": {"server": {"State": "pending", "Failed": false, "Restarts": 0,
+        "StartedAt": null}}
+    }
+    """
+
+    # When decoding
+    stub = msgspec.json.decode(payload, type=AllocListStub)
+
+    # Then started_at is the empty-string default rather than raising a decode error
+    assert stub.task_states["server"].started_at == ""
+
+
 def test_task_state_defaults_started_at_empty():
     """Verify TaskState defaults started_at to an empty string when StartedAt is absent."""
     # Given a task state with no StartedAt

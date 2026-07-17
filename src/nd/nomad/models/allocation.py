@@ -11,9 +11,15 @@ class TaskState(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
     state: str
     failed: bool
     restarts: int
-    # RFC3339 timestamp of when the task last started running; Nomad emits a zero
-    # sentinel ("0001-01-01T00:00:00Z") before the task has started.
-    started_at: str = msgspec.field(name="StartedAt", default="")
+    # RFC3339 timestamp of when the task last started running. Nomad sends an explicit
+    # null (not an absent key) before the task has started, which a plain str default
+    # would not tolerate, so coerce it via the `started_at` property below.
+    started_at_raw: str | None = msgspec.field(name="StartedAt", default=None)
+
+    @property
+    def started_at(self) -> str:
+        """The task's start time, with Nomad's null (task not yet started) read as empty."""
+        return self.started_at_raw or ""
 
 
 class AllocListStub(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
