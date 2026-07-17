@@ -114,5 +114,5 @@ async def _collect(*, verbose: int) -> tuple[StatusReport, list[HostPanel]]:
         evals=evals,
         volumes=volumes,
     )
-    host_panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs, volumes=volumes)
+    host_panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs)
     return report, host_panels

@@ -180,14 +180,13 @@ def test_build_host_report_one_panel_per_node_sorted():
     ]
 
     # When building the host report
-    panels = build_host_report(nodes=nodes, jobs=[], allocs=[], volumes=[])
+    panels = build_host_report(nodes=nodes, jobs=[], allocs=[])
 
     # Then there is one panel per node, alphabetical, carrying node identity
     assert [p.name for p in panels] == ["alpha", "mid", "zeta"]
     assert panels[0].address == "10.0.0.1"
     assert panels[0].link_id == "alpha"
     assert panels[0].jobs == []
-    assert panels[0].volumes == []
 
 
 def test_build_host_report_groups_jobs_by_node_with_type_and_group():
@@ -211,7 +210,7 @@ def test_build_host_report_groups_jobs_by_node_with_type_and_group():
         create_index=1,
         modify_index=2,
     )
-    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs, volumes=[])
+    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs)
 
     # Then each node's panel carries the job rows placed on it, with type resolved from the job
     by_name = {p.name: p for p in panels}
@@ -253,7 +252,7 @@ def test_build_host_report_filters_allocs_like_default_view():
     ]
 
     # When building the host report
-    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs, volumes=[])
+    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs)
 
     # Then only running, pending, and the unreplaced failure remain
     statuses = sorted(r.status for r in panels[0].jobs)
@@ -276,25 +275,10 @@ def test_build_host_report_uses_run_start_anchor():
     ]
 
     # When building the host report
-    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs, volumes=[])
+    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs)
 
     # Then the row carries the task start (not the earlier create time) as its anchor
     assert panels[0].jobs[0].run_start_ns == 9_000_000_000
-
-
-def test_build_host_report_groups_volumes_per_node():
-    """Verify each host panel carries the host volumes registered on that node."""
-    # Given a volume registered on one of two nodes
-    nodes = [_node(name="srv1"), _node(name="srv2")]
-    vols = [HostVolumeListStub(id="data:srv1", name="data", node_id="srv1", state="ready")]
-
-    # When building the host report
-    panels = build_host_report(nodes=nodes, jobs=[], allocs=[], volumes=vols)
-
-    # Then only the owning node's panel lists the volume
-    by_name = {p.name: p for p in panels}
-    assert [(v.name, v.state) for v in by_name["srv1"].volumes] == [("data", "ready")]
-    assert by_name["srv2"].volumes == []
 
 
 def test_build_host_report_reflects_node_health_metadata():
@@ -303,7 +287,7 @@ def test_build_host_report_reflects_node_health_metadata():
     nodes = [_node(name="srv1", status="ready", drain=True, eligibility="ineligible")]
 
     # When building the host report
-    panels = build_host_report(nodes=nodes, jobs=[], allocs=[], volumes=[])
+    panels = build_host_report(nodes=nodes, jobs=[], allocs=[])
 
     # Then the panel reports the node status/version and marks it not eligible
     assert panels[0].status == "ready"
@@ -1249,9 +1233,9 @@ def _capture_render_hosts(report: StatusReport, panels, *, width: int = 100) -> 
     return capture
 
 
-def test_render_hosts_shows_banner_and_per_host_panels() -> None:
-    """Verify the host view keeps the banner and renders each host's jobs and volumes."""
-    # Given two nodes, a job placed on one, and a volume registered on it
+def test_render_hosts_shows_banner_and_per_host_jobs() -> None:
+    """Verify the host view keeps the banner and renders each host's jobs (no volumes)."""
+    # Given two nodes and a job placed on one
     nodes = [_node(name="alpha", address="10.0.0.1"), _node(name="beta", address="10.0.0.2")]
     jobs = [_job(name="web")]
     allocs = [
@@ -1263,40 +1247,38 @@ def test_render_hosts_shows_banner_and_per_host_panels() -> None:
             create_time=1_000_000_000,
         )
     ]
-    vols = [HostVolumeListStub(id="data:alpha", name="data", node_id="alpha", state="ready")]
-    report = build_report(nodes=nodes, jobs=jobs, allocs=allocs, config=_CONFIG, volumes=vols)
-    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs, volumes=vols)
+    report = build_report(nodes=nodes, jobs=jobs, allocs=allocs, config=_CONFIG)
+    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs)
 
     # When rendering the host view
     text = _capture_render_hosts(report, panels).export_text()
 
-    # Then the banner verdict, both host names, the job row, its group, and the volume appear
+    # Then the banner verdict, both host names, and the job row's columns appear
     assert "HEALTHY" in text
     assert "alpha" in text
     assert "beta" in text
-    assert "Jobs" in text
-    assert "Volumes" in text
     assert "TYPE" in text
     assert "UPTIME" in text
     assert "web" in text
     assert "frontend" in text
-    assert "data" in text
+    # And the host view no longer carries a Volumes sub-table
+    assert "Volumes" not in text
 
 
-def test_render_hosts_shows_placeholders_for_empty_host() -> None:
-    """Verify a host with no allocs or volumes still renders with dim placeholders."""
+def test_render_hosts_shows_placeholder_for_empty_host() -> None:
+    """Verify a host with no allocs still renders with a dim jobs placeholder."""
     # Given a node with nothing placed on it
     nodes = [_node(name="alpha")]
     report = build_report(nodes=nodes, jobs=[], allocs=[], config=_CONFIG)
-    panels = build_host_report(nodes=nodes, jobs=[], allocs=[], volumes=[])
+    panels = build_host_report(nodes=nodes, jobs=[], allocs=[])
 
     # When rendering the host view
     text = _capture_render_hosts(report, panels).export_text()
 
-    # Then the panel still appears with empty-state placeholders
+    # Then the panel still appears with an empty-state placeholder and no volumes section
     assert "alpha" in text
     assert "No jobs" in text
-    assert "No volumes" in text
+    assert "No volumes" not in text
 
 
 def test_render_hosts_shows_activity_panel_when_present() -> None:
@@ -1311,7 +1293,7 @@ def test_render_hosts_shows_activity_panel_when_present() -> None:
         deployments=[_deployment(job_id="web", status="running")],
         evals=[_eval(job_id="api", status="blocked")],
     )
-    panels = build_host_report(nodes=nodes, jobs=[], allocs=[], volumes=[])
+    panels = build_host_report(nodes=nodes, jobs=[], allocs=[])
 
     # When rendering the host view
     text = _capture_render_hosts(report, panels).export_text()
@@ -1326,7 +1308,7 @@ def test_render_hosts_places_panels_side_by_side_when_wide() -> None:
     # Given two nodes and a wide terminal
     nodes = [_node(name="alpha"), _node(name="beta")]
     report = build_report(nodes=nodes, jobs=[], allocs=[], config=_CONFIG)
-    panels = build_host_report(nodes=nodes, jobs=[], allocs=[], volumes=[])
+    panels = build_host_report(nodes=nodes, jobs=[], allocs=[])
 
     # When rendering at a width above the two-column threshold
     text = _capture_render_hosts(report, panels, width=160).export_text()
@@ -1340,7 +1322,7 @@ def test_render_hosts_stacks_panels_when_narrow() -> None:
     # Given two nodes and a narrow terminal
     nodes = [_node(name="alpha"), _node(name="beta")]
     report = build_report(nodes=nodes, jobs=[], allocs=[], config=_CONFIG)
-    panels = build_host_report(nodes=nodes, jobs=[], allocs=[], volumes=[])
+    panels = build_host_report(nodes=nodes, jobs=[], allocs=[])
 
     # When rendering at a width below the two-column threshold
     text = _capture_render_hosts(report, panels, width=90).export_text()

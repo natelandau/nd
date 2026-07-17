@@ -75,7 +75,7 @@ def _host_styles(host: HostPanel) -> tuple[str, str]:
 
 
 def _host_panel(host: HostPanel, web: WebUi, now_s: float) -> Panel:
-    """Build one host's panel: a linked title plus Jobs and Volumes sub-tables."""
+    """Build one host's panel: a linked title over the jobs running on that host."""
     glyph_style, border_style = _host_styles(host)
     eligibility = "eligible" if host.eligible else "ineligible"
     title = (
@@ -84,9 +84,9 @@ def _host_panel(host: HostPanel, web: WebUi, now_s: float) -> Panel:
     )
 
     if host.jobs:
-        jobs: RenderableType = _table("JOB", "TYPE", "GROUP", "STATUS", "UPTIME")
+        body: RenderableType = _table("JOB", "TYPE", "GROUP", "STATUS", "UPTIME")
         for row in host.jobs:
-            jobs.add_row(
+            body.add_row(
                 web.job(row.job_id, row.name),
                 row.job_type,
                 row.group,
@@ -94,16 +94,8 @@ def _host_panel(host: HostPanel, web: WebUi, now_s: float) -> Panel:
                 fmt_uptime(row.run_start_ns, now_s),
             )
     else:
-        jobs = "[dim]No jobs[/]"
+        body = "[dim]No jobs[/]"
 
-    if host.volumes:
-        volumes: RenderableType = _table("NAME", "STATE")
-        for vol in host.volumes:
-            volumes.add_row(vol.name, status_cell(vol.state))
-    else:
-        volumes = "[dim]No volumes[/]"
-
-    body = Group("[bold]Jobs[/]", jobs, "", "[bold]Volumes[/]", volumes)
     return titled_panel(body, title, border_style=border_style, expand=True)
 
 

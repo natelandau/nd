@@ -139,7 +139,6 @@ class HostPanel:
     eligible: bool  # scheduling-eligible and not draining
     version: str
     jobs: list[HostJobRow]
-    volumes: list[VolumeStatusRow]
 
 
 @dataclass(frozen=True)
@@ -266,26 +265,19 @@ def build_host_report(
     nodes: list[NodeListStub],
     jobs: list[JobListStub],
     allocs: list[AllocListStub],
-    volumes: list[HostVolumeListStub] | None = None,
 ) -> list[HostPanel]:
     """Compute one `HostPanel` per client node for the ``--hosts`` view.
 
     Pivots the cluster snapshot to focus on machines: each panel carries the notable
     allocations placed on its node (running/pending plus genuine unreplaced failures, the
-    same allocs the default view treats as live) and the host volumes registered to it.
-    Kept pure and Rich-free so the grouping logic is unit-testable on its own.
+    same allocs the default view treats as live). Kept pure and Rich-free so the grouping
+    logic is unit-testable on its own.
     """
     jobs_by_id = {job.id: job for job in jobs}
     allocs_by_node: dict[str, list[AllocListStub]] = {}
     for alloc in allocs:
         if _is_host_job_alloc(alloc):
             allocs_by_node.setdefault(alloc.node_id, []).append(alloc)
-
-    volumes_by_node: dict[str, list[VolumeStatusRow]] = {}
-    for vol in volumes or []:
-        volumes_by_node.setdefault(vol.node_id, []).append(
-            VolumeStatusRow(name=vol.name, nodes=[], state=vol.state or "-")
-        )
 
     panels: list[HostPanel] = []
     for node in sorted(nodes, key=lambda n: n.name):
@@ -296,7 +288,6 @@ def build_host_report(
             ),
             key=lambda r: (r.name, r.group),
         )
-        volume_rows = sorted(volumes_by_node.get(node.id, []), key=lambda v: v.name)
         panels.append(
             HostPanel(
                 name=node.name,
@@ -306,7 +297,6 @@ def build_host_report(
                 eligible=node.scheduling_eligibility == "eligible" and not node.drain,
                 version=node.version,
                 jobs=job_rows,
-                volumes=volume_rows,
             )
         )
     return panels
