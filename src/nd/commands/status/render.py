@@ -84,12 +84,11 @@ def _host_panel(host: HostPanel, web: WebUi, now_s: float) -> Panel:
     )
 
     if host.jobs:
-        body: RenderableType = _table("JOB", "TYPE", "GROUP", "STATUS", "UPTIME")
+        body: RenderableType = _table("JOB", "TYPE", "STATUS", "UPTIME")
         for row in host.jobs:
             body.add_row(
                 web.job(row.job_id, row.name),
                 row.job_type,
-                row.group,
                 status_cell(row.status),
                 fmt_uptime(row.run_start_ns, now_s),
             )

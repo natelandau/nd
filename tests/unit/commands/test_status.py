@@ -1260,9 +1260,9 @@ def test_render_hosts_shows_banner_and_per_host_jobs() -> None:
     assert "TYPE" in text
     assert "UPTIME" in text
     assert "web" in text
-    assert "frontend" in text
-    # And the host view no longer carries a Volumes sub-table
+    # And the host view carries neither a Volumes sub-table nor a GROUP column
     assert "Volumes" not in text
+    assert "GROUP" not in text
 
 
 def test_render_hosts_shows_placeholder_for_empty_host() -> None:
