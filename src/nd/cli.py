@@ -17,6 +17,7 @@ from nd.nomad import (
     NomadConnectionError,
     NomadError,
 )
+from nd.ui.prompts import PromptUnavailableError
 
 app = typer.Typer(
     add_completion=False,
@@ -84,6 +85,9 @@ def main() -> None:
         # 130 = 128 + SIGINT(2), the conventional shell exit code for Ctrl-C.
         pp.warning("Aborted")
         raise SystemExit(130) from exc
+    except PromptUnavailableError as exc:
+        pp.error(str(exc))
+        raise SystemExit(1) from exc
     except NomadConnectionError as exc:
         pp.error("Could not reach the Nomad agent", details=[str(exc)])
         raise SystemExit(1) from exc

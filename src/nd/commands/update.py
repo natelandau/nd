@@ -287,6 +287,7 @@ async def _run(*, job_arg: str | None, no_purge: bool, force: bool, dry_run: boo
             resolution,
             "Select jobs to update",
             label_of=lambda t: f"{t.name}  [{t.file.path.name}]",
+            remedy="name a job explicitly",
         )
         if targets is None:
             return 0
@@ -321,7 +322,7 @@ async def _run(*, job_arg: str | None, no_purge: bool, force: bool, dry_run: boo
 async def _confirm(targets: list[UpdateTarget], *, purge: bool) -> bool:
     """Ask the user to confirm recreating the resolved jobs."""
     verb = "Stop, PURGE and re-deploy" if purge else "Stop and re-deploy"
-    return await confirm_jobs([t.name for t in targets], verb=verb)
+    return await confirm_jobs([t.name for t in targets], verb=verb, remedy="pass --force")
 
 
 async def _update_all(

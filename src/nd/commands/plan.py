@@ -58,7 +58,10 @@ async def _run(*, job_arg: str | None, dry_run: bool) -> int:
         candidates, job_arg, name_of=lambda c: c.name
     )
     targets = await select_candidates(
-        resolution, "Select jobs to plan", label_of=lambda c: f"{c.name}  [{c.file.path.name}]"
+        resolution,
+        "Select jobs to plan",
+        label_of=lambda c: f"{c.name}  [{c.file.path.name}]",
+        remedy="name a job explicitly",
     )
     if targets is None:
         return 0

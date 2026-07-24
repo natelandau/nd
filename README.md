@@ -260,6 +260,20 @@ nd volume delete data --force      # delete without a prompt
 nd volume delete data --dry-run    # preview what would be deleted
 ```
 
+### Running from scripts and cron
+
+Every prompt needs a real terminal on both stdin and stdout. Off one, `nd` fails with
+a non-zero exit and names the flag or argument that would have made the choice for it,
+rather than assuming an answer. So a scripted run must resolve its own choices: name
+the job or volume instead of relying on the picker, and pass `--force` (or `--clean`
+for `nd run`'s dead-job cleanup) to skip a confirmation.
+
+```bash
+nd stop web --force        # works unattended
+nd stop                    # fails: nothing named a job to stop
+nd stop web                # fails: nothing answered the confirmation
+```
+
 ### Verbosity
 
 Add `-v` for debug output or `-vv` to trace each API request with timings. The flag

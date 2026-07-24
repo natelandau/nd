@@ -339,7 +339,10 @@ async def _run(  # noqa: PLR0911
 
         resolution = resolve_targets(running, job_arg, name_of=lambda j: j.name)
         targets = await select_candidates(
-            resolution, "Select jobs to stop", label_of=lambda j: j.name
+            resolution,
+            "Select jobs to stop",
+            label_of=lambda j: j.name,
+            remedy="name a job explicitly",
         )
         if targets is None:
             return 0  # nothing selected; already reported
@@ -399,7 +402,7 @@ async def _stop_detached(
 async def _confirm(targets: list[JobListStub], *, purge: bool) -> bool:
     """Ask the user to confirm stopping the resolved jobs."""
     verb = "Stop and PURGE" if purge else "Stop"
-    return await confirm_jobs([job.name for job in targets], verb=verb)
+    return await confirm_jobs([job.name for job in targets], verb=verb, remedy="pass --force")
 
 
 async def _stop_all(

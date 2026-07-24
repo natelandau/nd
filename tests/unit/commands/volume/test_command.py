@@ -197,6 +197,7 @@ def test_volume_delete_aborts_when_user_declines(monkeypatch) -> None:
 
     cmd, fake_client = _delete_fixture(monkeypatch)
     monkeypatch.setattr(cmd, "select_one", AsyncMock(return_value=False))
+    monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: True)
 
     # When deleting the named spec without --force
     result = runner.invoke(app, ["delete", "data"])

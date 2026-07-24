@@ -22,7 +22,7 @@ from nd.commands.volume.report import (
 )
 from nd.nomad import NomadClient, NomadConfig
 from nd.targets import resolve_targets, select_candidates
-from nd.ui.prompts import select_one
+from nd.ui.prompts import require_prompt, select_one
 from nd.volumefiles import discover_volume_files, load_volume_directories
 
 if TYPE_CHECKING:
@@ -134,7 +134,10 @@ async def _select_specs(name_arg: str | None, action: str) -> list[VolumeSpec]:
         raise typer.Exit(0)
     resolution = resolve_targets(specs, name_arg, name_of=lambda s: s.name)
     targets = await select_candidates(
-        resolution, f"Select volumes to {action}", label_of=_volume_label
+        resolution,
+        f"Select volumes to {action}",
+        label_of=_volume_label,
+        remedy="name a volume explicitly",
     )
     if targets is None:
         raise typer.Exit(0)
@@ -183,7 +186,11 @@ async def _confirm_delete(to_delete: list[HostVolumeListStub]) -> bool:
     Deleting a dynamic host volume is irreversible and orphans data for any job that
     mounts it, so a real delete confirms before touching the cluster unless --force is
     passed. The prompt names the distinct volumes so the user sees exactly what goes.
+
+    Raises:
+        PromptUnavailableError: If the session cannot show a confirmation prompt.
     """
+    require_prompt(what="Confirmation", remedy="pass --force")
     names = ", ".join(sorted({vol.name for vol in to_delete}))
     answer = await select_one(
         [("Yes", True), ("No", False)],
