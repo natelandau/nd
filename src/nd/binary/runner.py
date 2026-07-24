@@ -10,11 +10,10 @@ binary and builds the env once rather than per call.
 from __future__ import annotations
 
 import subprocess
-import sys
 from typing import TYPE_CHECKING
 
 from nclutils import pp
-from nclutils.sh import ShellCommandError, run_command
+from nclutils.sh import ShellCommandError, run_command, run_interactive
 
 from nd.binary.env import NomadBinaryError, binary_env, ensure_nomad
 
@@ -29,7 +28,7 @@ class NomadBinary:
 
     Build it with :meth:`create`, which resolves the binary on PATH. The job-spec
     methods (`validate`/`plan`/`compile_to_json`) act on local HCL2 files; the
-    allocation methods (`exec_shell`/`stream_logs`) act on a running task.
+    allocation methods (`exec_command`/`stream_logs`) act on a running task.
     """
 
     def __init__(self, config: NomadConfig, path: Path) -> None:
@@ -94,22 +93,29 @@ class NomadBinary:
 
     # --- allocations (interactive exec, log streaming) -------------------------------
 
-    def exec_shell(self, alloc_id: str, task: str, command: list[str]) -> int:
-        """Run an interactive command (a shell) inside a running task via `nomad alloc exec`.
+    def exec_command(self, alloc_id: str, task: str, command: list[str], *, tty: bool) -> int:
+        """Run a command inside a running task via `nomad alloc exec`.
 
-        ``command`` is the in-container argv to launch, e.g. ``["/bin/bash"]`` or the
-        ``["/bin/sh", "-c", ...]`` bash-with-fallback probe. Inherits the parent
-        terminal's stdio so the session is fully interactive. Returns the exit code.
+        ``command`` is the in-container argv, e.g. ``["/bin/bash"]`` for a shell or
+        ``["ps", "-ef"]`` for a one-shot. ``tty`` requests a pseudo-terminal; the caller
+        owns that decision because it depends on the ``no_tty`` flag and the parent's
+        streams. Inherits the parent terminal's stdio. Returns the exit code.
+
+        Raises:
+            NomadBinaryError: If the binary cannot be launched.
         """
-        argv = [self._path, "alloc", "exec", "-task", task, "-i"]
-        # Only request a pseudo-tty when stdin is a real terminal; forcing -t against a
-        # pipe (CI, `nd exec ... | cat`) makes the binary fail or hang allocating a PTY.
-        if sys.stdin.isatty():
-            argv.append("-t")
+        # nomad's own -t default is isTty(stdin) and isTty(stdout) in the child process,
+        # which inherits nd's stdio, so omitting the flag does not mean "no pty" at a
+        # real terminal. Pass it explicitly either way.
+        argv = [self._path, "alloc", "exec", "-task", task, "-i", "-t" if tty else "-t=false"]
         argv += [alloc_id, *command]
         pp.debug("exec: " + " ".join(argv))
-        completed = subprocess.run(argv, env=self._env, check=False)  # noqa: S603
-        return completed.returncode
+        try:
+            # check=False so the container command's own exit code passes through.
+            return run_interactive(argv, env=self._env, check=False)
+        except ShellCommandError as exc:
+            msg = f"`nomad alloc exec` could not run: {_stderr(exc)}"
+            raise NomadBinaryError(msg) from exc
 
     def stream_logs(
         self,

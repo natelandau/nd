@@ -49,7 +49,7 @@ Local Nomad files are discovered from directories configured in `$XDG_CONFIG_HOM
 
 Both kinds share the `*.hcl`/`*.nomad` globs, so a directory may hold both. **Classification is content-based**: a file is a volume spec when its HCL contains `type = "host"`, a job when it contains a `job "..." {` block (`is_job_file()` / `parse_volume_spec()`). Volume specs are parsed with `python-hcl2`. Names that are unresolved interpolations (`${...}`) are skipped.
 
-**Binary wrappers (`src/nd/binary/`)** — the local `nomad` binary is wrapped because the HTTP API cannot parse HCL2 and does not own the raw-TTY exec protocol. Build once per command with `NomadBinary.create(config)` (resolves the binary on PATH, raising `NomadBinaryError` if absent; builds the `NOMAD_*` env so it targets the same cluster as the API client). It exposes `validate`, `plan`, and `compile_to_json` (HCL → `{"Job": {...}}` JSON for `client.jobs.register()`) for job specs, and `exec_shell` / `stream_logs` for running tasks.
+**Binary wrappers (`src/nd/binary/`)** — the local `nomad` binary is wrapped because the HTTP API cannot parse HCL2 and does not own the raw-TTY exec protocol. Build once per command with `NomadBinary.create(config)` (resolves the binary on PATH, raising `NomadBinaryError` if absent; builds the `NOMAD_*` env so it targets the same cluster as the API client). It exposes `validate`, `plan`, and `compile_to_json` (HCL → `{"Job": {...}}` JSON for `client.jobs.register()`) for job specs, and `exec_command` / `stream_logs` for running tasks.
 
 **Commands** (most accept an optional `NAME` substring and `--dry-run / -n`):
 
