@@ -85,7 +85,8 @@ def run_alloc_action(
     target through the API client, exit cleanly when there is nothing to act on, then
     build the configured ``NomadBinary`` and hand it (with the resolved alloc id and
     task name) to ``action``. A missing binary or failed invocation becomes a friendly
-    exit 1; otherwise the command exits with the action's own return code.
+    exit 1; otherwise the command exits with the action's own return code, with a
+    signal death translated to the shell's ``128 + signal`` convention.
     """
     exit_code, target = asyncio.run(
         resolve_target(config, job_arg=job, task_arg=task, running_only=running_only)
@@ -98,4 +99,6 @@ def run_alloc_action(
     except NomadBinaryError as exc:
         pp.error(str(exc))
         raise typer.Exit(1) from exc
-    raise typer.Exit(code)
+    # A child killed by a signal reports a negative code; sys.exit truncates that to a
+    # meaningless status (SIGPIPE -> 243), so map it to the shell's 128 + signal (141).
+    raise typer.Exit(128 - code if code < 0 else code)
