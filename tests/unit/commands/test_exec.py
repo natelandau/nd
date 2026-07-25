@@ -161,7 +161,7 @@ def test_exec_option_still_follows_the_job_argument(monkeypatch):
     assert exec_command.call_args.args[2] == ["cat", "/etc/hosts"]
 
 
-def test_exec_rejects_shell_combined_with_a_command(monkeypatch):
+def test_exec_rejects_shell_combined_with_a_command(monkeypatch, plain):
     """Verify --shell and a `-- COMMAND` cannot be combined."""
     # Given a resolver that would return a concrete target
     exec_command = _patch(monkeypatch, target=ResolvedTarget("web", "alloc-1", "server"))
@@ -171,7 +171,7 @@ def test_exec_rejects_shell_combined_with_a_command(monkeypatch):
 
     # Then it is a usage error naming the conflict, and nothing is executed
     assert result.exit_code == 2
-    assert "--shell cannot be combined" in result.output
+    assert "--shell cannot be combined" in plain(result.output)
     exec_command.assert_not_called()
 
 

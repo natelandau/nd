@@ -13,7 +13,7 @@ from nd.cli import app, main
 _ADDR = "http://nomad.test:4646"
 
 
-def test_cli_version_prints_and_exits():
+def test_cli_version_prints_and_exits(plain):
     """Verify --version prints the package version and exits zero."""
     # Given the root app
     # When invoking with --version
@@ -21,7 +21,7 @@ def test_cli_version_prints_and_exits():
 
     # Then it exits cleanly and prints the version
     assert result.exit_code == 0
-    assert __version__ in result.output
+    assert __version__ in plain(result.output)
 
 
 def test_cli_dash_h_shows_help():
