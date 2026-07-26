@@ -149,16 +149,22 @@ def _patch_subprocess(
     return run
 
 
-def test_exec_shell_allocates_tty_when_interactive(monkeypatch, nomad) -> None:
-    """Verify exec_shell requests a pseudo-tty (-t) when stdin is a terminal."""
-    # Given a patched subprocess and an interactive stdin
-    run = _patch_subprocess(monkeypatch)
-    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+def _patch_run_interactive(monkeypatch, *, returncode: int = 0) -> MagicMock:
+    """Patch run_interactive on the runner module; return the mock for argv assertions."""
+    run = MagicMock(return_value=returncode)
+    monkeypatch.setattr(runner_mod, "run_interactive", run)
+    return run
 
-    # When opening a shell in a task
-    code = nomad.exec_shell("alloc-1", "web", ["/bin/bash"])
 
-    # Then the argv targets the task interactively (-i -t) and the exit code is returned
+def test_exec_command_allocates_tty_when_requested(monkeypatch, nomad) -> None:
+    """Verify exec_command requests a pseudo-tty (-t) when the caller asks for one."""
+    # Given a patched interactive runner
+    run = _patch_run_interactive(monkeypatch)
+
+    # When running a shell with a terminal requested
+    code = nomad.exec_command("alloc-1", "web", ["/bin/bash"], tty=True)
+
+    # Then the argv targets the task interactively and the exit code is returned
     argv = run.call_args.args[0]
     assert argv == [
         "/usr/bin/nomad",
@@ -175,33 +181,54 @@ def test_exec_shell_allocates_tty_when_interactive(monkeypatch, nomad) -> None:
     assert code == 0
 
 
-def test_exec_shell_omits_tty_when_not_a_terminal(monkeypatch, nomad) -> None:
-    """Verify exec_shell omits -t when stdin is not a terminal (CI, pipe)."""
-    # Given a patched subprocess and a non-terminal stdin
-    run = _patch_subprocess(monkeypatch)
-    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+def test_exec_command_disables_tty_when_not_requested(monkeypatch, nomad) -> None:
+    """Verify exec_command passes -t=false when the caller does not want a terminal."""
+    # Given a patched interactive runner
+    run = _patch_run_interactive(monkeypatch)
 
-    # When opening a shell in a task
-    nomad.exec_shell("alloc-1", "web", ["/bin/bash"])
+    # When running a shell with no terminal requested
+    nomad.exec_command("alloc-1", "web", ["/bin/bash"], tty=False)
 
-    # Then the argv passes -i but never forces a pseudo-tty against the pipe
+    # Then -t=false is passed explicitly, since nomad's own default would otherwise
+    # allocate a pty when nd's inherited stdio is a real terminal
     argv = run.call_args.args[0]
-    assert argv == ["/usr/bin/nomad", "alloc", "exec", "-task", "web", "-i", "alloc-1", "/bin/bash"]
-    assert "-t" not in argv
+    assert argv == [
+        "/usr/bin/nomad",
+        "alloc",
+        "exec",
+        "-task",
+        "web",
+        "-i",
+        "-t=false",
+        "alloc-1",
+        "/bin/bash",
+    ]
 
 
-def test_exec_shell_appends_multi_arg_command(monkeypatch, nomad) -> None:
-    """Verify a multi-element command (the bash-fallback probe) is splatted into argv."""
-    # Given a patched subprocess and an interactive stdin
-    run = _patch_subprocess(monkeypatch)
-    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+def test_exec_command_appends_multi_arg_command(monkeypatch, nomad) -> None:
+    """Verify every element of a multi-part command trails the alloc id in order."""
+    # Given a patched interactive runner
+    run = _patch_run_interactive(monkeypatch)
 
-    # When opening a shell with a `sh -c` probe command
-    nomad.exec_shell("alloc-1", "web", ["/bin/sh", "-c", "exec bash || exec sh"])
+    # When running a `sh -c` probe command
+    nomad.exec_command("alloc-1", "web", ["/bin/sh", "-c", "exec bash || exec sh"], tty=True)
 
-    # Then every command element trails the alloc id in order
+    # Then the command elements follow the alloc id unchanged
     argv = run.call_args.args[0]
     assert argv[-4:] == ["alloc-1", "/bin/sh", "-c", "exec bash || exec sh"]
+
+
+def test_exec_command_returns_nonzero_exit_code(monkeypatch, nomad) -> None:
+    """Verify a failing command's exit code is returned rather than raised."""
+    # Given a patched runner reporting a failure
+    run = _patch_run_interactive(monkeypatch, returncode=3)
+
+    # When running a command that fails
+    code = nomad.exec_command("alloc-1", "web", ["false"], tty=False)
+
+    # Then check is disabled so the code passes through instead of raising
+    assert run.call_args.kwargs["check"] is False
+    assert code == 3
 
 
 def test_stream_logs_default_follows_both_streams(monkeypatch, nomad) -> None:

@@ -49,7 +49,7 @@ Local Nomad files are discovered from directories configured in `$XDG_CONFIG_HOM
 
 Both kinds share the `*.hcl`/`*.nomad` globs, so a directory may hold both. **Classification is content-based**: a file is a volume spec when its HCL contains `type = "host"`, a job when it contains a `job "..." {` block (`is_job_file()` / `parse_volume_spec()`). Volume specs are parsed with `python-hcl2`. Names that are unresolved interpolations (`${...}`) are skipped.
 
-**Binary wrappers (`src/nd/binary/`)** — the local `nomad` binary is wrapped because the HTTP API cannot parse HCL2 and does not own the raw-TTY exec protocol. Build once per command with `NomadBinary.create(config)` (resolves the binary on PATH, raising `NomadBinaryError` if absent; builds the `NOMAD_*` env so it targets the same cluster as the API client). It exposes `validate`, `plan`, and `compile_to_json` (HCL → `{"Job": {...}}` JSON for `client.jobs.register()`) for job specs, and `exec_shell` / `stream_logs` for running tasks.
+**Binary wrappers (`src/nd/binary/`)** — the local `nomad` binary is wrapped because the HTTP API cannot parse HCL2 and does not own the raw-TTY exec protocol. Build once per command with `NomadBinary.create(config)` (resolves the binary on PATH, raising `NomadBinaryError` if absent; builds the `NOMAD_*` env so it targets the same cluster as the API client). It exposes `validate`, `plan`, and `compile_to_json` (HCL → `{"Job": {...}}` JSON for `client.jobs.register()`) for job specs, and `exec_command` / `stream_logs` for running tasks.
 
 **Commands** (most accept an optional `NAME` substring and `--dry-run / -n`):
 
@@ -83,7 +83,7 @@ Reuse the shared helpers rather than reimplementing:
 
 ## Testing
 
-- `tests/unit/` mirrors the source tree. CLI commands use Typer's `CliRunner` — assert on `exit_code` (verbosity reconfiguration means `pp` output is not reliably captured); assert rendered Rich output via a recording `Console` + `pp.Emitter` (see `tests/unit/commands/test_status.py`).
+- `tests/unit/` mirrors the source tree. CLI commands use the `typer_runner` fixture (pytest-devtools), **not** a bare `typer.testing.CliRunner` — it strips ANSI from `result.output`, which Typer colors whenever `GITHUB_ACTIONS`/`FORCE_COLOR` is set, so a raw substring assertion passes locally and fails in CI. Assert on `exit_code` (verbosity reconfiguration means `pp` output is not reliably captured); assert rendered Rich output via a recording `Console` + `pp.Emitter` (see `tests/unit/commands/test_status.py`).
 - Mock the Nomad API with **respx** via the **`pytest-httpx2`** plugin's `httpx2_mock` fixture. Routes use full URLs; pagination uses `side_effect=[httpx.Response(...), ...]` with respx-bundled `httpx`. Drive async code with `asyncio.run(...)` in sync tests (no async pytest plugin).
 - Tests use imperative `Verify ...` docstrings, Given/When/Then comments, and `test_<unit>_<scenario>` names.
 

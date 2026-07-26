@@ -8,9 +8,14 @@ from rich.console import Console
 from typer.testing import CliRunner
 
 from nd.commands.status import Health, StatusReport, build_report
+from nd.commands.status.report import (
+    _alloc_run_start_ns,
+    _rfc3339_to_ns,
+    build_host_report,
+)
 from nd.nomad.config import NomadConfig
 from nd.nomad.models.agent import AgentMember
-from nd.nomad.models.allocation import AllocListStub
+from nd.nomad.models.allocation import AllocListStub, TaskState
 from nd.nomad.models.deployment import DeploymentListStub
 from nd.nomad.models.evaluation import EvalListStub
 from nd.nomad.models.job import JobListStub
@@ -90,7 +95,10 @@ def _alloc(
     desired_status="run",
     node_id="srv1",
     job_id="web",
+    task_group="web",
     next_allocation="",
+    create_time=0,
+    task_states=None,
 ) -> AllocListStub:
     return AllocListStub(
         id=name,
@@ -98,13 +106,193 @@ def _alloc(
         namespace="default",
         node_id=node_id,
         job_id=job_id,
-        task_group="web",
+        task_group=task_group,
         client_status=client_status,
         desired_status=desired_status,
         next_allocation=next_allocation,
+        task_states_raw=task_states,
+        create_time=create_time,
         create_index=1,
         modify_index=2,
     )
+
+
+def _task_state(*, state="running", started_at="") -> TaskState:
+    return TaskState(state=state, failed=False, restarts=0, started_at_raw=started_at)
+
+
+def test_rfc3339_to_ns_parses_whole_and_fractional_seconds():
+    """Verify _rfc3339_to_ns converts RFC3339 timestamps to precise unix nanoseconds."""
+    # Given RFC3339 timestamps relative to the unix epoch
+    # When parsing whole and fractional seconds (with a trailing Z)
+    # Then the nanosecond value is exact, with sub-microsecond digits truncated
+    assert _rfc3339_to_ns("1970-01-01T00:00:01Z") == 1_000_000_000
+    assert _rfc3339_to_ns("1970-01-01T00:00:00.5Z") == 500_000_000
+    assert _rfc3339_to_ns("1970-01-01T00:00:00.123456789Z") == 123_456_000
+
+
+def test_rfc3339_to_ns_returns_zero_for_sentinel_and_garbage():
+    """Verify _rfc3339_to_ns returns 0 for Nomad's zero sentinel, blanks, and unparsable input."""
+    # Given the zero sentinel Nomad emits before a task starts, plus blank and garbage input
+    # When parsing each
+    # Then all collapse to 0 so the CreateTime fallback applies
+    assert _rfc3339_to_ns("0001-01-01T00:00:00Z") == 0
+    assert _rfc3339_to_ns("") == 0
+    assert _rfc3339_to_ns("not-a-timestamp") == 0
+
+
+def test_alloc_run_start_ns_prefers_earliest_task_started_at():
+    """Verify the run-start anchor is the earliest task StartedAt, not the alloc CreateTime."""
+    # Given an alloc created earlier whose two tasks started at different later times
+    alloc = _alloc(
+        create_time=1_000_000_000,
+        task_states={
+            "main": _task_state(started_at="1970-01-01T00:00:05Z"),
+            "sidecar": _task_state(started_at="1970-01-01T00:00:03Z"),
+        },
+    )
+
+    # When computing the run-start anchor
+    # Then the earliest task start wins over the alloc CreateTime
+    assert _alloc_run_start_ns(alloc) == 3_000_000_000
+
+
+def test_alloc_run_start_ns_falls_back_to_create_time():
+    """Verify the run-start anchor falls back to CreateTime when no task has started."""
+    # Given an alloc whose tasks carry only the zero sentinel StartedAt
+    alloc = _alloc(
+        create_time=7_000_000_000,
+        task_states={"main": _task_state(state="pending", started_at="0001-01-01T00:00:00Z")},
+    )
+
+    # When computing the run-start anchor
+    # Then it falls back to the alloc CreateTime
+    assert _alloc_run_start_ns(alloc) == 7_000_000_000
+
+
+def test_build_host_report_one_panel_per_node_sorted():
+    """Verify build_host_report returns one panel per client node, sorted by name."""
+    # Given three client nodes in unsorted order carrying identifying metadata
+    nodes = [
+        _node(name="zeta", address="10.0.0.3"),
+        _node(name="alpha", address="10.0.0.1"),
+        _node(name="mid", address="10.0.0.2"),
+    ]
+
+    # When building the host report
+    panels = build_host_report(nodes=nodes, jobs=[], allocs=[])
+
+    # Then there is one panel per node, alphabetical, carrying node identity
+    assert [p.name for p in panels] == ["alpha", "mid", "zeta"]
+    assert panels[0].address == "10.0.0.1"
+    assert panels[0].link_id == "alpha"
+    assert panels[0].jobs == []
+
+
+def test_build_host_report_groups_jobs_by_node_with_type_and_group():
+    """Verify each host panel lists its allocs with job name, type, task group, and status."""
+    # Given two nodes and jobs of differing types placed across them
+    nodes = [_node(name="srv1"), _node(name="srv2")]
+    jobs = [_job(name="web", status="running"), _job(name="cron", status="running")]
+    allocs = [
+        _alloc(name="w1", job_id="web", node_id="srv1", task_group="frontend"),
+        _alloc(name="c1", job_id="cron", node_id="srv2", task_group="batch"),
+    ]
+
+    # When building the host report with cron typed as a batch job
+    jobs[1] = JobListStub(
+        id="cron",
+        name="cron",
+        type="batch",
+        status="running",
+        priority=50,
+        namespace="default",
+        create_index=1,
+        modify_index=2,
+    )
+    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs)
+
+    # Then each node's panel carries the job rows placed on it, with type resolved from the job
+    by_name = {p.name: p for p in panels}
+    assert [(r.name, r.job_type, r.group, r.status) for r in by_name["srv1"].jobs] == [
+        ("web", "service", "frontend", "running")
+    ]
+    assert [(r.name, r.job_type, r.group) for r in by_name["srv2"].jobs] == [
+        ("cron", "batch", "batch")
+    ]
+
+
+def test_build_host_report_filters_allocs_like_default_view():
+    """Verify host job rows include running/pending/failed-unreplaced and exclude the rest."""
+    # Given one node carrying every allocation shape the default view distinguishes
+    nodes = [_node(name="srv1")]
+    jobs = [_job(name="web")]
+    allocs = [
+        _alloc(name="run", job_id="web", node_id="srv1", client_status="running"),
+        _alloc(name="pend", job_id="web", node_id="srv1", client_status="pending"),
+        _alloc(name="fail", job_id="web", node_id="srv1", client_status="failed"),
+        # excluded: intentionally retired corpse
+        _alloc(
+            name="retired",
+            job_id="web",
+            node_id="srv1",
+            client_status="failed",
+            desired_status="stop",
+        ),
+        # excluded: failed corpse already replaced by a running alloc
+        _alloc(
+            name="replaced",
+            job_id="web",
+            node_id="srv1",
+            client_status="failed",
+            next_allocation="run",
+        ),
+        # excluded: cleanly-finished batch alloc
+        _alloc(name="done", job_id="web", node_id="srv1", client_status="complete"),
+    ]
+
+    # When building the host report
+    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs)
+
+    # Then only running, pending, and the unreplaced failure remain
+    statuses = sorted(r.status for r in panels[0].jobs)
+    assert statuses == ["failed", "pending", "running"]
+
+
+def test_build_host_report_uses_run_start_anchor():
+    """Verify a host job row's uptime anchor is the alloc's earliest task start."""
+    # Given a running alloc whose task started after the alloc was created
+    nodes = [_node(name="srv1")]
+    jobs = [_job(name="web")]
+    allocs = [
+        _alloc(
+            name="w1",
+            job_id="web",
+            node_id="srv1",
+            create_time=1_000_000_000,
+            task_states={"main": _task_state(started_at="1970-01-01T00:00:09Z")},
+        )
+    ]
+
+    # When building the host report
+    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs)
+
+    # Then the row carries the task start (not the earlier create time) as its anchor
+    assert panels[0].jobs[0].run_start_ns == 9_000_000_000
+
+
+def test_build_host_report_reflects_node_health_metadata():
+    """Verify a host panel exposes status, version, and an eligibility flag from its node."""
+    # Given a draining, ineligible node
+    nodes = [_node(name="srv1", status="ready", drain=True, eligibility="ineligible")]
+
+    # When building the host report
+    panels = build_host_report(nodes=nodes, jobs=[], allocs=[])
+
+    # Then the panel reports the node status/version and marks it not eligible
+    assert panels[0].status == "ready"
+    assert panels[0].version == "1.9.0"
+    assert panels[0].eligible is False
 
 
 def test_build_report_all_healthy():
@@ -888,7 +1076,7 @@ def test_collect_aggregates_all_endpoints(httpx2_mock: respx.Router, monkeypatch
     # When collecting status
     from nd.commands.status import _collect
 
-    report = asyncio.run(_collect(verbose=0))
+    report, _panels = asyncio.run(_collect(verbose=0))
 
     # Then the report reflects the mocked data
     assert report.health is Health.HEALTHY
@@ -913,6 +1101,68 @@ def test_status_command_exits_zero(httpx2_mock: respx.Router, monkeypatch, tmp_p
 
     # Then it exits cleanly
     assert result.exit_code == 0
+
+
+def test_collect_returns_report_and_host_panels(httpx2_mock: respx.Router, monkeypatch, tmp_path):
+    """Verify _collect returns both the status report and one host panel per client node."""
+    # Given a fully mocked cluster and an isolated config environment
+    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    _mock_all(httpx2_mock)
+
+    # When collecting status
+    from nd.commands.status import _collect
+
+    report, panels = asyncio.run(_collect(verbose=0))
+
+    # Then the report is populated and a host panel exists for the mocked node
+    assert report.health is Health.HEALTHY
+    assert [p.name for p in panels] == ["srv1"]
+    assert [r.name for r in panels[0].jobs] == ["web"]
+
+
+def test_status_command_hosts_flag_uses_host_view(
+    httpx2_mock: respx.Router, monkeypatch, tmp_path, mocker
+):
+    """Verify `nd status --hosts` renders the host view instead of the default dashboard."""
+    # Given a fully mocked cluster and both render paths patched
+    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    _mock_all(httpx2_mock)
+    render_hosts = mocker.patch("nd.commands.status.command.render_hosts", autospec=True)
+    render_report = mocker.patch("nd.commands.status.command.render_report", autospec=True)
+
+    # When invoking the status sub-app with --hosts
+    from nd.commands import status
+
+    result = CliRunner().invoke(status.app, ["--hosts"])
+
+    # Then it exits cleanly and dispatches to the host view only
+    assert result.exit_code == 0
+    render_hosts.assert_called_once()
+    render_report.assert_not_called()
+
+
+def test_status_command_default_uses_dashboard_view(
+    httpx2_mock: respx.Router, monkeypatch, tmp_path, mocker
+):
+    """Verify `nd status` with no flag renders the default dashboard, not the host view."""
+    # Given a fully mocked cluster and both render paths patched
+    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    _mock_all(httpx2_mock)
+    render_hosts = mocker.patch("nd.commands.status.command.render_hosts", autospec=True)
+    render_report = mocker.patch("nd.commands.status.command.render_report", autospec=True)
+
+    # When invoking the status sub-app with no flag
+    from nd.commands import status
+
+    result = CliRunner().invoke(status.app, [])
+
+    # Then it exits cleanly and dispatches to the default dashboard only
+    assert result.exit_code == 0
+    render_report.assert_called_once()
+    render_hosts.assert_not_called()
 
 
 def test_verbose_flag_works_before_or_after_command(
@@ -966,6 +1216,121 @@ def test_build_report_volume_rows_resolve_node_names() -> None:
     # Then the row's nodes list contains the display name
     assert report.volume_rows[0].nodes == ["n1"]
     assert report.volume_rows[0].state == "ready"
+
+
+def _capture_render_hosts(report: StatusReport, panels, *, width: int = 100) -> Console:
+    """Render the host view through a recording console at a given width and return it."""
+    capture = Console(theme=pp.THEME, record=True, force_terminal=True, width=width)
+    emitter = pp.Emitter(console=capture, err_console=capture)
+    original = pp.get_default()
+    pp.set_default(emitter)
+    try:
+        from nd.commands.status import render_hosts
+
+        render_hosts(report, panels)
+    finally:
+        pp.set_default(original)
+    return capture
+
+
+def test_render_hosts_shows_banner_and_per_host_jobs() -> None:
+    """Verify the host view keeps the banner and renders each host's jobs (no volumes)."""
+    # Given two nodes and a job placed on one
+    nodes = [_node(name="alpha", address="10.0.0.1"), _node(name="beta", address="10.0.0.2")]
+    jobs = [_job(name="web")]
+    allocs = [
+        _alloc(
+            name="w1",
+            job_id="web",
+            node_id="alpha",
+            task_group="frontend",
+            create_time=1_000_000_000,
+        )
+    ]
+    report = build_report(nodes=nodes, jobs=jobs, allocs=allocs, config=_CONFIG)
+    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs)
+
+    # When rendering the host view
+    text = _capture_render_hosts(report, panels).export_text()
+
+    # Then the banner verdict, both host names, and the job row's columns appear
+    assert "HEALTHY" in text
+    assert "alpha" in text
+    assert "beta" in text
+    assert "TYPE" in text
+    assert "UPTIME" in text
+    assert "web" in text
+    # And the host view carries neither a Volumes sub-table nor a GROUP column
+    assert "Volumes" not in text
+    assert "GROUP" not in text
+
+
+def test_render_hosts_shows_placeholder_for_empty_host() -> None:
+    """Verify a host with no allocs still renders with a dim jobs placeholder."""
+    # Given a node with nothing placed on it
+    nodes = [_node(name="alpha")]
+    report = build_report(nodes=nodes, jobs=[], allocs=[], config=_CONFIG)
+    panels = build_host_report(nodes=nodes, jobs=[], allocs=[])
+
+    # When rendering the host view
+    text = _capture_render_hosts(report, panels).export_text()
+
+    # Then the panel still appears with an empty-state placeholder and no volumes section
+    assert "alpha" in text
+    assert "No jobs" in text
+    assert "No volumes" not in text
+
+
+def test_render_hosts_shows_activity_panel_when_present() -> None:
+    """Verify the host view still renders the Activity panel for in-progress work."""
+    # Given an active deployment and a blocked evaluation
+    nodes = [_node(name="alpha")]
+    report = build_report(
+        nodes=nodes,
+        jobs=[],
+        allocs=[],
+        config=_CONFIG,
+        deployments=[_deployment(job_id="web", status="running")],
+        evals=[_eval(job_id="api", status="blocked")],
+    )
+    panels = build_host_report(nodes=nodes, jobs=[], allocs=[])
+
+    # When rendering the host view
+    text = _capture_render_hosts(report, panels).export_text()
+
+    # Then the activity panel and its sections appear
+    assert "Activity" in text
+    assert "Deployments" in text
+
+
+def test_render_hosts_places_panels_side_by_side_when_wide() -> None:
+    """Verify a wide terminal lays two host panels into a shared row (two columns)."""
+    # Given two nodes and a wide terminal
+    nodes = [_node(name="alpha"), _node(name="beta")]
+    report = build_report(nodes=nodes, jobs=[], allocs=[], config=_CONFIG)
+    panels = build_host_report(nodes=nodes, jobs=[], allocs=[])
+
+    # When rendering at a width above the two-column threshold
+    text = _capture_render_hosts(report, panels, width=160).export_text()
+
+    # Then both host titles share a line, proving they render side by side
+    assert any("alpha" in line and "beta" in line for line in text.splitlines())
+
+
+def test_render_hosts_stacks_panels_when_narrow() -> None:
+    """Verify a narrow terminal stacks host panels in a single column."""
+    # Given two nodes and a narrow terminal
+    nodes = [_node(name="alpha"), _node(name="beta")]
+    report = build_report(nodes=nodes, jobs=[], allocs=[], config=_CONFIG)
+    panels = build_host_report(nodes=nodes, jobs=[], allocs=[])
+
+    # When rendering at a width below the two-column threshold
+    text = _capture_render_hosts(report, panels, width=90).export_text()
+
+    # Then no single line carries both titles, but both panels are present
+    assert not any("alpha" in line and "beta" in line for line in text.splitlines())
+    assert "alpha" in text
+    assert "beta" in text
 
 
 def test_render_report_shows_volumes_panel() -> None:

@@ -17,6 +17,7 @@ from nclutils import pp
 
 from nd.nomad import NomadClient
 from nd.targets.selection import pick_single, resolve_targets, select_one_candidate
+from nd.ui.prompts import PromptUnavailableError, require_prompt
 
 if TYPE_CHECKING:
     from nd.nomad.config import NomadConfig
@@ -92,6 +93,8 @@ async def resolve_alloc_task(
 
     Raises:
         SelectionError: If an argument matches nothing selectable (the caller exits 1).
+        PromptUnavailableError: If a choice needs a prompt the session cannot show (the
+            caller exits 1).
     """
     target_filter = _TargetFilter(running_only=running_only)
     qualifier = target_filter.qualifier
@@ -106,6 +109,9 @@ async def resolve_alloc_task(
     if job_arg is not None and not resolution.candidates:
         msg = f"No {qualifier}job matching '{job_arg}'"
         raise SelectionError(msg)
+    require_prompt(
+        needed=resolution.needs_prompt, what="Job selection", remedy="name the job explicitly"
+    )
     job = await select_one_candidate(resolution, "Select a job", label_of=lambda j: j.name)
     if job is None:
         pp.info("Nothing selected")
@@ -119,6 +125,11 @@ async def resolve_alloc_task(
     if not alloc_candidates:
         msg = f"No {qualifier}allocations for '{job.name}'"
         raise SelectionError(msg)
+    require_prompt(
+        needed=len(alloc_candidates) > 1,
+        what="Allocation selection",
+        remedy="run in an interactive terminal",
+    )
     alloc = await pick_single(alloc_candidates, "Select an allocation", label_of=_alloc_label)
     if alloc is None:
         pp.info("Nothing selected")
@@ -134,6 +145,7 @@ async def resolve_alloc_task(
             raise SelectionError(msg)
         task = task_arg
     else:
+        require_prompt(needed=len(task_names) > 1, what="Task selection", remedy="pass --task")
         chosen = await pick_single(
             task_names, "Select a task", label_of=lambda n: _task_label(alloc, n)
         )
@@ -160,7 +172,7 @@ async def resolve_target(
             target = await resolve_alloc_task(
                 client, job_arg=job_arg, task_arg=task_arg, running_only=running_only
             )
-        except SelectionError as exc:
+        except (SelectionError, PromptUnavailableError) as exc:
             pp.error(str(exc))
             return 1, None
     return 0, target

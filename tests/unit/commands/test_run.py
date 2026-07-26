@@ -532,7 +532,7 @@ def test_maybe_purge_dead_declined_does_not_purge(
     # Given an interactive session where the user declines
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.setenv("NOMAD_ADDR", _ADDR)
-    monkeypatch.setattr(run_mod, "is_interactive", lambda: True)
+    monkeypatch.setattr(run_mod, "can_prompt", lambda: True)
     monkeypatch.setattr(run_mod, "confirm_jobs", _async_return(False))  # noqa: FBT003
     # Don't register a delete route since we expect no deregister to be issued
 
@@ -554,7 +554,7 @@ def test_maybe_purge_dead_non_interactive_does_not_prompt(
     # Given no TTY and clean=False
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.setenv("NOMAD_ADDR", _ADDR)
-    monkeypatch.setattr(run_mod, "is_interactive", lambda: False)
+    monkeypatch.setattr(run_mod, "can_prompt", lambda: False)
     # Don't register a delete route since we expect no deregister to be issued
 
     # When purging without clean

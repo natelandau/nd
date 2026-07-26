@@ -569,6 +569,7 @@ def test_update_confirm_decline_aborts(monkeypatch, httpx2_mock: respx.Router, t
     )
     declined: bool = False
     monkeypatch.setattr("nd.commands._orchestration.select_one", _async_return(declined))
+    monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: True)
 
     # When invoking update naming the job (no --force, so it prompts)
     result = CliRunner().invoke(app, ["update", "web"])

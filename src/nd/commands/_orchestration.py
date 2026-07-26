@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from nclutils import pp
 
 from nd.ui.duration import summary_title
-from nd.ui.prompts import select_one
+from nd.ui.prompts import require_prompt, select_one
 from nd.ui.styles import OUTCOME_GLYPH
 
 if TYPE_CHECKING:
@@ -32,12 +32,18 @@ async def node_names_by_id(client: NomadClient) -> dict[str, str]:
     return {node.id: node.name for node in await client.nodes.list()}
 
 
-async def confirm_jobs(names: Sequence[str], *, verb: str) -> bool:
+async def confirm_jobs(names: Sequence[str], *, verb: str, remedy: str) -> bool:
     """Prompt the user to confirm a job action, returning True to proceed.
 
     ``verb`` is the leading phrase (e.g. ``"Stop and PURGE"``); the shared wording
     keeps the confirmation prompt identical across the commands that use it.
+    ``remedy`` names the flag that skips this command's confirmation, reported when
+    the session cannot show the prompt.
+
+    Raises:
+        PromptUnavailableError: If the session cannot show a confirmation prompt.
     """
+    require_prompt(what="Confirmation", remedy=remedy)
     joined = ", ".join(names)
     answer = await select_one(
         [("Yes", True), ("No", False)],

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from nclutils import pp
 
-from nd.ui.prompts import select_many, select_one
+from nd.ui.prompts import require_prompt, select_many, select_one
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -41,17 +41,22 @@ def resolve_targets[T](
 
 
 async def select_candidates[T](
-    resolution: TargetResolution[T], prompt: str, *, label_of: Callable[[T], str]
+    resolution: TargetResolution[T], prompt: str, *, label_of: Callable[[T], str], remedy: str
 ) -> list[T] | None:
     """Resolve a selection, prompting with ``prompt`` when several items match.
 
     Shared by the commands so selection UX stays identical: ``label_of`` renders
     each item's prompt line. Returns None when the user cancels or selects nothing
     (caller exits 0). An empty list means an argument matched no items (caller
-    reports and exits 1).
+    reports and exits 1). ``remedy`` names the argument that makes this command's
+    choice unambiguous, reported when the session cannot show the prompt.
+
+    Raises:
+        PromptUnavailableError: If a prompt is needed but the session cannot show one.
     """
     if not resolution.needs_prompt:
         return resolution.candidates
+    require_prompt(what=f"'{prompt}'", remedy=remedy)
     choices = [(label_of(item), item) for item in resolution.candidates]
     chosen = await select_many(choices, prompt)
     if not chosen:

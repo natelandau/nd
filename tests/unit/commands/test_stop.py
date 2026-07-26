@@ -476,6 +476,42 @@ def test_stop_app_errors_on_no_substring_match(httpx2_mock: respx.Router, monkey
     assert result.exit_code == 1
 
 
+def test_stop_app_no_argument_off_a_terminal_exits_non_zero(
+    httpx2_mock: respx.Router, monkeypatch, tmp_path
+):
+    """Verify a scripted stop with no job argument fails instead of silently doing nothing."""
+    # Given an isolated config, two running jobs, and no terminal to pick between them
+    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    httpx2_mock.get(f"{_ADDR}/v1/jobs").respond(
+        json=[_running_job_json(), {**_running_job_json(), "ID": "api", "Name": "api"}]
+    )
+
+    # When invoking with no job argument, which would otherwise open a multi-select
+    result = CliRunner().invoke(stop_module.app, [])
+
+    # Then it exits non-zero rather than reporting "nothing selected" as success
+    assert result.exit_code == 1
+    assert not any(call.request.method == "DELETE" for call in httpx2_mock.calls)
+
+
+def test_stop_app_unconfirmable_off_a_terminal_exits_non_zero(
+    httpx2_mock: respx.Router, monkeypatch, tmp_path
+):
+    """Verify a scripted stop without --force fails rather than reporting a clean abort."""
+    # Given an isolated config, one running job, and no terminal to confirm on
+    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    httpx2_mock.get(f"{_ADDR}/v1/jobs").respond(json=[_running_job_json()])
+
+    # When invoking on an unambiguous job without --force
+    result = CliRunner().invoke(stop_module.app, ["web"])
+
+    # Then the unanswerable confirmation is an error, not a silent no-op that exits 0
+    assert result.exit_code == 1
+    assert not any(call.request.method == "DELETE" for call in httpx2_mock.calls)
+
+
 def test_stop_app_force_stops_single_match(
     httpx2_mock: respx.Router, monkeypatch, tmp_path, mocker
 ):

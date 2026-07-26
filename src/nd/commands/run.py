@@ -30,7 +30,7 @@ from nd.nomad.errors import NomadDecodeError, NomadError
 from nd.targets import resolve_targets, select_candidates
 from nd.ui.alloc_rows import alloc_children
 from nd.ui.live_panel import PanelUpdate, run_rows
-from nd.ui.prompts import is_interactive
+from nd.ui.prompts import can_prompt
 
 if TYPE_CHECKING:
     from nd.jobfiles import JobCandidate
@@ -154,9 +154,9 @@ async def _maybe_purge_dead(
 
     names = [t.name for t in dead_targets]
     if not clean:
-        if not is_interactive():
+        if not can_prompt():
             return
-        if not await confirm_jobs(names, verb="Purge dead"):
+        if not await confirm_jobs(names, verb="Purge dead", remedy="pass --clean"):
             return
 
     async def purge_one(name: str) -> None:
@@ -258,7 +258,10 @@ async def _run(*, job_arg: str | None, detach: bool, dry_run: bool, clean: bool)
 
         resolution = resolve_targets(candidates, job_arg, name_of=lambda c: c.name)
         targets = await select_candidates(
-            resolution, "Select jobs to run", label_of=lambda c: f"{c.name}  [{c.file.path.name}]"
+            resolution,
+            "Select jobs to run",
+            label_of=lambda c: f"{c.name}  [{c.file.path.name}]",
+            remedy="name a job explicitly",
         )
         if targets is None:
             return 0

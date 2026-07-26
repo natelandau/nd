@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
+import pytest
 from nclutils import pp
 from rich.console import Console
 
@@ -16,6 +17,7 @@ from nd.commands._orchestration import (
     report_outcomes,
     warn_row,
 )
+from nd.ui.prompts import PromptUnavailableError
 from nd.ui.styles import OUTCOME_GLYPH
 
 
@@ -137,10 +139,25 @@ def test_confirm_jobs_builds_prompt_and_coerces_answer(monkeypatch):
         return _answer()
 
     monkeypatch.setattr("nd.commands._orchestration.select_one", fake_select_one)
+    monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: True)
 
     # When confirming two jobs
-    result = asyncio.run(confirm_jobs(["web", "api"], verb="Stop and PURGE"))
+    result = asyncio.run(confirm_jobs(["web", "api"], verb="Stop and PURGE", remedy="pass --force"))
 
     # Then the prompt reads the shared wording and the answer is a bool
     assert result is True
     assert seen["message"] == "Stop and PURGE 2 job(s): web, api?"
+
+
+def test_confirm_jobs_off_a_terminal_raises(monkeypatch):
+    """Verify an unanswerable confirmation is a hard error, not a silent decline."""
+    # Given a session that cannot show a prompt and a widget that must not be reached
+    monkeypatch.setattr(
+        "nd.commands._orchestration.select_one",
+        lambda choices, message: pytest.fail("the widget must not run"),
+    )
+    monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: False)
+
+    # When confirming, Then it refuses rather than reading None as "no"
+    with pytest.raises(PromptUnavailableError, match="Confirmation requires"):
+        asyncio.run(confirm_jobs(["web"], verb="Stop", remedy="pass --force"))

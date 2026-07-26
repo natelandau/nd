@@ -9,6 +9,7 @@ import respx
 from nd.nomad.client import NomadClient
 from nd.nomad.config import NomadConfig
 from nd.targets.alloc_target import ResolvedTarget, SelectionError, resolve_alloc_task
+from nd.ui.prompts import PromptUnavailableError
 
 _ADDR = "http://nomad.test:4646"
 
@@ -148,4 +149,79 @@ def test_resolve_running_only_false_allows_dead_target(httpx2_mock: respx.Router
     target = _resolve(job_arg="web", task_arg=None, running_only=False)
 
     # Then the dead alloc and task are chosen automatically
+    assert target == ResolvedTarget(job_name="web", alloc_id="alloc-1", task="server")
+
+
+def test_resolve_ambiguous_job_off_a_terminal_raises(monkeypatch, httpx2_mock: respx.Router):
+    """Verify an ambiguous job refuses to prompt when no picker can be shown."""
+    # Given two running jobs that both contain the argument
+    httpx2_mock.get(f"{_ADDR}/v1/jobs").mock(
+        return_value=httpx.Response(
+            200, json=_jobs_payload(("web-api", "running"), ("web-ui", "running"))
+        )
+    )
+    # And a session that cannot show a picker
+    monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: False)
+
+    # When resolving, Then it is a hard error instead of a prompt into a pipe
+    with pytest.raises(PromptUnavailableError, match="Job selection requires"):
+        _resolve(job_arg="web", task_arg=None)
+
+
+def test_resolve_ambiguous_alloc_off_a_terminal_raises(monkeypatch, httpx2_mock: respx.Router):
+    """Verify multiple running allocations refuse to prompt with no picker available."""
+    # Given one running job with two running allocations
+    httpx2_mock.get(f"{_ADDR}/v1/jobs").mock(
+        return_value=httpx.Response(200, json=_jobs_payload(("web", "running")))
+    )
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                _alloc_payload("alloc-1", tasks={"server": "running"}),
+                _alloc_payload("alloc-2", tasks={"server": "running"}),
+            ],
+        )
+    )
+    monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: False)
+
+    # When resolving, Then it is a hard error
+    with pytest.raises(PromptUnavailableError, match="Allocation selection requires"):
+        _resolve(job_arg="web", task_arg=None)
+
+
+def test_resolve_ambiguous_task_off_a_terminal_raises(monkeypatch, httpx2_mock: respx.Router):
+    """Verify multiple running tasks refuse to prompt with no picker available."""
+    # Given one running job with one running allocation holding two running tasks
+    httpx2_mock.get(f"{_ADDR}/v1/jobs").mock(
+        return_value=httpx.Response(200, json=_jobs_payload(("web", "running")))
+    )
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").mock(
+        return_value=httpx.Response(
+            200,
+            json=[_alloc_payload("alloc-1", tasks={"server": "running", "sidecar": "running"})],
+        )
+    )
+    monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: False)
+
+    # When resolving with no --task, Then it is a hard error
+    with pytest.raises(PromptUnavailableError, match="Task selection requires"):
+        _resolve(job_arg="web", task_arg=None)
+
+
+def test_resolve_unambiguous_target_needs_no_terminal(monkeypatch, httpx2_mock: respx.Router):
+    """Verify a fully unambiguous target still resolves with no picker available."""
+    # Given exactly one running job, allocation, and task
+    httpx2_mock.get(f"{_ADDR}/v1/jobs").mock(
+        return_value=httpx.Response(200, json=_jobs_payload(("web", "running")))
+    )
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").mock(
+        return_value=httpx.Response(
+            200, json=[_alloc_payload("alloc-1", tasks={"server": "running"})]
+        )
+    )
+    monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: False)
+
+    # When resolving, Then no prompt is needed and the target resolves
+    target = _resolve(job_arg="web", task_arg=None)
     assert target == ResolvedTarget(job_name="web", alloc_id="alloc-1", task="server")

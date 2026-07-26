@@ -126,7 +126,9 @@ Tail its logs, then open a shell inside it:
 
 ```bash
 nd logs web
-nd exec web
+nd exec web                    # open a shell inside it
+nd exec web -- ps -ef          # or run a single command
+nd exec web -T -- env          # -T even at your own terminal, to skip the pty's CRLF translation
 ```
 
 ## Commands
@@ -142,7 +144,7 @@ Run `nd --help`, or `nd <command> --help`, for the full option list at any time.
 | `nd update [JOB]`           | Recreate a running job from its local file and watch the rollout.                 |
 | `nd stop [JOB]`             | Stop, and optionally purge, running jobs and watch them drain.                    |
 | `nd logs [JOB]`             | Stream, tail, or export a task's logs.                                            |
-| `nd exec [JOB]`             | Open an interactive shell inside a running task.                                  |
+| `nd exec [JOB] [-- CMD]`    | Open a shell inside a running task, or run one command in it.                     |
 | `nd clean`                  | Force garbage collection and reconcile job summaries.                             |
 | `nd volume register [NAME]` | Register host volumes on every eligible node.                                     |
 | `nd volume delete [NAME]`   | Delete registered host volumes matching the selected specs.                       |
@@ -256,6 +258,20 @@ nd volume register data            # register the "data" volume on eligible node
 nd volume delete data              # confirm, then delete the "data" registrations
 nd volume delete data --force      # delete without a prompt
 nd volume delete data --dry-run    # preview what would be deleted
+```
+
+### Running from scripts and cron
+
+Every prompt needs a real terminal on both stdin and stdout. Off one, `nd` fails with
+a non-zero exit and names the flag or argument that would have made the choice for it,
+rather than assuming an answer. So a scripted run must resolve its own choices: name
+the job or volume instead of relying on the picker, and pass `--force` (or `--clean`
+for `nd run`'s dead-job cleanup) to skip a confirmation.
+
+```bash
+nd stop web --force        # works unattended
+nd stop                    # fails: nothing named a job to stop
+nd stop web                # fails: nothing answered the confirmation
 ```
 
 ### Verbosity
