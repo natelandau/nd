@@ -1,16 +1,12 @@
 """Tests for the volume command wiring."""
 
-from typer.testing import CliRunner
-
 from nd.commands.volume import app
 
-runner = CliRunner()
 
-
-def test_volume_help_lists_subcommands() -> None:
+def test_volume_help_lists_subcommands(typer_runner) -> None:
     """Verify `nd volume --help` lists register, delete, and list."""
     # When showing help
-    result = runner.invoke(app, ["--help"])
+    result = typer_runner.invoke(app, ["--help"])
     # Then the three subcommands are present
     assert result.exit_code == 0
     assert "register" in result.stdout
@@ -18,24 +14,24 @@ def test_volume_help_lists_subcommands() -> None:
     assert "list" in result.stdout
 
 
-def test_volume_help_shows_group_description() -> None:
+def test_volume_help_shows_group_description(typer_runner) -> None:
     """Verify `nd volume --help` includes the group-level description."""
     # When requesting help for the volume group
-    result = runner.invoke(app, ["--help"])
+    result = typer_runner.invoke(app, ["--help"])
     # Then the group description mentioning dynamic host volumes is shown
     assert result.exit_code == 0
     assert "dynamic host volumes" in result.stdout
 
 
-def test_volume_no_args_shows_help() -> None:
+def test_volume_no_args_shows_help(typer_runner) -> None:
     """Verify invoking `nd volume` with no arguments shows help rather than erroring."""
     # When invoking with no arguments (no_args_is_help=True)
-    result = runner.invoke(app, [])
+    result = typer_runner.invoke(app, [])
     # Then the output contains the group description (help is shown, not a usage error)
     assert "dynamic host volumes" in result.stdout
 
 
-def test_volume_register_dry_run_makes_no_api_calls(monkeypatch) -> None:
+def test_volume_register_dry_run_makes_no_api_calls(monkeypatch, typer_runner) -> None:
     """Verify register --dry-run plans without registering."""
     # Given discovery returns one spec and a fake client/nodes with meta
     from pathlib import Path
@@ -86,13 +82,13 @@ def test_volume_register_dry_run_makes_no_api_calls(monkeypatch) -> None:
     monkeypatch.setattr(cmd.NomadConfig, "resolve", lambda: MagicMock(ui_base="http://test:4646"))
 
     # When running register in dry-run mode, naming the spec so it auto-selects
-    result = runner.invoke(app, ["register", "data", "--dry-run"])
+    result = typer_runner.invoke(app, ["register", "data", "--dry-run"])
 
     # Then it exits cleanly
     assert result.exit_code == 0
 
 
-def test_volume_register_no_name_match_exits_one(monkeypatch) -> None:
+def test_volume_register_no_name_match_exits_one(monkeypatch, typer_runner) -> None:
     """Verify a register name argument matching no spec exits non-zero before any client call."""
     # Given discovery returns one spec named "data"
     from pathlib import Path
@@ -110,13 +106,13 @@ def test_volume_register_no_name_match_exits_one(monkeypatch) -> None:
     monkeypatch.setattr(cmd, "discover_volume_files", lambda dirs: [spec])
 
     # When naming a volume that matches nothing
-    result = runner.invoke(app, ["register", "zzz"])
+    result = typer_runner.invoke(app, ["register", "zzz"])
 
     # Then it exits non-zero
     assert result.exit_code == 1
 
 
-def test_volume_delete_dry_run_with_name_selects_match(monkeypatch) -> None:
+def test_volume_delete_dry_run_with_name_selects_match(monkeypatch, typer_runner) -> None:
     """Verify delete narrows to the named spec and reports without issuing a delete."""
     # Given two specs and a registration matching the named one
     from pathlib import Path
@@ -149,7 +145,7 @@ def test_volume_delete_dry_run_with_name_selects_match(monkeypatch) -> None:
     monkeypatch.setattr(cmd.NomadConfig, "resolve", lambda: MagicMock())
 
     # When deleting in dry-run mode, naming the matching spec
-    result = runner.invoke(app, ["delete", "data", "--dry-run"])
+    result = typer_runner.invoke(app, ["delete", "data", "--dry-run"])
 
     # Then it exits cleanly and never issues a real delete
     assert result.exit_code == 0
@@ -190,7 +186,7 @@ def _delete_fixture(monkeypatch) -> tuple:
     return cmd, fake_client
 
 
-def test_volume_delete_aborts_when_user_declines(monkeypatch) -> None:
+def test_volume_delete_aborts_when_user_declines(monkeypatch, typer_runner) -> None:
     """Verify a real delete declined at the confirmation prompt issues no delete."""
     # Given a matching registration and a confirmation prompt the user declines
     from unittest.mock import AsyncMock
@@ -200,14 +196,14 @@ def test_volume_delete_aborts_when_user_declines(monkeypatch) -> None:
     monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: True)
 
     # When deleting the named spec without --force
-    result = runner.invoke(app, ["delete", "data"])
+    result = typer_runner.invoke(app, ["delete", "data"])
 
     # Then it aborts cleanly and never issues a real delete
     assert result.exit_code == 0
     fake_client.volumes.delete.assert_not_awaited()
 
 
-def test_volume_delete_force_skips_confirmation(monkeypatch) -> None:
+def test_volume_delete_force_skips_confirmation(monkeypatch, typer_runner) -> None:
     """Verify --force deletes without prompting for confirmation."""
     # Given a matching registration and a confirmation prompt that must not be reached
     from unittest.mock import AsyncMock
@@ -217,7 +213,7 @@ def test_volume_delete_force_skips_confirmation(monkeypatch) -> None:
     monkeypatch.setattr(cmd, "select_one", prompt)
 
     # When deleting the named spec with --force
-    result = runner.invoke(app, ["delete", "data", "--force"])
+    result = typer_runner.invoke(app, ["delete", "data", "--force"])
 
     # Then it deletes the registration without ever prompting
     assert result.exit_code == 0

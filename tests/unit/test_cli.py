@@ -5,8 +5,6 @@ import sys
 import httpx2
 import pytest
 import respx
-from devtools.capsys_strip import strip_ansi
-from typer.testing import CliRunner
 
 from nd import __version__
 from nd.cli import app, main
@@ -14,30 +12,29 @@ from nd.cli import app, main
 _ADDR = "http://nomad.test:4646"
 
 
-def test_cli_version_prints_and_exits():
+def test_cli_version_prints_and_exits(typer_runner):
     """Verify --version prints the package version and exits zero."""
     # Given the root app
     # When invoking with --version
-    result = CliRunner().invoke(app, ["--version"])
+    result = typer_runner.invoke(app, ["--version"])
 
     # Then it exits cleanly and prints the version
     assert result.exit_code == 0
-    # CliRunner output bypasses capsys, so the plugin's automatic stripping does not apply.
-    assert __version__ in strip_ansi(result.output)
+    assert __version__ in result.output
 
 
-def test_cli_dash_h_shows_help():
+def test_cli_dash_h_shows_help(typer_runner):
     """Verify -h is accepted as an alias for --help across the CLI."""
     # Given the root app
     # When invoking with -h
-    result = CliRunner().invoke(app, ["-h"])
+    result = typer_runner.invoke(app, ["-h"])
 
     # Then it exits cleanly and shows usage
     assert result.exit_code == 0
     assert "Usage:" in result.output
 
 
-def test_cli_no_subcommand_runs_status(mocker):
+def test_cli_no_subcommand_runs_status(mocker, typer_runner):
     """Verify invoking nd with no subcommand defaults to the status dashboard."""
     # Given the real status callback runs but its cluster query and rendering are stubbed
     collect_mock = mocker.patch("nd.commands.status.command._collect")
@@ -45,7 +42,7 @@ def test_cli_no_subcommand_runs_status(mocker):
     render_mock = mocker.patch("nd.commands.status.command.render_report")
 
     # When invoking the root app with no subcommand
-    result = CliRunner().invoke(app, [])
+    result = typer_runner.invoke(app, [])
 
     # Then the status dashboard is collected and rendered
     assert result.exit_code == 0, result.output

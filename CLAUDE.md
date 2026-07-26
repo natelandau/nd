@@ -83,7 +83,7 @@ Reuse the shared helpers rather than reimplementing:
 
 ## Testing
 
-- `tests/unit/` mirrors the source tree. CLI commands use Typer's `CliRunner` — assert on `exit_code` (verbosity reconfiguration means `pp` output is not reliably captured); assert rendered Rich output via a recording `Console` + `pp.Emitter` (see `tests/unit/commands/test_status.py`).
+- `tests/unit/` mirrors the source tree. CLI commands use the `typer_runner` fixture (pytest-devtools), **not** a bare `typer.testing.CliRunner` — it strips ANSI from `result.output`, which Typer colors whenever `GITHUB_ACTIONS`/`FORCE_COLOR` is set, so a raw substring assertion passes locally and fails in CI. Assert on `exit_code` (verbosity reconfiguration means `pp` output is not reliably captured); assert rendered Rich output via a recording `Console` + `pp.Emitter` (see `tests/unit/commands/test_status.py`).
 - Mock the Nomad API with **respx** via the **`pytest-httpx2`** plugin's `httpx2_mock` fixture. Routes use full URLs; pagination uses `side_effect=[httpx.Response(...), ...]` with respx-bundled `httpx`. Drive async code with `asyncio.run(...)` in sync tests (no async pytest plugin).
 - Tests use imperative `Verify ...` docstrings, Given/When/Then comments, and `test_<unit>_<scenario>` names.
 
