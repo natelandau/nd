@@ -1,11 +1,10 @@
 """Resolve a job, allocation, and task through the Nomad API client.
 
-Shared by ``nd exec`` and ``nd logs``: both pick a single job (by optional name
+Shared by every command that acts on a single task: each picks a job (by optional name
 substring), then its allocation (auto when one, prompt when several), then a task
-(auto when one, prompt when several, or a ``--task`` override). ``nd exec`` needs a
-live target, so it resolves running jobs/allocations/tasks only; ``nd logs`` passes
-``running_only=False`` so a dead or completed task's logs stay reachable. The
-resolved target is handed to a ``NomadBinary`` (the binary layer) to act on.
+(auto when one, prompt when several, or a ``--task`` override). Commands that need a
+live target resolve running jobs/allocations/tasks only; ``nd logs`` passes
+``running_only=False`` so a dead or completed task's logs stay reachable.
 """
 
 from __future__ import annotations
@@ -31,7 +30,7 @@ class SelectionError(Exception):
 
 @dataclass(frozen=True)
 class ResolvedTarget:
-    """A fully resolved exec/logs target: the chosen job, allocation, and task."""
+    """A fully resolved single-task target: the chosen job, allocation, and task."""
 
     job_name: str
     alloc_id: str
@@ -85,11 +84,11 @@ async def resolve_alloc_task(
 ) -> ResolvedTarget | None:
     """Resolve a job, allocation, and task, prompting only where ambiguous.
 
-    With ``running_only`` (the default, used by ``nd exec``) only running jobs,
-    allocations, and tasks are offered. ``nd logs`` passes ``running_only=False`` so a
-    dead or completed task's logs are still reachable. Returns the resolved target, or
-    None when there is nothing to act on or the user cancels a prompt (the caller exits
-    0). Each of those cases reports itself.
+    With ``running_only`` (the default) only running jobs, allocations, and tasks are
+    offered. ``nd logs`` passes ``running_only=False`` so a dead or completed task's logs
+    are still reachable. Returns the resolved target, or None when nothing is selectable
+    and no job was named, or the user cancels a prompt (the caller exits 0). Each of
+    those cases reports itself.
 
     Raises:
         SelectionError: If an argument matches nothing selectable (the caller exits 1).
@@ -101,7 +100,9 @@ async def resolve_alloc_task(
     jobs = await client.jobs.list()
     candidates = target_filter.jobs(jobs)
     pp.debug(f"GET /v1/jobs -> {len(candidates)} selectable of {len(jobs)} jobs")
-    if not candidates:
+    # A named job that is not selectable must fail loudly even when nothing is running,
+    # so only the unnamed case exits soft; the named one falls through to the miss below.
+    if not candidates and job_arg is None:
         pp.info(f"No {qualifier}jobs")
         return None
 
@@ -157,6 +158,28 @@ async def resolve_alloc_task(
     return ResolvedTarget(job_name=job.name, alloc_id=alloc.id, task=task)
 
 
+async def resolve_with_client(
+    client: NomadClient, *, job_arg: str | None, task_arg: str | None, running_only: bool = True
+) -> tuple[int, ResolvedTarget | None]:
+    """Resolve a target through an already-open client, mapping failures to an exit code.
+
+    Resolve on a client the caller owns, so the connection stays open past resolution and
+    the caller can act on the target over it. :func:`resolve_target` wraps this for
+    callers that only need the target. Returns ``(exit_code, target)``: a target with
+    code 0 on success, ``(0, None)`` when there is nothing to act on or the user cancels,
+    and ``(1, None)`` when an argument matched nothing or a needed prompt could not be
+    shown.
+    """
+    try:
+        target = await resolve_alloc_task(
+            client, job_arg=job_arg, task_arg=task_arg, running_only=running_only
+        )
+    except (SelectionError, PromptUnavailableError) as exc:
+        pp.error(str(exc))
+        return 1, None
+    return 0, target
+
+
 async def resolve_target(
     config: NomadConfig, *, job_arg: str | None, task_arg: str | None, running_only: bool = True
 ) -> tuple[int, ResolvedTarget | None]:
@@ -168,11 +191,6 @@ async def resolve_target(
     act on or the user cancels, and ``(1, None)`` when an argument matched nothing.
     """
     async with NomadClient.from_config(config) as client:
-        try:
-            target = await resolve_alloc_task(
-                client, job_arg=job_arg, task_arg=task_arg, running_only=running_only
-            )
-        except (SelectionError, PromptUnavailableError) as exc:
-            pp.error(str(exc))
-            return 1, None
-    return 0, target
+        return await resolve_with_client(
+            client, job_arg=job_arg, task_arg=task_arg, running_only=running_only
+        )

@@ -8,7 +8,12 @@ import respx
 
 from nd.nomad.client import NomadClient
 from nd.nomad.config import NomadConfig
-from nd.targets.alloc_target import ResolvedTarget, SelectionError, resolve_alloc_task
+from nd.targets.alloc_target import (
+    ResolvedTarget,
+    SelectionError,
+    resolve_alloc_task,
+    resolve_with_client,
+)
 from nd.ui.prompts import PromptUnavailableError
 
 _ADDR = "http://nomad.test:4646"
@@ -49,6 +54,15 @@ def _resolve(**kwargs) -> ResolvedTarget | None:
         config = NomadConfig(address=_ADDR)
         async with NomadClient.from_config(config) as client:
             return await resolve_alloc_task(client, **kwargs)
+
+    return asyncio.run(_run())
+
+
+def _resolve_with_client(**kwargs) -> tuple[int, ResolvedTarget | None]:
+    async def _run() -> tuple[int, ResolvedTarget | None]:
+        config = NomadConfig(address=_ADDR)
+        async with NomadClient.from_config(config) as client:
+            return await resolve_with_client(client, **kwargs)
 
     return asyncio.run(_run())
 
@@ -118,8 +132,8 @@ def test_resolve_bad_task_arg_raises(httpx2_mock: respx.Router):
         _resolve(job_arg="web", task_arg="nope")
 
 
-def test_resolve_no_running_jobs_returns_none(httpx2_mock: respx.Router):
-    """Verify no running jobs returns None with a soft exit."""
+def test_resolve_no_running_jobs_without_a_name_returns_none(httpx2_mock: respx.Router):
+    """Verify no running jobs and no job argument returns None with a soft exit."""
     # Given only dead jobs (no running jobs)
     httpx2_mock.get(f"{_ADDR}/v1/jobs").mock(
         return_value=httpx.Response(200, json=_jobs_payload(("web", "dead")))
@@ -130,6 +144,18 @@ def test_resolve_no_running_jobs_returns_none(httpx2_mock: respx.Router):
 
     # Then the result is None (soft exit 0)
     assert result is None
+
+
+def test_resolve_named_job_with_no_running_jobs_raises(httpx2_mock: respx.Router):
+    """Verify naming a job raises even when nothing at all is running."""
+    # Given a cluster whose only job, matching the argument, is dead
+    httpx2_mock.get(f"{_ADDR}/v1/jobs").mock(
+        return_value=httpx.Response(200, json=_jobs_payload(("web", "dead")))
+    )
+
+    # When resolving with that name, Then it is a hard error, not a silent no-op
+    with pytest.raises(SelectionError, match="No running job matching 'web'"):
+        _resolve(job_arg="web", task_arg=None)
 
 
 def test_resolve_running_only_false_allows_dead_target(httpx2_mock: respx.Router):
@@ -225,3 +251,70 @@ def test_resolve_unambiguous_target_needs_no_terminal(monkeypatch, httpx2_mock: 
     # When resolving, Then no prompt is needed and the target resolves
     target = _resolve(job_arg="web", task_arg=None)
     assert target == ResolvedTarget(job_name="web", alloc_id="alloc-1", task="server")
+
+
+def test_resolve_with_client_returns_the_target_and_zero(httpx2_mock: respx.Router):
+    """Verify a resolved target comes back paired with a zero exit code."""
+    # Given exactly one running job, allocation, and task
+    httpx2_mock.get(f"{_ADDR}/v1/jobs").mock(
+        return_value=httpx.Response(200, json=_jobs_payload(("web", "running")))
+    )
+    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").mock(
+        return_value=httpx.Response(
+            200, json=[_alloc_payload("alloc-1", tasks={"server": "running"})]
+        )
+    )
+
+    # When resolving through an open client
+    exit_code, target = _resolve_with_client(job_arg="web", task_arg=None)
+
+    # Then the caller gets the target and a success code
+    assert exit_code == 0
+    assert target == ResolvedTarget(job_name="web", alloc_id="alloc-1", task="server")
+
+
+def test_resolve_with_client_maps_a_selection_failure_to_one(httpx2_mock: respx.Router):
+    """Verify a SelectionError becomes a (1, None) result instead of propagating."""
+    # Given a running job that does not match the argument
+    httpx2_mock.get(f"{_ADDR}/v1/jobs").mock(
+        return_value=httpx.Response(200, json=_jobs_payload(("web", "running")))
+    )
+
+    # When resolving with a non-matching arg
+    result = _resolve_with_client(job_arg="zzz", task_arg=None)
+
+    # Then the failure is reported as an exit code, not raised at the caller
+    assert result == (1, None)
+
+
+def test_resolve_with_client_maps_an_unavailable_prompt_to_one(
+    monkeypatch, httpx2_mock: respx.Router
+):
+    """Verify a PromptUnavailableError becomes a (1, None) result instead of propagating."""
+    # Given two running jobs matching the argument and a session that cannot prompt
+    httpx2_mock.get(f"{_ADDR}/v1/jobs").mock(
+        return_value=httpx.Response(
+            200, json=_jobs_payload(("web-api", "running"), ("web-ui", "running"))
+        )
+    )
+    monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: False)
+
+    # When resolving an ambiguous name
+    result = _resolve_with_client(job_arg="web", task_arg=None)
+
+    # Then the failure is reported as an exit code, not raised at the caller
+    assert result == (1, None)
+
+
+def test_resolve_with_client_passes_through_a_soft_exit(httpx2_mock: respx.Router):
+    """Verify nothing selectable and no job argument yields a zero code and no target."""
+    # Given only dead jobs
+    httpx2_mock.get(f"{_ADDR}/v1/jobs").mock(
+        return_value=httpx.Response(200, json=_jobs_payload(("web", "dead")))
+    )
+
+    # When resolving with no job arg
+    result = _resolve_with_client(job_arg=None, task_arg=None)
+
+    # Then the caller is told to exit zero with nothing to act on
+    assert result == (0, None)
