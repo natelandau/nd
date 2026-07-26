@@ -1282,6 +1282,21 @@ def test_render_hosts_shows_banner_and_per_host_jobs() -> None:
     assert "GROUP" not in text
 
 
+def test_render_hosts_shows_host_address_in_panel_title() -> None:
+    """Verify each host panel titles itself with the node's address alongside its name."""
+    # Given two nodes on distinct addresses
+    nodes = [_node(name="alpha", address="10.0.0.11"), _node(name="beta", address="10.0.0.12")]
+    report = build_report(nodes=nodes, jobs=[], allocs=[], config=_CONFIG)
+    panels = build_host_report(nodes=nodes, jobs=[], allocs=[])
+
+    # When rendering the host view
+    text = _capture_render_hosts(report, panels).export_text()
+
+    # Then both addresses appear, as they do in the default view's Nodes panel
+    assert "10.0.0.11" in text
+    assert "10.0.0.12" in text
+
+
 def test_render_hosts_shows_placeholder_for_empty_host() -> None:
     """Verify a host with no allocs still renders with a dim jobs placeholder."""
     # Given a node with nothing placed on it

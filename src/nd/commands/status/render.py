@@ -78,8 +78,11 @@ def _host_panel(host: HostPanel, web: WebUi, now_s: float) -> Panel:
     """Build one host's panel: a linked title over the jobs running on that host."""
     glyph_style, border_style = _host_styles(host)
     eligibility = "eligible" if host.eligible else "ineligible"
+    # Address pairs with the name as the host's identity, and sits early enough that a
+    # half-width panel truncates version and eligibility first; those two are recoverable
+    # from the dot and border colors, while the address appears nowhere else in this view.
     title = (
-        f"[{glyph_style}]●[/] {web.node(host.link_id, host.name)}"
+        f"[{glyph_style}]●[/] {web.node(host.link_id, host.name)} · [dim]{host.address}[/]"
         f" · {host.status} · {eligibility} · {host.version}"
     )
 
