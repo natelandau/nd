@@ -1,6 +1,7 @@
 """Tests for the allocations resource."""
 
 import asyncio
+import json
 
 import respx
 
@@ -64,3 +65,21 @@ def test_read_decodes_task_states(httpx2_mock: respx.Router):
 
     # Then the task state decodes
     assert alloc.task_states["server"].state == "running"
+
+
+def test_signal_posts_signal_and_task(httpx2_mock: respx.Router):
+    """Verify allocations.signal posts the signal and task name to the client endpoint."""
+    # Given a mocked signal endpoint returning Nomad's empty object
+    route = httpx2_mock.post(f"{_ADDR}/v1/client/allocation/a1/signal").respond(json={})
+    resource = AllocationsResource(AsyncTransport(NomadConfig(address=_ADDR)))
+
+    # When signaling a named task
+    async def run() -> None:
+        await resource.signal("a1", signal="SIGUSR1", task="server")
+        await resource._transport.aclose()
+
+    asyncio.run(run())
+
+    # Then the request carries both fields in Nomad's PascalCase form
+    assert route.calls.last.request.url.path == "/v1/client/allocation/a1/signal"
+    assert json.loads(route.calls.last.request.content) == {"Signal": "SIGUSR1", "Task": "server"}
