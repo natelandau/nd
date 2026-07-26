@@ -7,7 +7,6 @@ Kept free of I/O and Rich so the cluster-state logic is unit-testable on its own
 from __future__ import annotations
 
 import enum
-import re
 from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -38,24 +37,23 @@ _PROBLEM_EVAL_STATUSES = frozenset({"blocked", "pending"})
 _TERMINAL_EVAL_STATUSES = frozenset({"complete", "canceled", "cancelled", "failed"})
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
-# Trims RFC3339 fractional seconds to microseconds: Python's fromisoformat rejects more
-# than 6 fractional digits, and Nomad emits 9 (nanoseconds).
-_RFC3339_SUBMICRO = re.compile(r"(\.\d{6})\d+")
 
 
 def _rfc3339_to_ns(value: str) -> int:
     """Convert an RFC3339 timestamp to unix nanoseconds, or 0 when it is unusable.
 
     Nomad emits a zero sentinel ("0001-01-01T00:00:00Z") before a task starts and 9
-    fractional digits once it has; both blanks and unparsable input collapse to 0 so the
-    caller can fall back to another anchor. Uses integer date math to stay exact.
+    fractional digits once it has. Blanks, unparsable input, the sentinel, and a
+    timestamp carrying no UTC offset (whose true instant is unknowable) all collapse to 0
+    so the caller can fall back to another anchor. Uses integer date math to stay exact.
     """
     if not value:
         return 0
-    normalized = _RFC3339_SUBMICRO.sub(r"\1", value).replace("Z", "+00:00")
     try:
-        parsed = datetime.fromisoformat(normalized)
+        parsed = datetime.fromisoformat(value)
     except ValueError:
+        return 0
+    if parsed.tzinfo is None:
         return 0
     delta = parsed - _EPOCH
     ns = (delta.days * 86_400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1_000

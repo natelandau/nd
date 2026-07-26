@@ -141,6 +141,23 @@ def test_rfc3339_to_ns_returns_zero_for_sentinel_and_garbage():
     assert _rfc3339_to_ns("not-a-timestamp") == 0
 
 
+def test_rfc3339_to_ns_returns_zero_for_offsetless_timestamp():
+    """Verify _rfc3339_to_ns returns 0 for a timestamp with no UTC offset instead of raising."""
+    # Given a timestamp Python parses into a naive datetime (no trailing Z or offset)
+    # When parsing it
+    # Then it collapses to 0 rather than blowing up on naive/aware arithmetic
+    assert _rfc3339_to_ns("2024-06-01T12:00:00") == 0
+    assert _rfc3339_to_ns("2024-06-01T12:00:00.123456789") == 0
+
+
+def test_rfc3339_to_ns_honors_non_utc_offsets():
+    """Verify _rfc3339_to_ns normalizes a non-UTC offset to the correct unix instant."""
+    # Given the same instant expressed in UTC and in a +05:00 offset
+    # When parsing both
+    # Then they resolve to identical nanoseconds
+    assert _rfc3339_to_ns("1970-01-01T05:00:01+05:00") == 1_000_000_000
+
+
 def test_alloc_run_start_ns_prefers_earliest_task_started_at():
     """Verify the run-start anchor is the earliest task StartedAt, not the alloc CreateTime."""
     # Given an alloc created earlier whose two tasks started at different later times
