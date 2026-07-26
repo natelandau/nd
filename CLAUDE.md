@@ -58,6 +58,7 @@ Both kinds share the `*.hcl`/`*.nomad` globs, so a directory may hold both. **Cl
 - `nd run` — compile + register, then watch the rollout (`--detach / -d` skips the watch). If a target is present as a dead job (stopped without purge), offers to purge it first; `--clean / -c` purges without prompting.
 - `nd update` - recreate a running job from its local file (stop, drain, purge, re-register, watch). Use for a changed job file or to force a fresh version. `--no-purge` keeps version history; `--force / -f` skips the prompt.
 - `nd stop` — stop/purge running jobs and watch the drain (`--detach`, `--no-shutdown-delay / -S`).
+- `nd signal` - send a signal to one running task (`-s SIGUSR1`), resolved through the same picker as `nd exec`. Pure API, no binary wrapper.
 - `nd volume register|delete|list` — manage dynamic host volumes from local specs.
 - `nd status` — cluster dashboard (jobs, nodes, volumes, deployments, evals), all fetched concurrently.
 
@@ -79,7 +80,7 @@ Reuse the shared helpers rather than reimplementing:
 
 - `commands/_common.py` — `VerboseOption`, `configure_verbosity`, `record_step`, `run_alloc_action` (exec/logs tail).
 - `ui/` — styles, panels, prompts, duration formatting, `live_panel.run_rows` (concurrent row orchestrator used by `stop`/`run`).
-- `targets/` — `resolve_targets(...)` for name-substring (contains) matching/multi-select; `alloc_target.py` for single-task exec/logs resolution.
+- `targets/` — `resolve_targets(...)` for name-substring (contains) matching/multi-select; `alloc_target.py` for single job/allocation/task resolution (`nd exec`, `nd logs`, `nd signal`).
 
 ## Testing
 

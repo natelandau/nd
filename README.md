@@ -146,6 +146,7 @@ Run `nd --help`, or `nd <command> --help`, for the full option list at any time.
 | `nd stop [JOB]`             | Stop, and optionally purge, running jobs and watch them drain.                    |
 | `nd logs [JOB]`             | Stream, tail, or export a task's logs.                                            |
 | `nd exec [JOB] [-- CMD]`    | Open a shell inside a running task, or run one command in it.                     |
+| `nd signal [JOB] -s SIG`    | Send a signal to a running task, such as to trigger an on-demand action.          |
 | `nd clean`                  | Force garbage collection and reconcile job summaries.                             |
 | `nd volume register [NAME]` | Register host volumes on every eligible node.                                     |
 | `nd volume delete [NAME]`   | Delete registered host volumes matching the selected specs.                       |
@@ -172,6 +173,7 @@ touching the cluster:
 nd run --dry-run
 nd update web --dry-run
 nd stop web --dry-run
+nd signal web -s SIGHUP --dry-run
 nd volume register --dry-run
 ```
 
@@ -233,6 +235,34 @@ nd logs web --tail 100      # print the last 100 lines, no follow
 nd logs web --export run.log  # write the current logs to a file
 ```
 
+### Signaling a task
+
+Some services expose an out-of-band trigger over a POSIX signal. `nd signal` finds the
+running task and delivers one, picking the job, allocation, and task the same way
+`nd exec` does:
+
+```bash
+nd signal ezbak -s SIGUSR1      # ask a scheduled backup to run now
+nd signal ezbak -s usr1         # same thing; the name is case-insensitive
+nd signal -s SIGHUP             # pick the job from a list
+nd signal web -s SIGHUP -t api  # signal the "api" task, skipping the task prompt
+nd signal web -s SIGHUP -n      # show the target without sending anything
+```
+
+A success line means Nomad delivered the signal to the task. Whether the process acted
+on it is up to the process: it may be busy, or may not handle that signal at all. Check
+with `nd logs ezbak`.
+
+The name is checked against the fixed set Nomad's task drivers accept, which is not the
+same as your machine's signal list: `SIGCHLD` and `SIGURG` are refused even though your
+libc has them, and `SIGNULL` and `SIGIOT` are accepted even though it may not. A name
+outside that set is rejected before anything is sent, and the error lists the ones you
+can use.
+
+Signaling needs the `alloc-lifecycle` capability on the namespace. A token that works
+for every other `nd` command can still be refused here, so a "not authorized" error is
+worth checking against your ACL policy before you suspect the token itself.
+
 ### Stopping jobs
 
 `nd stop` confirms before it acts unless you pass `--force`. Use `--purge` to
@@ -274,6 +304,20 @@ nd stop web --force        # works unattended
 nd stop                    # fails: nothing named a job to stop
 nd stop web                # fails: nothing answered the confirmation
 ```
+
+`nd signal` takes no confirmation, so naming the job (and the task, when the job has
+more than one) is all it needs to run from cron, provided the job has a single running
+allocation. Nothing names an allocation, so a job running several always needs a
+terminal:
+
+```bash
+nd signal ezbak -s SIGUSR1        # works unattended
+nd signal ezbak -s SIGUSR1 -t db  # name the task too when the job runs several
+nd signal web -s SIGHUP           # fails when "web" has more than one allocation
+```
+
+A named job that is not running is an error, not a no-op, so a scheduled trigger fails
+loudly instead of silently doing nothing.
 
 ### Verbosity
 
