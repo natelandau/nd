@@ -1,3 +1,16 @@
+## v0.6.0 (2026-07-26)
+
+### Feat
+
+- **signal**: send a signal to a running task (#3)
+- **exec**: run a command in a task (#2)
+- **status**: surface partially-failed jobs as degraded
+
+### Fix
+
+- **status**: show host addresses in the --hosts view
+- **status**: stop crashing on a timestamp with no UTC offset
+
 ## v0.5.0 (2026-07-03)
 
 ### Feat
