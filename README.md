@@ -26,7 +26,7 @@ your easy to remember job and volume names and the cli does the rest.
 
 ## Requirements
 
-- Python 3.13 or 3.14.
+- Python >=3.13.
 - A reachable Nomad cluster.
 - The `nomad` binary on your `PATH`. The `plan`, `run`, `update`, `exec`, and `logs`
   commands shell out to it, because the HTTP API cannot parse HCL2 job files and does

@@ -8,6 +8,7 @@
         "Programming Language :: Python :: 3 :: Only",
         "Programming Language :: Python :: 3.13",
         "Programming Language :: Python :: 3.14",
+        "Programming Language :: Python :: 3.15",
         "Topic :: System :: Systems Administration",
         "Topic :: Utilities",
         "Typing :: Typed",
@@ -27,7 +28,7 @@
     license-files = ["LICENSE"]
     name = "nomadctl"
     readme = "README.md"
-    requires-python = ">=3.13, <3.15"
+    requires-python = ">=3.13, <3.16"
     version = "0.6.0"
 
     [project.urls]
@@ -40,7 +41,7 @@
 
 [build-system]
     build-backend = "uv_build"
-    requires      = ["uv_build>=0.11.23,<0.12.0"]
+    requires      = ["uv_build>=0.13.0,<0.14"]
 
 # Distribution is published as "nomadctl"; the importable module and `nd`
 # CLI command stay "nd", so pin the packaged module name explicitly.
