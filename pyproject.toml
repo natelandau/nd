@@ -29,7 +29,7 @@
     name = "nomadctl"
     readme = "README.md"
     requires-python = ">=3.13, <3.16"
-    version = "0.6.0"
+    version = "0.7.0"
 
     [project.urls]
         Homepage   = "https://github.com/natelandau/nd"
