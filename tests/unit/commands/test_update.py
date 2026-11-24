@@ -6,8 +6,6 @@ import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from typer.testing import CliRunner
-
 import nd.commands.update as update_mod
 from nd.binary import NomadBinaryError
 from nd.cli import app
@@ -16,6 +14,7 @@ from nd.commands.update import UpdateOutcome, UpdateStatus, UpdateTarget, build_
 from nd.jobfiles import JobFile
 from nd.nomad import NomadClient, NomadConfig, NomadError
 from nd.nomad.models.job import JobListStub
+from tests.unit.commands.panel_helpers import discard_panel_update
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
@@ -82,7 +81,7 @@ def test_update_one_compile_failure_skips_stop(httpx2_mock: respx.Router, mocker
     async def go() -> UpdateOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
-                client, target, node_names={}, update=lambda *_a: None, nomad=nomad, purge=True
+                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
 
     outcome = asyncio.run(go())
@@ -111,7 +110,7 @@ def test_update_one_aborts_register_when_stop_fails(
     async def go() -> UpdateOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
-                client, target, node_names={}, update=lambda *_a: None, nomad=nomad, purge=True
+                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
 
     outcome = asyncio.run(go())
@@ -138,7 +137,7 @@ def test_update_one_register_failure_reports_job_down(
     async def go() -> UpdateOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
-                client, target, node_names={}, update=lambda *_a: None, nomad=nomad, purge=True
+                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
 
     outcome = asyncio.run(go())
@@ -178,7 +177,7 @@ def test_update_one_recreate_sequence_succeeds(httpx2_mock: respx.Router, mocker
     async def go() -> UpdateOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
-                client, target, node_names={}, update=lambda *_a: None, nomad=nomad, purge=True
+                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
 
     outcome = asyncio.run(go())
@@ -223,7 +222,7 @@ def test_update_one_no_purge_skips_purge(httpx2_mock: respx.Router, mocker) -> N
     async def go() -> UpdateOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
-                client, target, node_names={}, update=lambda *_a: None, nomad=nomad, purge=False
+                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=False
             )
 
     outcome = asyncio.run(go())
@@ -262,7 +261,7 @@ def test_update_one_watch_error_does_not_escape(
     async def go() -> UpdateOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
-                client, target, node_names={}, update=lambda *_a: None, nomad=nomad, purge=True
+                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
 
     outcome = asyncio.run(go())
@@ -308,7 +307,7 @@ def test_update_one_purge_failed_still_redeploys(
     async def go() -> UpdateOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
-                client, target, node_names={}, update=lambda *_a: None, nomad=nomad, purge=True
+                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
 
     outcome = asyncio.run(go())
@@ -336,7 +335,7 @@ def test_update_one_drain_timeout_maps_to_timeout(
     async def go() -> UpdateOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
-                client, target, node_names={}, update=lambda *_a: None, nomad=nomad, purge=True
+                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
 
     outcome = asyncio.run(go())
@@ -489,7 +488,9 @@ def test_update_one_no_marker_when_nothing_was_running(
     assert not marker_cells
 
 
-def test_update_no_candidates_exits_clean(monkeypatch, httpx2_mock: respx.Router, tmp_path) -> None:
+def test_update_no_candidates_exits_clean(
+    monkeypatch, httpx2_mock: respx.Router, tmp_path, typer_runner
+) -> None:
     """Verify update exits 0 with a message when no running job has a local file."""
     # Given no local files and an empty cluster job list
     monkeypatch.setattr(update_mod, "load_job_directories", list)
@@ -499,14 +500,14 @@ def test_update_no_candidates_exits_clean(monkeypatch, httpx2_mock: respx.Router
     httpx2_mock.get(f"{_ADDR}/v1/jobs").respond(json=[])
 
     # When invoking update
-    result = CliRunner().invoke(app, ["update"])
+    result = typer_runner.invoke(app, ["update"])
 
     # Then it exits cleanly
     assert result.exit_code == 0
 
 
 def test_update_dry_run_reports_without_acting(
-    monkeypatch, mocker, httpx2_mock: respx.Router, tmp_path
+    monkeypatch, mocker, httpx2_mock: respx.Router, tmp_path, typer_runner
 ) -> None:
     """Verify --dry-run validates and reports but stops or registers nothing."""
     # Given one local file whose job is running, and a stubbed binary
@@ -535,7 +536,7 @@ def test_update_dry_run_reports_without_acting(
     monkeypatch.setattr(update_mod.NomadBinary, "create", classmethod(lambda cls, cfg: nomad))
 
     # When invoking update --force --dry-run naming the job
-    result = CliRunner().invoke(app, ["update", "web", "--force", "--dry-run"])
+    result = typer_runner.invoke(app, ["update", "web", "--force", "--dry-run"])
 
     # Then it exits 0, validates the file, and issues no stop or register
     assert result.exit_code == 0
@@ -543,7 +544,9 @@ def test_update_dry_run_reports_without_acting(
     assert not any(call.request.method in ("DELETE", "POST") for call in httpx2_mock.calls)
 
 
-def test_update_confirm_decline_aborts(monkeypatch, httpx2_mock: respx.Router, tmp_path) -> None:
+def test_update_confirm_decline_aborts(
+    monkeypatch, httpx2_mock: respx.Router, tmp_path, typer_runner
+) -> None:
     """Verify declining the confirmation prompt aborts without stopping anything."""
     # Given a running job with a local file, but the user declines the prompt
     monkeypatch.setattr(update_mod, "load_job_directories", list)
@@ -572,7 +575,7 @@ def test_update_confirm_decline_aborts(monkeypatch, httpx2_mock: respx.Router, t
     monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: True)
 
     # When invoking update naming the job (no --force, so it prompts)
-    result = CliRunner().invoke(app, ["update", "web"])
+    result = typer_runner.invoke(app, ["update", "web"])
 
     # Then it exits 0 and never stops or registers
     assert result.exit_code == 0

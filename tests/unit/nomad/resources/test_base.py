@@ -4,8 +4,10 @@ import httpx2
 import msgspec
 import pytest
 
+from nd.nomad.config import NomadConfig
 from nd.nomad.errors import NomadDecodeError
 from nd.nomad.resources.base import BaseResource
+from nd.nomad.transport import AsyncTransport
 
 
 class _Item(msgspec.Struct, frozen=True, kw_only=True):
@@ -13,7 +15,7 @@ class _Item(msgspec.Struct, frozen=True, kw_only=True):
 
 
 def _resource() -> BaseResource:
-    return BaseResource(transport=None)  # type: ignore[arg-type]
+    return BaseResource(transport=AsyncTransport(NomadConfig(address="http://nomad.test:4646")))
 
 
 def test_decode_returns_typed_object():

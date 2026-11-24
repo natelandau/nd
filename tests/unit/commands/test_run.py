@@ -7,13 +7,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx  # respx-bundled; used to build sequenced mock responses
-from typer.testing import CliRunner
 
 import nd.commands.run as run_mod
 from nd.cli import app
 from nd.commands.run import deploy_phase
 from nd.jobfiles import JobFile, candidates_for
 from nd.nomad import NomadClient, NomadConfig
+from nd.nomad.models.deployment import Deployment, TaskGroupDeploymentState
+from tests.unit.commands.panel_helpers import discard_panel_update
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
@@ -80,19 +81,19 @@ def test_candidates_for_excludes_running() -> None:
 
 def test_deploy_phase_reports_health() -> None:
     """Verify the deploy phase summarizes healthy/desired allocations."""
-
-    # Given a fake deployment with two task groups
-    class _TG:
-        def __init__(self, healthy: int, desired: int) -> None:
-            self.healthy_allocs = healthy
-            self.desired_total = desired
-
-    class _Dep:
-        status = "running"
-        task_groups: dict = {"app": _TG(1, 2), "sidecar": _TG(0, 1)}  # noqa: RUF012
+    # Given a deployment with two task groups
+    deployment = Deployment(
+        id="d1",
+        job_id="web",
+        status="running",
+        task_groups={
+            "app": TaskGroupDeploymentState(healthy_allocs=1, desired_total=2),
+            "sidecar": TaskGroupDeploymentState(healthy_allocs=0, desired_total=1),
+        },
+    )
 
     # When computing the deploy phase string
-    result = deploy_phase(_Dep())  # type: ignore[arg-type]
+    result = deploy_phase(deployment)
 
     # Then the string summarizes totals across all task groups
     assert result == "running: 1/3 healthy"
@@ -189,7 +190,7 @@ def test_cluster_job_states_splits_running_and_dead(
     assert dead == {"api"}
 
 
-def test_run_no_candidates_exits_clean(monkeypatch) -> None:
+def test_run_no_candidates_exits_clean(monkeypatch, typer_runner) -> None:
     """Verify run exits 0 with a message when no deployable files exist."""
     # Given no job directories and no running jobs
     monkeypatch.setattr(run_mod, "load_job_directories", list)
@@ -198,7 +199,7 @@ def test_run_no_candidates_exits_clean(monkeypatch) -> None:
     monkeypatch.setattr(run_mod, "_cluster_job_states", _async_return((set(), set())))
 
     # When invoking the run command
-    result = CliRunner().invoke(app, ["run"])
+    result = typer_runner.invoke(app, ["run"])
 
     # Then it exits cleanly with code 0
     assert result.exit_code == 0
@@ -233,7 +234,7 @@ def test_register_detached_registers_without_watching(httpx2_mock: respx.Router,
 
 
 def test_run_app_detach_skips_watch(
-    httpx2_mock: respx.Router, monkeypatch, mocker, tmp_path
+    httpx2_mock: respx.Router, monkeypatch, mocker, tmp_path, typer_runner
 ) -> None:
     """Verify the run command with --detach registers without entering the watch loop."""
     # Given one deployable file, a stubbed binary, and a register endpoint
@@ -253,7 +254,7 @@ def test_run_app_detach_skips_watch(
     httpx2_mock.post(f"{_ADDR}/v1/jobs").respond(json={"EvalID": "e1", "Warnings": ""})
 
     # When invoking run --detach naming the job so it auto-selects
-    result = CliRunner().invoke(app, ["run", "web", "--detach"])
+    result = typer_runner.invoke(app, ["run", "web", "--detach"])
 
     # Then it exits cleanly without polling any rollout state
     assert result.exit_code == 0
@@ -282,7 +283,7 @@ def test_watch_service_success_reports_deployed(httpx2_mock: respx.Router) -> No
     async def go() -> run_mod.DeployOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await run_mod.watch_deploy(
-                client, "web", node_names={}, lifecycle={}, update=lambda *_a: None
+                client, "web", node_names={}, lifecycle={}, update=discard_panel_update
             )
 
     outcome = asyncio.run(go())
@@ -311,7 +312,7 @@ def test_watch_service_failure_reports_failed(httpx2_mock: respx.Router) -> None
     async def go() -> run_mod.DeployOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await run_mod.watch_deploy(
-                client, "web", node_names={}, lifecycle={}, update=lambda *_a: None
+                client, "web", node_names={}, lifecycle={}, update=discard_panel_update
             )
 
     outcome = asyncio.run(go())
@@ -331,7 +332,7 @@ def test_watch_batch_all_allocs_complete_reports_deployed(httpx2_mock: respx.Rou
     async def go() -> run_mod.DeployOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await run_mod.watch_deploy(
-                client, "batch", node_names={}, lifecycle={}, update=lambda *_a: None
+                client, "batch", node_names={}, lifecycle={}, update=discard_panel_update
             )
 
     outcome = asyncio.run(go())
@@ -367,7 +368,7 @@ def test_watch_skips_transient_alloc_decode_error(httpx2_mock: respx.Router, moc
     async def go() -> run_mod.DeployOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await run_mod.watch_deploy(
-                client, "web", node_names={}, lifecycle={}, update=lambda *_a: None
+                client, "web", node_names={}, lifecycle={}, update=discard_panel_update
             )
 
     outcome = asyncio.run(go())
@@ -407,7 +408,7 @@ def test_watch_ignores_stale_successful_deployment_from_prior_run(
                 "web",
                 node_names={},
                 lifecycle={},
-                update=lambda *_a: None,
+                update=discard_panel_update,
                 since_index=10,
             )
 
@@ -458,7 +459,7 @@ def test_watch_follows_fresh_deployment_past_stale_one(httpx2_mock: respx.Router
                 "web",
                 node_names={},
                 lifecycle={},
-                update=lambda *_a: None,
+                update=discard_panel_update,
                 since_index=10,
             )
 
@@ -495,7 +496,7 @@ def test_watch_times_out_when_never_terminal(
     async def go() -> run_mod.DeployOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await run_mod.watch_deploy(
-                client, "web", node_names={}, lifecycle={}, update=lambda *_a: None
+                client, "web", node_names={}, lifecycle={}, update=discard_panel_update
             )
 
     outcome = asyncio.run(go())
@@ -591,7 +592,7 @@ def test_maybe_purge_dead_continues_after_one_failure(
 
 
 def test_run_clean_purges_dead_before_register(
-    httpx2_mock: respx.Router, monkeypatch, mocker, tmp_path
+    httpx2_mock: respx.Router, monkeypatch, mocker, tmp_path, typer_runner
 ) -> None:
     """Verify --clean purges a dead job before registering the new version."""
     # Given a discovered job "web" that the cluster reports as dead
@@ -614,7 +615,7 @@ def test_run_clean_purges_dead_before_register(
     )
 
     # When running with --clean --detach (detach skips the rollout watch)
-    result = CliRunner().invoke(app, ["run", "web", "--clean", "--detach"])
+    result = typer_runner.invoke(app, ["run", "web", "--clean", "--detach"])
 
     # Then the purge is issued before the register
     assert result.exit_code == 0
@@ -625,7 +626,7 @@ def test_run_clean_purges_dead_before_register(
 
 
 def test_run_clean_dry_run_does_not_purge(
-    httpx2_mock: respx.Router, monkeypatch, mocker, tmp_path
+    httpx2_mock: respx.Router, monkeypatch, mocker, tmp_path, typer_runner
 ) -> None:
     """Verify --dry-run reports the purge but never issues the deregister."""
     # Given a discovered dead job and --clean --dry-run
@@ -643,7 +644,7 @@ def test_run_clean_dry_run_does_not_purge(
     monkeypatch.setattr(run_mod.NomadBinary, "create", classmethod(lambda cls, cfg: nomad))
 
     # When running as a dry run
-    result = CliRunner().invoke(app, ["run", "web", "--clean", "--dry-run"])
+    result = typer_runner.invoke(app, ["run", "web", "--clean", "--dry-run"])
 
     # Then nothing is purged
     assert result.exit_code == 0

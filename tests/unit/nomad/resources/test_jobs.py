@@ -5,6 +5,7 @@ import asyncio
 import respx
 
 from nd.nomad.config import NomadConfig
+from nd.nomad.models.job import Job, JobDeregisterResponse, JobRegisterResponse
 from nd.nomad.resources.jobs import JobsResource
 from nd.nomad.transport import AsyncTransport
 
@@ -47,7 +48,7 @@ def test_read_decodes_single_job(httpx2_mock: respx.Router):
     resource = JobsResource(AsyncTransport(NomadConfig(address=_ADDR)))
 
     # When reading the job
-    async def run() -> object:
+    async def run() -> Job:
         result = await resource.read("web")
         await resource._transport.aclose()
         return result
@@ -81,7 +82,7 @@ def test_stop_sends_delete_with_purge(httpx2_mock: respx.Router):
     resource = JobsResource(AsyncTransport(NomadConfig(address=_ADDR)))
 
     # When stopping the job with purge
-    async def run() -> object:
+    async def run() -> JobDeregisterResponse:
         result = await resource.stop("web", purge=True)
         await resource._transport.aclose()
         return result
@@ -155,7 +156,7 @@ def test_jobs_register_posts_compiled_body(httpx2_mock: respx.Router):
     resource = JobsResource(AsyncTransport(NomadConfig(address=_ADDR)))
 
     # When registering a compiled job payload
-    async def run() -> object:
+    async def run() -> JobRegisterResponse:
         result = await resource.register(b'{"Job": {"ID": "web"}}')
         await resource._transport.aclose()
         return result

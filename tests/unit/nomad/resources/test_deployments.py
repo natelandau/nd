@@ -5,7 +5,7 @@ import asyncio
 import respx
 
 from nd.nomad.config import NomadConfig
-from nd.nomad.models.deployment import DeploymentListStub
+from nd.nomad.models.deployment import Deployment, DeploymentListStub
 from nd.nomad.resources.deployments import DeploymentsResource
 from nd.nomad.transport import AsyncTransport
 
@@ -54,7 +54,7 @@ def test_deployments_read_returns_deployment(httpx2_mock: respx.Router):
     resource = DeploymentsResource(AsyncTransport(NomadConfig(address=_ADDR)))
 
     # When reading the deployment
-    async def run() -> object:
+    async def run() -> Deployment:
         result = await resource.read("d1")
         await resource._transport.aclose()
         return result

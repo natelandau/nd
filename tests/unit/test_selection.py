@@ -69,7 +69,7 @@ def test_select_one_candidate_unambiguous_returns_lone_item() -> None:
     resolution = TargetResolution(candidates=["web"], needs_prompt=False)
 
     # When selecting a single candidate
-    result = asyncio.run(select_one_candidate(resolution, "Pick", label_of=lambda s: s))
+    result = asyncio.run(select_one_candidate(resolution, "Pick", label_of=str))
 
     # Then the lone candidate is returned
     assert result == "web"
@@ -81,7 +81,7 @@ def test_select_one_candidate_empty_returns_none() -> None:
     resolution = TargetResolution(candidates=[], needs_prompt=False)
 
     # When selecting a single candidate
-    result = asyncio.run(select_one_candidate(resolution, "Pick", label_of=lambda s: s))
+    result = asyncio.run(select_one_candidate(resolution, "Pick", label_of=str))
 
     # Then None is returned
     assert result is None
@@ -93,7 +93,7 @@ def test_pick_single_one_item_returns_it() -> None:
     items = ["only"]
 
     # When picking a single item
-    result = asyncio.run(pick_single(items, "Pick", label_of=lambda s: s))
+    result = asyncio.run(pick_single(items, "Pick", label_of=str))
 
     # Then it is returned directly
     assert result == "only"
@@ -105,7 +105,7 @@ def test_pick_single_empty_returns_none() -> None:
     items: list[str] = []
 
     # When picking a single item
-    result = asyncio.run(pick_single(items, "Pick", label_of=lambda s: s))
+    result = asyncio.run(pick_single(items, "Pick", label_of=str))
 
     # Then None is returned
     assert result is None

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import re
 import sys
 import tomllib
@@ -23,6 +24,11 @@ PY_SRC_LIST = tuple(str(_) for _ in PY_SRC_PATHS)
 CI = os.environ.get("CI", "0") in {"1", "true", "yes", ""}
 PROJECT_ROOT = Path(__file__).parent
 VERSION = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["version"]
+
+# The test gate reruns only when one of these changes. Add a path here when the tests start
+# reading a new tracked file.
+TEST_GATE_PATHS = ("src/", "tests/", "pyproject.toml", "uv.lock", ".python-version", "duties.py")
+TEST_JUNIT_REPORT = ".cache/junit.xml"
 
 
 def strip_ansi(text: str) -> str:
@@ -88,7 +94,7 @@ def format(ctx: Context) -> None:  # noqa: A001
 def ty(ctx: Context) -> None:
     """Check the code with ty."""
     ctx.run(
-        ["ty", "check", "src/"],
+        ["ty", "check"],
         title="ty check",
     )
 
@@ -103,11 +109,21 @@ def typos(ctx: Context) -> None:
     )
 
 
-@duty(skip_if=CI, skip_reason="skip prek in CI environments")
+@duty
 def prek(ctx: Context) -> None:
     """Run prek hooks."""
     ctx.run(
-        "PREK_SKIP=ty,pytest,ruff-check prek run --all-files",
+        [
+            "gate-cache",
+            "--name",
+            "prek",
+            "--",
+            "env",
+            "PREK_SKIP=ty,pytest,ruff-check",
+            "prek",
+            "run",
+            "--all-files",
+        ],
         title=pyprefix("prek hooks"),
     )
 
@@ -128,19 +144,32 @@ def update(ctx: Context) -> None:
 
 @duty()
 def test(ctx: Context, *cli_args: str) -> None:
-    """Test package and generate coverage reports."""
+    """Test package and generate coverage reports.
+
+    A run with extra pytest arguments skips gate-cache, so a filtered run never records a pass
+    for the full suite.
+    """
+    pytest_command = [
+        "pytest",
+        "tests/",
+        "-c",
+        "pyproject.toml",
+        "--color=yes",
+        "--cov",
+        "--cov-config=pyproject.toml",
+        "--cov-report=xml",
+        "--cov-report=term",
+    ]
+    if cli_args:
+        command = [*pytest_command, *cli_args]
+    else:
+        # The interpreter is not tracked by git, so it is part of the gate name
+        gate = ["gate-cache", "--name", f"test@py{platform.python_version()}"]
+        gate += [arg for path in TEST_GATE_PATHS for arg in ("--path", path)]
+        gate += ["--junit", TEST_JUNIT_REPORT, "--"]
+        command = [*gate, *pytest_command, f"--junitxml={TEST_JUNIT_REPORT}"]
     ctx.run(
-        tools.pytest(
-            "tests/",
-            config_file="pyproject.toml",
-            color="yes",
-        ).add_args(
-            "--cov",
-            "--cov-config=pyproject.toml",
-            "--cov-report=xml",
-            "--cov-report=term",
-            *cli_args,
-        ),
+        command,
         title=pyprefix("Running tests - this may take a while"),
         capture=CI,
     )

@@ -1,5 +1,5 @@
 ---
-name: "Manual PyPy Publish"
+name: "Manual PyPI Publish"
 
 on:
     workflow_dispatch:
@@ -9,27 +9,32 @@ concurrency:
     cancel-in-progress: true
 
 permissions:
-    contents: write
+    contents: read
 
 jobs:
     publish-to-pypi:
         runs-on: ubuntu-latest
-        env:
-            TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
-            TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+        timeout-minutes: 15
+        # PyPI trusts only this repository's publish workflows running in the pypi environment
+        environment: pypi
+        permissions:
+            contents: read
+            id-token: write
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v7
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
 
             - name: Setup Python, uv, and the package
-              uses: ./.github/actions/setup_python_env
+              uses: $/.github/actions/setup_python_env
               with:
                   python-version: "3.13"
+                  enable-cache: "false"
 
             - name: Build the package
               shell: bash
               run: uv build
 
-            - name: Upload to PyPi
-              shell: bash
-              run: uvx twine upload dist/*
+            - name: Upload to PyPI
+              run: uv publish --trusted-publishing always

@@ -6,6 +6,7 @@ import json
 import respx
 
 from nd.nomad.config import NomadConfig
+from nd.nomad.models.volume import HostVolumeRegisterResponse
 from nd.nomad.resources.volumes import VolumesResource
 from nd.nomad.transport import AsyncTransport
 
@@ -55,7 +56,7 @@ def test_register_puts_volume_body(httpx2_mock: respx.Router):
     body = {"Name": "data", "Type": "host", "NodeID": "n1", "HostPath": "/srv/data"}
 
     # When registering
-    async def run() -> object:
+    async def run() -> HostVolumeRegisterResponse:
         result = await resource.register(body)
         await resource._transport.aclose()
         return result
@@ -65,6 +66,7 @@ def test_register_puts_volume_body(httpx2_mock: respx.Router):
     # Then the request wraps the volume under a "Volume" key
     sent = json.loads(route.calls.last.request.content)
     assert sent == {"Volume": body}
+    assert resp.volume is not None
     assert resp.volume["Name"] == "data"
 
 

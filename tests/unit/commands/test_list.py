@@ -6,13 +6,19 @@ from pathlib import Path
 
 from nd.commands.list import ListRow, build_rows
 from nd.jobfiles import JobFile
+from nd.nomad.models.job import JobListStub
 
 
-class _Job:
-    def __init__(self, name: str, status: str, job_id: str = "") -> None:
-        self.name = name
-        self.status = status
-        self.id = job_id or name
+def _job(name: str, status: str, job_id: str = "") -> JobListStub:
+    return JobListStub(
+        id=job_id or name,
+        name=name,
+        type="service",
+        status=status,
+        priority=50,
+        create_index=1,
+        modify_index=1,
+    )
 
 
 def test_build_rows_classifies_cluster_state() -> None:
@@ -23,7 +29,7 @@ def test_build_rows_classifies_cluster_state() -> None:
         JobFile(path=Path("/j/db.hcl"), job_names=["db"]),
         JobFile(path=Path("/j/new.hcl"), job_names=["new"]),
     ]
-    jobs = [_Job("web", "running"), _Job("db", "dead")]
+    jobs = [_job("web", "running"), _job("db", "dead")]
     # When
     rows = build_rows(files, jobs)
     # Then
@@ -39,7 +45,7 @@ def test_build_rows_sets_link_id_for_deployed_jobs() -> None:
         JobFile(path=Path("/j/web.hcl"), job_names=["web"]),
         JobFile(path=Path("/j/new.hcl"), job_names=["new"]),
     ]
-    jobs = [_Job("web", "running", job_id="web-prod")]
+    jobs = [_job("web", "running", job_id="web-prod")]
     # When
     rows = build_rows(files, jobs)
     # Then the deployed row links by Nomad ID; the not-deployed row has no link
@@ -55,7 +61,7 @@ def test_build_rows_hides_running_jobs_when_requested() -> None:
         JobFile(path=Path("/j/db.hcl"), job_names=["db"]),
         JobFile(path=Path("/j/new.hcl"), job_names=["new"]),
     ]
-    jobs = [_Job("web", "running"), _Job("db", "dead")]
+    jobs = [_job("web", "running"), _job("db", "dead")]
     # When building rows with running jobs hidden
     rows = build_rows(files, jobs, hide_running=True)
     # Then the running job is gone but dead and not-deployed remain
