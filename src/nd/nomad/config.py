@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import os
 import tomllib
+from collections import ChainMap
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, TypedDict
 
 import msgspec
 
 from nd.constants import DEFAULT_NOMAD_ADDRESS, DEFAULT_REQUEST_TIMEOUT_SECONDS
 from nd.nomad.errors import NomadConfigError
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 # Standard Nomad env var -> NomadConfig field name.
 _ENV_MAP = {
@@ -28,6 +33,24 @@ _ENV_MAP = {
 # Vars handed off to the `nomad` binary: everything in _ENV_MAP except NOMAD_UI_URL,
 # which is an nd-only concept the binary does not understand.
 _BINARY_ENV_MAP = {var: field for var, field in _ENV_MAP.items() if var != "NOMAD_UI_URL"}
+
+
+class NomadConfigOverrides(TypedDict, total=False):
+    """Connection settings from CLI flags, the highest layer of ``NomadConfig.resolve``.
+
+    A key set to None means the flag was not given, so a lower layer keeps its value.
+    """
+
+    address: str | None
+    token: str | None
+    namespace: str | None
+    region: str | None
+    ca_cert: str | None
+    client_cert: str | None
+    client_key: str | None
+    tls_server_name: str | None
+    ui_url: str | None
+    timeout: float | None
 
 
 class NomadConfig(msgspec.Struct, frozen=True, kw_only=True):
@@ -68,34 +91,53 @@ class NomadConfig(msgspec.Struct, frozen=True, kw_only=True):
         return env
 
     @classmethod
-    def resolve(cls, config_path: Path | None = None) -> NomadConfig:
-        """Resolve config from Nomad env vars, overridden by an nd TOML config file.
+    def resolve(
+        cls,
+        config_path: Path | None = None,
+        *,
+        cli_overrides: NomadConfigOverrides | None = None,
+    ) -> NomadConfig:
+        """Resolve connection settings from the config file, environment, and CLI.
+
+        Layers apply in order, each overriding the ones before: built-in defaults, the
+        ``[nomad]`` table of the nd config file, ``NOMAD_*`` environment variables, then
+        CLI overrides. Every invalid value is reported at once so a user fixes them in
+        one pass.
 
         Args:
             config_path: Explicit path to an nd config file. Defaults to the
                 XDG config location when omitted.
+            cli_overrides: Values from CLI flags. A None value counts as not set.
 
         Returns:
             The resolved configuration.
 
         Raises:
-            NomadConfigError: If the config file is unreadable or its values are invalid.
+            NomadConfigError: If the config file is unreadable or any value is invalid.
         """
-        values: dict[str, Any] = {}
-        for env_name, field_name in _ENV_MAP.items():
-            env_val = os.environ.get(env_name)
-            if env_val:
-                values[field_name] = env_val
-
         path = config_path or default_config_path()
-        if path.is_file():
-            values.update(_load_config_file(path))
+        layers = ChainMap(
+            {
+                key: _SourcedValue(value=value, source="CLI flag")
+                for key, value in (cli_overrides or {}).items()
+                if value is not None
+            },
+            _read_environment(os.environ),
+            _read_nomad_table(path),
+        )
 
-        try:
-            return msgspec.convert(values, cls, strict=False)
-        except msgspec.ValidationError as exc:
-            msg = f"Invalid Nomad configuration: {exc}"
-            raise NomadConfigError(msg) from exc
+        values: dict[str, object] = {}
+        errors: list[str] = []
+        for key, sourced in layers.items():
+            try:
+                values[key] = msgspec.convert(sourced.value, type=_FIELD_TYPES[key], strict=False)
+            except msgspec.ValidationError as exc:
+                errors.append(
+                    f"`{key}` from {sourced.source}: {sourced.value!r} is invalid ({exc})"
+                )
+        if errors:
+            raise NomadConfigError("\n".join(sorted(errors)))
+        return msgspec.convert(values, type=cls)
 
 
 def default_config_path() -> Path:
@@ -120,37 +162,60 @@ def load_config_directories(section: str, config_path: Path | None = None) -> li
         Expanded Path objects for each configured directory.
 
     Raises:
-        NomadConfigError: If the config cannot be read or the section / directories
-            value has the wrong type.
+        NomadConfigError: If the config cannot be read or the directories value has
+            the wrong type.
     """
     path = config_path or default_config_path()
-    if not path.is_file():
-        return []
-    try:
-        data: dict[str, Any] = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        msg = f"Could not read config file {path}: {exc}"
-        raise NomadConfigError(msg) from exc
-    section_data: Any = data.get(section, {})
-    if not isinstance(section_data, dict):
-        msg = f"[{section}] section in {path} must be a table"
-        raise NomadConfigError(msg)
-    directories: Any = section_data.get("directories", [])
+    directories = _read_table(path=path, section=section).get("directories", [])
     if not isinstance(directories, list):
-        msg = f"[{section}] directories in {path} must be a list of paths"
+        msg = f"[{section}] directories in {path} must be a list of paths, got {directories!r}"
         raise NomadConfigError(msg)
     return [Path(str(d)).expanduser() for d in directories]
 
 
-def _load_config_file(path: Path) -> dict[str, Any]:
-    """Load and validate the ``[nomad]`` table from an nd TOML config file."""
+def _read_table(path: Path, section: str) -> dict[str, object]:
+    """Return one top-level table of the nd config file, or an empty dict when absent."""
+    if not path.is_file():
+        return {}
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         msg = f"Could not read config file {path}: {exc}"
         raise NomadConfigError(msg) from exc
-    section = data.get("nomad", {})
-    if not isinstance(section, dict):
-        msg = f"[nomad] section in {path} must be a table"
+    table = data.get(section, {})
+    if not isinstance(table, dict):
+        msg = f"[{section}] section in {path} must be a table, got {table!r}"
         raise NomadConfigError(msg)
-    return dict(section)
+    return table
+
+
+def _read_nomad_table(path: Path) -> dict[str, _SourcedValue]:
+    """Return the known settings from the ``[nomad]`` table, tagged with the file path."""
+    table = _read_table(path=path, section="nomad")
+    return {
+        key: _SourcedValue(value=value, source=str(path))
+        for key, value in table.items()
+        if key in _FIELD_TYPES
+    }
+
+
+def _read_environment(environ: Mapping[str, str]) -> dict[str, _SourcedValue]:
+    """Return the settings set by non-empty ``NOMAD_*`` variables, tagged with the variable."""
+    return {
+        field: _SourcedValue(value=environ[var], source=f"environment variable {var}")
+        for var, field in _ENV_MAP.items()
+        if environ.get(var)
+    }
+
+
+@dataclass(frozen=True)
+class _SourcedValue:
+    """Pair a raw setting value with where it came from, for error messages."""
+
+    value: object
+    source: str
+
+
+_FIELD_TYPES: dict[str, object] = {
+    field.name: field.type for field in msgspec.structs.fields(NomadConfig)
+}

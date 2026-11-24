@@ -30,7 +30,7 @@ Async `NomadClient` facade -> per-resource namespaces (`client.jobs`, `client.no
 - Decode through `BaseResource._decode` / `_decode_list`, which map `msgspec` failures to `NomadDecodeError`. Resource `list()` methods paginate; never paginate by hand.
 - Models are `msgspec.Struct` with `rename="pascal", frozen=True, kw_only=True`. Use `msgspec.field(name=...)` for irregular keys (`ID`, `NodeID`). Not dataclasses or pydantic.
 - New errors subclass `NomadError` (`errors.py`). `main()` turns any `NomadError` into a clean non-zero exit, so let them propagate instead of catching to print and exit.
-- `NomadConfig.resolve()` reads `NOMAD_*` env vars, then a `[nomad]` table in `$XDG_CONFIG_HOME/nd/config.toml` overrides them. No conftest isolates this: a test touching config sets `XDG_CONFIG_HOME` to a temp dir.
+- `NomadConfig.resolve()` precedence: `cli_overrides` > `NOMAD_*` env vars > `[nomad]` in `$XDG_CONFIG_HOME/nd/config.toml` > defaults. A future connection flag passes its value through `cli_overrides` (`NomadConfigOverrides`; None means unset). An autouse fixture in `tests/conftest.py` clears `NOMAD_*` and points `XDG_CONFIG_HOME` at a temp dir for every test.
 - Tunable shared values (timeouts, poll intervals, `JOB_FILE_GLOBS`) go in `src/nd/constants.py`.
 
 ### Job and volume files
