@@ -15,9 +15,11 @@ jobs:
     publish-to-pypi:
         runs-on: ubuntu-latest
         timeout-minutes: 15
-        env:
-            TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
-            TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+        # PyPI trusts only this repository's publish workflows running in the pypi environment
+        environment: pypi
+        permissions:
+            contents: read
+            id-token: write
         steps:
             - name: Checkout repository
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -35,5 +37,4 @@ jobs:
               run: uv build
 
             - name: Upload to PyPI
-              shell: bash
-              run: uvx twine upload dist/*
+              run: uv publish --trusted-publishing always
