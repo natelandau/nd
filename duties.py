@@ -109,7 +109,7 @@ def typos(ctx: Context) -> None:
     )
 
 
-@duty(skip_if=CI, skip_reason="skip prek in CI environments")
+@duty
 def prek(ctx: Context) -> None:
     """Run prek hooks."""
     ctx.run(
