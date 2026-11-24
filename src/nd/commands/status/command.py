@@ -73,7 +73,7 @@ async def _collect(*, verbose: int) -> tuple[StatusReport, list[HostPanel]]:
             f"namespace={config.namespace}",
         ],
     )
-    async with NomadClient.from_config(config) as client:
+    async with NomadClient(config) as client:
         step_cm: contextlib.AbstractContextManager[Any] = (
             pp.step("Querying Nomad cluster") if verbose else contextlib.nullcontext(None)
         )

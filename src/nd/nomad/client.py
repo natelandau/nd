@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
-from nd.nomad.config import NomadConfig
 from nd.nomad.resources.agent import AgentResource
 from nd.nomad.resources.allocations import AllocationsResource
 from nd.nomad.resources.deployments import DeploymentsResource
@@ -16,13 +15,15 @@ from nd.nomad.resources.system import SystemResource
 from nd.nomad.resources.volumes import VolumesResource
 from nd.nomad.transport import AsyncTransport
 
+if TYPE_CHECKING:
+    from nd.nomad.config import NomadConfig
+
 
 class NomadClient:
     """Async entry point exposing Nomad resource namespaces."""
 
-    def __init__(self, config: NomadConfig | None = None) -> None:
-        self._config = config or NomadConfig.resolve()
-        self._transport = AsyncTransport(self._config)
+    def __init__(self, config: NomadConfig) -> None:
+        self._transport = AsyncTransport(config)
         self.agent = AgentResource(self._transport)
         self.nodes = NodesResource(self._transport)
         self.jobs = JobsResource(self._transport)
@@ -32,11 +33,6 @@ class NomadClient:
         self.evaluations = EvaluationsResource(self._transport)
         self.system = SystemResource(self._transport)
         self.volumes = VolumesResource(self._transport)
-
-    @classmethod
-    def from_config(cls, config: NomadConfig) -> NomadClient:
-        """Build a client from an explicit config."""
-        return cls(config=config)
 
     async def aclose(self) -> None:
         """Close the underlying transport."""

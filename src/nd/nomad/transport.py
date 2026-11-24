@@ -35,9 +35,11 @@ class AsyncTransport:
             verify=_build_verify(config),
             cert=_build_client_cert(config),
         )
-        # Config is frozen, so namespace/region never change: build the base query
-        # params once rather than rebuilding them on every request.
+        # Config is frozen, so build the per-request params and extensions once.
         self.default_params = _default_params(config)
+        self._extensions = (
+            {"sni_hostname": config.tls_server_name} if config.tls_server_name else None
+        )
 
     async def request(
         self,
@@ -46,20 +48,27 @@ class AsyncTransport:
         *,
         params: dict[str, Any] | None = None,
         json: Any = None,  # noqa: ANN401
+        content: bytes | None = None,
     ) -> httpx2.Response:
         """Perform a request, raising typed errors on failure.
+
+        Pass ``content`` instead of ``json`` to send an already-encoded JSON body as is.
 
         Raises:
             NomadConnectionError: If the agent is unreachable.
             NomadHTTPError: If Nomad returns a non-2xx response.
         """
         merged = {**self.default_params, **(params or {})}
-        extensions = (
-            {"sni_hostname": self._config.tls_server_name} if self._config.tls_server_name else None
-        )
+        headers = {"Content-Type": "application/json"} if content is not None else None
         try:
             response = await self._client.request(
-                method, path, params=merged, json=json, extensions=extensions
+                method=method,
+                url=path,
+                params=merged,
+                json=json,
+                content=content,
+                headers=headers,
+                extensions=self._extensions,
             )
         except httpx2.TransportError as exc:
             msg = f"Could not reach Nomad at {self._config.address}: {exc}"
@@ -78,7 +87,7 @@ class AsyncTransport:
         """Yield successive pages, following Nomad's next-token pagination."""
         page_params = dict(params or {})
         while True:
-            response = await self.request("GET", path, params=page_params)
+            response = await self.request(method="GET", path=path, params=page_params)
             yield response
             next_token = response.headers.get("X-Nomad-Nexttoken")
             if not next_token:

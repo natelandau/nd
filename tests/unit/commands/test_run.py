@@ -180,7 +180,7 @@ def test_cluster_job_states_splits_running_and_dead(
 
     # When fetching the split job states
     async def go() -> tuple[set[str], set[str]]:
-        async with NomadClient.from_config(NomadConfig.resolve()) as client:
+        async with NomadClient(NomadConfig.resolve()) as client:
             return await run_mod._cluster_job_states(client)
 
     running, dead = asyncio.run(go())
@@ -219,7 +219,7 @@ def test_register_detached_registers_without_watching(httpx2_mock: respx.Router,
 
     # When registering with detach
     async def go() -> int:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await run_mod._register_detached(client, [candidate], nomad)
 
     exit_code = asyncio.run(go())
@@ -281,7 +281,7 @@ def test_watch_service_success_reports_deployed(httpx2_mock: respx.Router) -> No
 
     # When watching the deployment to completion
     async def go() -> run_mod.DeployOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await run_mod.watch_deploy(
                 client, "web", node_names={}, lifecycle={}, update=discard_panel_update
             )
@@ -310,7 +310,7 @@ def test_watch_service_failure_reports_failed(httpx2_mock: respx.Router) -> None
 
     # When watching the deployment to completion
     async def go() -> run_mod.DeployOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await run_mod.watch_deploy(
                 client, "web", node_names={}, lifecycle={}, update=discard_panel_update
             )
@@ -330,7 +330,7 @@ def test_watch_batch_all_allocs_complete_reports_deployed(httpx2_mock: respx.Rou
 
     # When watching the job allocations to completion
     async def go() -> run_mod.DeployOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await run_mod.watch_deploy(
                 client, "batch", node_names={}, lifecycle={}, update=discard_panel_update
             )
@@ -366,7 +366,7 @@ def test_watch_skips_transient_alloc_decode_error(httpx2_mock: respx.Router, moc
 
     # When watching a job whose first poll cannot decode its allocations
     async def go() -> run_mod.DeployOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await run_mod.watch_deploy(
                 client, "web", node_names={}, lifecycle={}, update=discard_panel_update
             )
@@ -402,7 +402,7 @@ def test_watch_ignores_stale_successful_deployment_from_prior_run(
 
     # When watching with the new registration's modify index as the floor
     async def go() -> run_mod.DeployOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await run_mod.watch_deploy(
                 client,
                 "web",
@@ -453,7 +453,7 @@ def test_watch_follows_fresh_deployment_past_stale_one(httpx2_mock: respx.Router
 
     # When watching with this registration's modify index as the floor
     async def go() -> run_mod.DeployOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await run_mod.watch_deploy(
                 client,
                 "web",
@@ -494,7 +494,7 @@ def test_watch_times_out_when_never_terminal(
 
     # When watching a job that never becomes terminal
     async def go() -> run_mod.DeployOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await run_mod.watch_deploy(
                 client, "web", node_names={}, lifecycle={}, update=discard_panel_update
             )
@@ -516,7 +516,7 @@ def test_maybe_purge_dead_clean_purges_all(
 
     # When purging with clean set
     async def go() -> None:
-        async with NomadClient.from_config(NomadConfig.resolve()) as client:
+        async with NomadClient(NomadConfig.resolve()) as client:
             await run_mod._maybe_purge_dead(client, _dead_targets("web"), clean=True)
 
     asyncio.run(go())
@@ -539,7 +539,7 @@ def test_maybe_purge_dead_declined_does_not_purge(
 
     # When purging without clean
     async def go() -> None:
-        async with NomadClient.from_config(NomadConfig.resolve()) as client:
+        async with NomadClient(NomadConfig.resolve()) as client:
             await run_mod._maybe_purge_dead(client, _dead_targets("web"), clean=False)
 
     asyncio.run(go())
@@ -560,7 +560,7 @@ def test_maybe_purge_dead_non_interactive_does_not_prompt(
 
     # When purging without clean
     async def go() -> None:
-        async with NomadClient.from_config(NomadConfig.resolve()) as client:
+        async with NomadClient(NomadConfig.resolve()) as client:
             await run_mod._maybe_purge_dead(client, _dead_targets("web"), clean=False)
 
     asyncio.run(go())
@@ -581,7 +581,7 @@ def test_maybe_purge_dead_continues_after_one_failure(
 
     # When purging both with clean set
     async def go() -> None:
-        async with NomadClient.from_config(NomadConfig.resolve()) as client:
+        async with NomadClient(NomadConfig.resolve()) as client:
             await run_mod._maybe_purge_dead(client, _dead_targets("web", "api"), clean=True)
 
     asyncio.run(go())

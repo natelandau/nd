@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import builtins
 from typing import TYPE_CHECKING
 
 import msgspec
@@ -10,6 +9,8 @@ import msgspec
 from nd.nomad.errors import NomadDecodeError
 
 if TYPE_CHECKING:
+    from typing import Any
+
     import httpx2
 
     from nd.nomad.transport import AsyncTransport
@@ -26,20 +27,20 @@ class BaseResource:
         try:
             return msgspec.json.decode(response.content, type=type_)
         except msgspec.DecodeError as exc:
-            msg = f"Failed to decode {type_.__name__}: {exc}"
+            # A generic alias such as list[Item] reports its origin's bare __name__ ("list")
+            type_name = type_.__name__ if isinstance(type_, type) else repr(type_)
+            msg = f"Failed to decode {type_name}: {exc}"
             raise NomadDecodeError(msg, payload=response.text[:500]) from exc
 
     def _decode_list[T](self, response: httpx2.Response, item_type: type[T]) -> list[T]:
         """Decode a JSON array into ``list[item_type]``."""
-        try:
-            return msgspec.json.decode(response.content, type=builtins.list[item_type])  # ty: ignore[invalid-type-form]
-        except msgspec.DecodeError as exc:
-            msg = f"Failed to decode list[{item_type.__name__}]: {exc}"
-            raise NomadDecodeError(msg, payload=response.text[:500]) from exc
+        return self._decode(response=response, type_=list[item_type])  # ty: ignore[invalid-type-form]
 
-    async def _paginate_list[T](self, path: str, item_type: type[T]) -> list[T]:
+    async def _paginate_list[T](
+        self, path: str, item_type: type[T], *, params: dict[str, Any] | None = None
+    ) -> list[T]:
         """Fetch every page of a list endpoint, decoding each into ``item_type``."""
         items: list[T] = []
-        async for response in self._transport.paginate(path):
-            items.extend(self._decode_list(response, item_type))
+        async for response in self._transport.paginate(path, params=params):
+            items.extend(self._decode_list(response=response, item_type=item_type))
         return items

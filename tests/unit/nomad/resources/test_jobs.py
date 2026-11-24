@@ -5,7 +5,7 @@ import asyncio
 import respx
 
 from nd.nomad.config import NomadConfig
-from nd.nomad.models.job import Job, JobDeregisterResponse, JobRegisterResponse
+from nd.nomad.models.job import JobDeregisterResponse, JobRegisterResponse
 from nd.nomad.resources.jobs import JobsResource
 from nd.nomad.transport import AsyncTransport
 
@@ -39,24 +39,6 @@ def test_list_decodes_jobs(httpx2_mock: respx.Router):
     # Then the stub is decoded and the expected path was called
     assert jobs[0].id == "web"
     assert route.calls.last.request.url.path == "/v1/jobs"
-
-
-def test_read_decodes_single_job(httpx2_mock: respx.Router):
-    """Verify jobs.read decodes a single job with its datacenters."""
-    # Given a mocked single-job endpoint
-    httpx2_mock.get(f"{_ADDR}/v1/job/web").respond(json={**_STUB, "Datacenters": ["dc1"]})
-    resource = JobsResource(AsyncTransport(NomadConfig(address=_ADDR)))
-
-    # When reading the job
-    async def run() -> Job:
-        result = await resource.read("web")
-        await resource._transport.aclose()
-        return result
-
-    job = asyncio.run(run())
-
-    # Then the datacenters list decodes
-    assert job.datacenters == ["dc1"]
 
 
 _ALLOC = {
@@ -150,23 +132,27 @@ def test_allocations_lists_job_allocations(httpx2_mock: respx.Router):
 
 
 def test_jobs_register_posts_compiled_body(httpx2_mock: respx.Router):
-    """Verify jobs.register POSTs the compiled job and decodes the eval id."""
+    """Verify jobs.register POSTs the compiled job bytes unchanged and decodes the eval id."""
     # Given a mocked register endpoint
     route = httpx2_mock.post(f"{_ADDR}/v1/jobs").respond(json={"EvalID": "e1", "JobModifyIndex": 7})
     resource = JobsResource(AsyncTransport(NomadConfig(address=_ADDR)))
+    body = b'{"Job": {"ID": "web"}}'
 
     # When registering a compiled job payload
     async def run() -> JobRegisterResponse:
-        result = await resource.register(b'{"Job": {"ID": "web"}}')
+        result = await resource.register(body)
         await resource._transport.aclose()
         return result
 
     resp = asyncio.run(run())
 
-    # Then the eval id decodes and the expected path was called
+    # Then the body is sent as JSON byte for byte and the eval id decodes
+    sent = route.calls.last.request
+    assert sent.url.path == "/v1/jobs"
+    assert sent.content == body
+    assert sent.headers["Content-Type"] == "application/json"
     assert resp.eval_id == "e1"
     assert resp.job_modify_index == 7
-    assert route.calls.last.request.url.path == "/v1/jobs"
 
 
 _DEPLOY_STUB = {

@@ -14,7 +14,7 @@ class SystemResource(BaseResource):
         Reclaims dead jobs, terminal allocations/evaluations, and GC-eligible
         nodes. Safe and idempotent; the response carries no body.
         """
-        await self._transport.request("PUT", "/system/gc")
+        await self._transport.request(method="PUT", path="/system/gc")
 
     async def reconcile_summaries(self) -> None:
         """Recompute drifted job summary counts (``PUT /v1/system/reconcile/summaries``).
@@ -22,4 +22,4 @@ class SystemResource(BaseResource):
         Repairs job summaries that have diverged from actual allocation state.
         Safe and idempotent; the response carries no body.
         """
-        await self._transport.request("PUT", "/system/reconcile/summaries")
+        await self._transport.request(method="PUT", path="/system/reconcile/summaries")

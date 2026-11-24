@@ -190,7 +190,7 @@ async def resolve_target(
     target)``: a target with code 0 on success, ``(0, None)`` when there is nothing to
     act on or the user cancels, and ``(1, None)`` when an argument matched nothing.
     """
-    async with NomadClient.from_config(config) as client:
+    async with NomadClient(config) as client:
         return await resolve_with_client(
             client, job_arg=job_arg, task_arg=task_arg, running_only=running_only
         )

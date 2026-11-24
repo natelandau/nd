@@ -200,7 +200,7 @@ def test_stop_and_wait_returns_stopped_when_allocs_drain(httpx2_mock: respx.Rout
 
     # When stopping and waiting
     async def run() -> StopOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await stop_and_wait(
                 client, _job("web"), purge=False, node_names={}, update=discard_panel_update
             )
@@ -226,7 +226,7 @@ def test_stop_and_wait_skips_transient_alloc_decode_error(httpx2_mock: respx.Rou
 
     # When stopping and waiting through the transient decode error
     async def run() -> StopOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await stop_and_wait(
                 client, _job("web"), purge=False, node_names={}, update=discard_panel_update
             )
@@ -249,7 +249,7 @@ def test_stop_and_wait_times_out_when_never_terminal(httpx2_mock: respx.Router, 
 
     # When stopping and waiting
     async def run() -> StopOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await stop_and_wait(
                 client, _job("web"), purge=False, node_names={}, update=discard_panel_update
             )
@@ -285,7 +285,7 @@ def test_stop_and_wait_reports_phase_and_drain_detail(httpx2_mock: respx.Router,
 
     # When stopping and waiting, capturing the phase texts and detail rows
     async def run() -> StopOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await stop_and_wait(
                 client, _job("web"), purge=False, node_names={}, update=_update
             )
@@ -312,7 +312,7 @@ def test_stop_and_wait_purges_after_drain(httpx2_mock: respx.Router, mocker):
 
     # When stopping with purge=True
     async def run() -> StopOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await stop_and_wait(
                 client, _job("web"), purge=True, node_names={}, update=discard_panel_update
             )
@@ -335,7 +335,7 @@ def test_stop_and_wait_reports_drained_alloc_count(httpx2_mock: respx.Router, mo
 
     # When stopping without purge
     async def run() -> StopOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await stop_and_wait(
                 client, _job("web"), purge=False, node_names={}, update=discard_panel_update
             )
@@ -356,7 +356,7 @@ def test_stop_and_wait_purge_reports_drained_alloc_count(httpx2_mock: respx.Rout
 
     # When stopping with purge=True
     async def run() -> StopOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await stop_and_wait(
                 client, _job("web"), purge=True, node_names={}, update=discard_panel_update
             )
@@ -379,7 +379,7 @@ def test_stop_and_wait_does_not_purge_on_timeout(httpx2_mock: respx.Router, mock
 
     # When stopping with purge=True
     async def run() -> StopOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await stop_and_wait(
                 client, _job("web"), purge=True, node_names={}, update=discard_panel_update
             )
@@ -405,7 +405,7 @@ def test_stop_and_wait_reports_failed_when_purge_fails(httpx2_mock: respx.Router
 
     # When stopping with purge=True
     async def run() -> StopOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await stop_and_wait(
                 client, _job("web"), purge=True, node_names={}, update=discard_panel_update
             )
@@ -424,7 +424,7 @@ def test_stop_and_wait_reports_failed_on_nomad_error(httpx2_mock: respx.Router):
 
     # When stopping and waiting
     async def run() -> StopOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await stop_and_wait(
                 client, _job("web"), purge=False, node_names={}, update=discard_panel_update
             )

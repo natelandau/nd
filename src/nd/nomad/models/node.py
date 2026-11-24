@@ -4,38 +4,32 @@ from __future__ import annotations
 
 import msgspec
 
+from nd.nomad.models import NomadModel
 
-class NodeListStub(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
+
+class _NodeCommon(NomadModel, frozen=True, kw_only=True):
+    """Fields shared by the node list stub and the full node record."""
+
+    id: str = msgspec.field(name="ID")
+    datacenter: str
+    name: str
+    node_class: str
+    node_pool: str = "default"
+    status: str
+    drain: bool
+    scheduling_eligibility: str
+    create_index: int
+    modify_index: int
+
+
+class NodeListStub(_NodeCommon, frozen=True, kw_only=True):
     """A node as returned by ``GET /v1/nodes``."""
 
-    id: str = msgspec.field(name="ID")
-    datacenter: str
-    name: str
-    node_class: str
-    node_pool: str = "default"
     address: str = ""
-    drain: bool
-    scheduling_eligibility: str
-    status: str
     version: str
-    create_index: int
-    modify_index: int
 
 
-class Node(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
+class Node(_NodeCommon, frozen=True, kw_only=True):
     """A node as returned by ``GET /v1/node/:id``."""
 
-    id: str = msgspec.field(name="ID")
-    datacenter: str
-    name: str
-    node_class: str
-    node_pool: str = "default"
-    status: str
-    drain: bool
-    scheduling_eligibility: str
-    http_addr: str = msgspec.field(name="HTTPAddr")
-    tls_enabled: bool = msgspec.field(name="TLSEnabled")
-    attributes: dict[str, str] = msgspec.field(default_factory=dict)
     meta: dict[str, str] = msgspec.field(default_factory=dict)
-    create_index: int
-    modify_index: int

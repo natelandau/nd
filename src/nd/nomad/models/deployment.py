@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import msgspec
 
+from nd.nomad.models import NomadModel
 
-class _DeploymentCommon(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
+
+class _DeploymentCommon(NomadModel, frozen=True, kw_only=True):
     """Fields shared by the deployment list stub and the full deployment record."""
 
     id: str = msgspec.field(name="ID")
@@ -23,7 +25,7 @@ class DeploymentListStub(_DeploymentCommon, frozen=True, kw_only=True):
     modify_index: int
 
 
-class TaskGroupDeploymentState(msgspec.Struct, rename="pascal", frozen=True, kw_only=True):
+class TaskGroupDeploymentState(NomadModel, frozen=True, kw_only=True):
     """Per-task-group rollout counts within a deployment."""
 
     desired_total: int = 0
@@ -35,6 +37,4 @@ class TaskGroupDeploymentState(msgspec.Struct, rename="pascal", frozen=True, kw_
 class Deployment(_DeploymentCommon, frozen=True, kw_only=True):
     """A deployment as returned by ``GET /v1/deployment/:id``."""
 
-    task_groups: dict[str, TaskGroupDeploymentState] = msgspec.field(
-        name="TaskGroups", default_factory=dict
-    )
+    task_groups: dict[str, TaskGroupDeploymentState] = msgspec.field(default_factory=dict)

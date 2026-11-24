@@ -249,7 +249,7 @@ async def _run(*, job_arg: str | None, detach: bool, dry_run: bool, clean: bool)
     """
     files = discover_job_files(load_job_directories())
     config = NomadConfig.resolve()
-    async with NomadClient.from_config(config) as client:
+    async with NomadClient(config) as client:
         running, dead = await _cluster_job_states(client)
         candidates = candidates_for(files, exclude_names=running)
         if not candidates:
@@ -457,8 +457,9 @@ async def watch_deploy(
     deadline = time.monotonic() + DEPLOY_TIMEOUT_SECONDS
     while True:
         try:
-            allocs = await client.jobs.allocations(job_id)
-            deployments = await client.jobs.deployments(job_id)
+            allocs, deployments = await asyncio.gather(
+                client.jobs.allocations(job_id), client.jobs.deployments(job_id)
+            )
             # The plural endpoint's ordering is undocumented, so pick this run's
             # deployment by index rather than trusting position. A job that has ever
             # run keeps its prior deployments listed; ignoring those created before

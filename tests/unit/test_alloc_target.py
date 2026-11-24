@@ -52,7 +52,7 @@ def _alloc_payload(alloc_id: str, *, tasks: dict[str, str], status: str = "runni
 def _resolve(**kwargs) -> ResolvedTarget | None:
     async def _run() -> ResolvedTarget | None:
         config = NomadConfig(address=_ADDR)
-        async with NomadClient.from_config(config) as client:
+        async with NomadClient(config) as client:
             return await resolve_alloc_task(client, **kwargs)
 
     return asyncio.run(_run())
@@ -61,7 +61,7 @@ def _resolve(**kwargs) -> ResolvedTarget | None:
 def _resolve_with_client(**kwargs) -> tuple[int, ResolvedTarget | None]:
     async def _run() -> tuple[int, ResolvedTarget | None]:
         config = NomadConfig(address=_ADDR)
-        async with NomadClient.from_config(config) as client:
+        async with NomadClient(config) as client:
             return await resolve_with_client(client, **kwargs)
 
     return asyncio.run(_run())

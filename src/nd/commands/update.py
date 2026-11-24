@@ -274,7 +274,7 @@ async def _run(*, job_arg: str | None, no_purge: bool, force: bool, dry_run: boo
     """
     files = discover_job_files(load_job_directories())
     config = NomadConfig.resolve()
-    async with NomadClient.from_config(config) as client:
+    async with NomadClient(config) as client:
         jobs = await client.jobs.list()
         running = [j for j in jobs if j.status == "running"]
         targets_all = build_update_targets(files, running)

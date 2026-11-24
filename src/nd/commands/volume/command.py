@@ -155,7 +155,7 @@ async def _run_register(*, name_arg: str | None, dry_run: bool) -> None:
     """
     specs = await _select_specs(name_arg, "register")
     config = NomadConfig.resolve()
-    async with NomadClient.from_config(config) as client:
+    async with NomadClient(config) as client:
         nodes, registered = await _collect_register_inputs(client)
         plan = plan_registrations(specs=specs, nodes=nodes, registered=registered)
         if not plan:
@@ -209,7 +209,7 @@ async def _run_delete(*, name_arg: str | None, force: bool, dry_run: bool) -> No
     """
     specs = await _select_specs(name_arg, "delete")
     config = NomadConfig.resolve()
-    async with NomadClient.from_config(config) as client:
+    async with NomadClient(config) as client:
         nodes, registered = await asyncio.gather(client.nodes.list(), client.volumes.list())
         to_delete = plan_deletions(specs=specs, registered=registered)
         if not to_delete:
@@ -242,7 +242,7 @@ async def _run_list(*, name_arg: str | None) -> None:
     specs = discover_volume_files(load_volume_directories())
     targets = resolve_targets(specs, name_arg, name_of=lambda s: s.name).candidates
     config = NomadConfig.resolve()
-    async with NomadClient.from_config(config) as client:
+    async with NomadClient(config) as client:
         nodes, registered = await asyncio.gather(client.nodes.list(), client.volumes.list())
     node_names = {n.id: n.name for n in nodes}
     render_list(build_list_rows(specs=targets, registered=registered, node_names=node_names))

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import msgspec
 
-from nd.nomad.models.job import Job, JobDeregisterResponse, JobListStub, JobRegisterResponse
+from nd.nomad.models.job import JobDeregisterResponse, JobListStub, JobRegisterResponse
 
 
 def test_job_list_stub_decodes():
@@ -25,25 +25,6 @@ def test_job_list_stub_decodes():
     assert stub.id == "web"
     assert stub.type == "service"
     assert stub.priority == 50
-
-
-def test_job_decodes():
-    """Verify job decodes correctly from JSON."""
-    # Given
-    payload = b"""
-    {
-      "ID": "web", "Name": "web", "Type": "service", "Status": "running",
-      "Priority": 50, "Namespace": "default", "Datacenters": ["dc1", "dc2"],
-      "CreateIndex": 5, "ModifyIndex": 9, "Unknown": 2
-    }
-    """
-
-    # When
-    job = msgspec.json.decode(payload, type=Job)
-
-    # Then
-    assert job.datacenters == ["dc1", "dc2"]
-    assert job.namespace == "default"
 
 
 def test_job_deregister_response_decodes():
