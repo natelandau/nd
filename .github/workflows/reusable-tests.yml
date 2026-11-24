@@ -32,7 +32,7 @@ jobs:
                   persist-credentials: false
 
             - name: Setup Python, uv, and the package
-              uses: ./.github/actions/setup_python_env
+              uses: $/.github/actions/setup_python_env
               with:
                   python-version: ${{ matrix.python-version }}
 
@@ -58,7 +58,7 @@ jobs:
                   persist-credentials: false
 
             - name: Setup Python, uv, and the package
-              uses: ./.github/actions/setup_python_env
+              uses: $/.github/actions/setup_python_env
 
             - name: Cache prek hook environments
               uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0

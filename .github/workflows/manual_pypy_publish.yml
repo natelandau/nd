@@ -27,7 +27,7 @@ jobs:
                   persist-credentials: false
 
             - name: Setup Python, uv, and the package
-              uses: ./.github/actions/setup_python_env
+              uses: $/.github/actions/setup_python_env
               with:
                   python-version: "3.13"
                   enable-cache: "false"
