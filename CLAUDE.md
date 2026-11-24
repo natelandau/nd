@@ -16,6 +16,8 @@ uv run duty test         # Run tests with coverage
 uv run ty check src/     # Type check with ty (the project typechecker)
 ```
 
+`duty test` and `duty prek` run through gate-cache, which skips a check that already passed on the same files. Run checks only through the `duty` tasks above, never `pytest` or `prek` directly, and treat an `already passed on` line as a pass. Run `uv run gate-cache --skill` before adding or changing a gate. `duty test` with extra pytest arguments runs without the cache. When the tests start reading a new tracked file, add it to `TEST_GATE_PATHS` in `duties.py`.
+
 ## Hashicorp Nomad
 
 Built on top of the Nomad API and CLI. Research the docs before reasoning from general knowledge:
