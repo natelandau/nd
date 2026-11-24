@@ -104,13 +104,12 @@ repos:
         name: shellcheck
         entry: shellcheck --check-sourced --severity=warning
         language: system
-        exclude: "reference/"
         types: [shell]
 
       - id: ty
         name: ty
         entry: uv run ty check src/
-        exclude: "tests/|duties.py|scripts/|src/vclient/_sync/"
+        exclude: "tests/|duties.py"
         language: system
         types: [python]
 
