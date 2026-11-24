@@ -55,29 +55,36 @@ nd --version
 
 ## Configuration
 
-`nd` reads the standard Nomad environment variables first, then overrides them with
-an optional config file. If you already run `nomad` from your shell, `nd` targets
-the same cluster with no extra setup.
+`nd` reads each setting from three places. When a setting appears in more than one
+place, the source higher in this list wins:
 
-### Environment variables
+1. Environment variables (`NOMAD_*`)
+2. The `[nomad]` table of the config file
+3. Built-in defaults
 
-| Variable                | Purpose                      | Default                    |
-| ----------------------- | ---------------------------- | -------------------------- |
-| `NOMAD_ADDR`            | Cluster API address          | `http://127.0.0.1:4646`    |
-| `NOMAD_TOKEN`           | ACL token                    | none                       |
-| `NOMAD_NAMESPACE`       | Default namespace            | none                       |
-| `NOMAD_REGION`          | Default region               | none                       |
-| `NOMAD_CACERT`          | Path to a CA certificate     | none                       |
-| `NOMAD_CLIENT_CERT`     | Path to a client certificate | none                       |
-| `NOMAD_CLIENT_KEY`      | Path to a client key         | none                       |
-| `NOMAD_TLS_SERVER_NAME` | TLS server name override     | none                       |
-| `NOMAD_UI_URL`          | Base URL for web UI links    | falls back to `NOMAD_ADDR` |
+If you already run `nomad` from your shell, `nd` targets the same cluster with no
+extra setup. An empty environment variable counts as not set.
+
+### Settings
+
+| Environment variable    | Config key        | Purpose                      | Default                    |
+| ----------------------- | ----------------- | ---------------------------- | -------------------------- |
+| `NOMAD_ADDR`            | `address`         | Cluster API address          | `http://127.0.0.1:4646`    |
+| `NOMAD_TOKEN`           | `token`           | ACL token                    | none                       |
+| `NOMAD_NAMESPACE`       | `namespace`       | Default namespace            | none                       |
+| `NOMAD_REGION`          | `region`          | Default region               | none                       |
+| `NOMAD_CACERT`          | `ca_cert`         | Path to a CA certificate     | none                       |
+| `NOMAD_CLIENT_CERT`     | `client_cert`     | Path to a client certificate | none                       |
+| `NOMAD_CLIENT_KEY`      | `client_key`      | Path to a client key         | none                       |
+| `NOMAD_TLS_SERVER_NAME` | `tls_server_name` | TLS server name override     | none                       |
+| `NOMAD_UI_URL`          | `ui_url`          | Base URL for web UI links    | falls back to `NOMAD_ADDR` |
+| none                    | `timeout`         | API request timeout, seconds | `60`                       |
 
 ### Config file
 
 For settings you do not want to export every session, create
-`~/.config/nd/config.toml` (or `$XDG_CONFIG_HOME/nd/config.toml`). Values here
-override the environment.
+`~/.config/nd/config.toml` (or `$XDG_CONFIG_HOME/nd/config.toml`). An environment
+variable overrides the same setting in this file.
 
 ```toml
 [nomad]

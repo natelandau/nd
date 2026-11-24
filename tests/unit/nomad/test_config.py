@@ -6,28 +6,8 @@ from nd.constants import DEFAULT_NOMAD_ADDRESS
 from nd.nomad.config import NomadConfig
 from nd.nomad.errors import NomadConfigError
 
-_NOMAD_ENV = (
-    "NOMAD_ADDR",
-    "NOMAD_TOKEN",
-    "NOMAD_NAMESPACE",
-    "NOMAD_REGION",
-    "NOMAD_CACERT",
-    "NOMAD_CLIENT_CERT",
-    "NOMAD_CLIENT_KEY",
-    "NOMAD_TLS_SERVER_NAME",
-    "NOMAD_UI_URL",
-    "XDG_CONFIG_HOME",
-)
 
-
-@pytest.fixture
-def clean_env(monkeypatch):
-    """Clear all Nomad environment variables for a hermetic resolution test."""
-    for name in _NOMAD_ENV:
-        monkeypatch.delenv(name, raising=False)
-
-
-def test_resolve_defaults_address_when_unset(clean_env, tmp_path):
+def test_resolve_defaults_address_when_unset(tmp_path):
     """Verify resolve falls back to the default address when nothing is set."""
     # Given no env vars and no config file
     # When resolving config
@@ -38,7 +18,7 @@ def test_resolve_defaults_address_when_unset(clean_env, tmp_path):
     assert cfg.token is None
 
 
-def test_resolve_reads_env(clean_env, tmp_path, monkeypatch):
+def test_resolve_reads_env(tmp_path, monkeypatch):
     """Verify resolve reads connection settings from Nomad env vars."""
     # Given Nomad env vars are set
     monkeypatch.setenv("NOMAD_ADDR", "https://nomad.example:4646")
@@ -54,24 +34,66 @@ def test_resolve_reads_env(clean_env, tmp_path, monkeypatch):
     assert cfg.namespace == "team-a"
 
 
-def test_resolve_config_file_overrides_env(clean_env, tmp_path, monkeypatch):
-    """Verify config-file values override env vars while leaving others intact."""
-    # Given an env base and a config file overriding only the address
-    monkeypatch.setenv("NOMAD_ADDR", "https://from-env:4646")
-    monkeypatch.setenv("NOMAD_TOKEN", "env-token")
+@pytest.mark.parametrize(
+    ("env_address", "cli_address", "expected"),
+    [
+        (None, None, "https://from-file:4646"),
+        ("https://from-env:4646", None, "https://from-env:4646"),
+        ("https://from-env:4646", "https://from-cli:4646", "https://from-cli:4646"),
+        (None, "https://from-cli:4646", "https://from-cli:4646"),
+    ],
+)
+def test_resolve_precedence_cli_over_env_over_file(
+    tmp_path, monkeypatch, env_address, cli_address, expected
+):
+    """Verify CLI overrides beat env vars, which beat the config file, per setting."""
+    # Given a config file setting address and timeout, and an env token
     cfg_file = tmp_path / "config.toml"
     cfg_file.write_text('[nomad]\naddress = "https://from-file:4646"\ntimeout = 12.5\n')
+    monkeypatch.setenv("NOMAD_TOKEN", "env-token")
+    if env_address is not None:
+        monkeypatch.setenv("NOMAD_ADDR", env_address)
 
-    # When resolving config
-    cfg = NomadConfig.resolve(config_path=cfg_file)
+    # When resolving config, with an unset CLI flag passed as None
+    cfg = NomadConfig.resolve(config_path=cfg_file, cli_overrides={"address": cli_address})
 
-    # Then the file wins on address, the env token survives, and timeout is a float
-    assert cfg.address == "https://from-file:4646"
+    # Then the highest-precedence address wins and settings from other layers survive
+    assert cfg.address == expected
     assert cfg.token == "env-token"  # noqa: S105
     assert cfg.timeout == 12.5
 
 
-def test_resolve_reads_ui_url_from_env(clean_env, tmp_path, monkeypatch):
+def test_resolve_collects_every_invalid_value(tmp_path):
+    """Verify every invalid setting is reported in one error naming its source."""
+    # Given a config file with a bad timeout and a bad address
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('[nomad]\naddress = 5\ntimeout = "abc"\n')
+
+    # When resolving config
+    # Then one error names both settings and the file they came from
+    with pytest.raises(NomadConfigError) as exc_info:
+        NomadConfig.resolve(config_path=cfg_file)
+    message = str(exc_info.value)
+    assert "`timeout`" in message
+    assert "`address`" in message
+    assert str(cfg_file) in message
+
+
+def test_resolve_ignores_empty_env_var(tmp_path, monkeypatch):
+    """Verify an empty env var does not override the config file."""
+    # Given a config file address and an empty NOMAD_ADDR
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('[nomad]\naddress = "https://from-file:4646"\n')
+    monkeypatch.setenv("NOMAD_ADDR", "")
+
+    # When resolving config
+    cfg = NomadConfig.resolve(config_path=cfg_file)
+
+    # Then the file value is used
+    assert cfg.address == "https://from-file:4646"
+
+
+def test_resolve_reads_ui_url_from_env(tmp_path, monkeypatch):
     """Verify resolve reads the optional web UI base URL from the environment."""
     # Given a UI URL env var
     monkeypatch.setenv("NOMAD_UI_URL", "https://nomad.example.org")
@@ -83,7 +105,7 @@ def test_resolve_reads_ui_url_from_env(clean_env, tmp_path, monkeypatch):
     assert cfg.ui_url == "https://nomad.example.org"
 
 
-def test_resolve_invalid_config_file_raises(clean_env, tmp_path):
+def test_resolve_invalid_config_file_raises(tmp_path):
     """Verify malformed TOML surfaces as a NomadConfigError."""
     # Given a config file with invalid TOML
     cfg_file = tmp_path / "config.toml"
