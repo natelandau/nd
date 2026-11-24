@@ -4,11 +4,10 @@
 
 A friendly command-line tool for managing a Nomad cluster.
 
-`nd` wraps the Nomad HTTP API and the local `nomad` binary behind a small set of
-task-focused commands. Instead of stitching together multiple nomad commands, you
-get easy to remember commands that marry your on-disk job and volume files and the
-live cluster. No more no more hunting for an allocation ID or task name, just use
-your easy to remember job and volume names and the cli does the rest.
+`nd` wraps the Nomad HTTP API and the local `nomad` binary in a small set of
+task-focused commands. The commands connect the job and volume files on your disk to
+the live cluster. You refer to jobs and volumes by name, and `nd` finds the
+allocation ID and task name for you.
 
 ## Features
 
@@ -21,12 +20,12 @@ your easy to remember job and volume names and the cli does the rest.
   allocation, and task when the choice is ambiguous.
 - Dynamic host volume management: register, delete, and list host volumes across
   every eligible node.
-- Standard `NOMAD_*` environment variables work out of the box, with an optional
-  config file for anything you would rather not retype.
+- Standard `NOMAD_*` environment variables work by default, with an optional
+  config file for settings you do not want to retype.
 
 ## Requirements
 
-- Python >=3.13.
+- Python 3.13, 3.14, or 3.15.
 - A reachable Nomad cluster.
 - The `nomad` binary on your `PATH`. The `plan`, `run`, `update`, `exec`, and `logs`
   commands shell out to it, because the HTTP API cannot parse HCL2 job files and does
@@ -96,7 +95,8 @@ directories = ["~/homelab/volumes"]
 ```
 
 The `[jobs]` and `[volumes]` directory lists power the file-aware commands. Without
-them, `list`, `plan`, `run`, and the `volume` commands have nothing to discover.
+them, `list`, `plan`, `run`, `update`, and the `volume` commands have nothing to
+discover.
 
 ## Quick start
 
@@ -122,13 +122,13 @@ Deploy a job that is not yet running and watch it roll out:
 nd run web
 ```
 
-Tail its logs, then open a shell inside it:
+Follow its logs, then open a shell inside it:
 
 ```bash
 nd logs web
 nd exec web                    # open a shell inside it
 nd exec web -- ps -ef          # or run a single command
-nd exec web -T -- env          # -T even at your own terminal, to skip the pty's CRLF translation
+nd exec web -T -- env          # -T skips the pseudo-terminal, so lines end in LF, not CRLF
 ```
 
 ## Commands
@@ -156,7 +156,7 @@ Run `nd --help`, or `nd <command> --help`, for the full option list at any time.
 
 Commands that take a `JOB` or `NAME` argument match by case-insensitive substring:
 any name that contains the text matches, so `web` finds both `web` and `reverse-web`.
-A single match runs straight away; several matches open a prompt. Omit the argument
+A single match runs immediately. Several matches open a prompt. Omit the argument
 to pick from a list of every candidate.
 
 ```bash
@@ -189,7 +189,7 @@ settle. Use `--detach` to register and return without watching the rollout.
 If a selected job is still present in the cluster as a dead job (stopped without
 `--purge`), `nd run` offers to garbage-collect it first so the new version deploys
 onto a clean slate rather than on top of stale deployment history. Pass `--clean`
-(`-c`) to purge it without prompting; a non-interactive run leaves the dead job in
+(`-c`) to purge it without prompting. A non-interactive run leaves the dead job in
 place and deploys on top.
 
 ```bash
@@ -209,8 +209,8 @@ have a local file.
 Each selected job is stopped, drained, purged, then re-registered from its local
 file and watched until the new rollout settles. The job is fully recreated, so
 expect brief downtime. `nd update` confirms before it acts unless you pass `--force`
-(`-f`), and purges by default (unlike `nd stop`, which keeps the job unless you pass
-`--purge`); pass `--no-purge` to keep the job's version history.
+(`-f`). It purges the job by default, while `nd stop` purges only with `--purge`.
+Pass `--no-purge` to keep the job's version history.
 
 ```bash
 nd update                 # choose from every running job that has a local file
@@ -221,7 +221,7 @@ nd update web --force     # skip the confirmation prompt
 
 Whether a new container image is actually pulled depends on the job's Docker driver
 config, such as `force_pull` or a pinned digest, not on `nd`. The recreate
-guarantees fresh allocations; the image policy stays with your job spec.
+guarantees fresh allocations. The image policy stays with your job spec.
 
 ### Working with logs
 
@@ -250,12 +250,12 @@ nd signal web -s SIGHUP -n      # show the target without sending anything
 ```
 
 A success line means Nomad delivered the signal to the task. Whether the process acted
-on it is up to the process: it may be busy, or may not handle that signal at all. Check
+on it is up to the process: it can be busy, or it can ignore that signal. Check
 with `nd logs ezbak`.
 
 The name is checked against the fixed set Nomad's task drivers accept, which is not the
 same as your machine's signal list: `SIGCHLD` and `SIGURG` are refused even though your
-libc has them, and `SIGNULL` and `SIGIOT` are accepted even though it may not. A name
+libc has them, and `SIGNULL` and `SIGIOT` are accepted even when your libc lacks them. A name
 outside that set is rejected before anything is sent, and the error lists the ones you
 can use.
 
@@ -281,8 +281,8 @@ nd stop web --detach              # request the stop and return immediately
 `nd volume register` and `nd volume delete` create and remove dynamic host volumes
 from your local spec files, and `nd volume list` shows where each spec is registered.
 Deleting a host volume is irreversible and orphans data for any job that mounts it,
-so `nd volume delete` confirms before it acts unless you pass `--force` (`-f`); a
-`--dry-run` (`-n`) previews the registrations that would be removed without prompting.
+so `nd volume delete` confirms before it acts unless you pass `--force` (`-f`). A
+`--dry-run` (`-n`) lists the registrations to delete, with no prompt.
 
 ```bash
 nd volume register data            # register the "data" volume on eligible nodes
@@ -294,7 +294,7 @@ nd volume delete data --dry-run    # preview what would be deleted
 ### Running from scripts and cron
 
 Every prompt needs a real terminal on both stdin and stdout. Off one, `nd` fails with
-a non-zero exit and names the flag or argument that would have made the choice for it,
+a non-zero exit and names the flag or argument that makes the choice for it,
 rather than assuming an answer. So a scripted run must resolve its own choices: name
 the job or volume instead of relying on the picker, and pass `--force` (or `--clean`
 for `nd run`'s dead-job cleanup) to skip a confirmation.
@@ -329,17 +329,10 @@ nd status -v
 nd -vv run web
 ```
 
-## Development
+## Contributing
 
-The project uses [uv](https://docs.astral.sh/uv/) for dependency management and
-[duty](https://pawamoy.github.io/duty/) as a task runner.
-
-```bash
-uv sync                  # install dependencies
-uv run nd --help         # run the CLI from source
-uv run duty lint         # run ruff, ty, typos, and prek
-uv run duty test         # run the test suite with coverage
-```
+To set up a development environment, run the checks, and submit a change, read
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
