@@ -84,7 +84,7 @@ def _plan_all(targets: list[JobCandidate]) -> int:
     failed validation or the binary could not run.
     """
     # Resolve config so the binary targets the same cluster as nd (including
-    # config-file overrides), not just whatever NOMAD_* env vars are ambient.
+    # settings only in the config file), not just whatever NOMAD_* env vars are ambient.
     config = NomadConfig.resolve()
     try:
         nomad = NomadBinary.create(config)

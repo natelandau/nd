@@ -37,7 +37,7 @@ def binary_env(config: NomadConfig) -> dict[str, str]:
 
     Overlays the resolved connection settings onto the current environment so the
     spawned binary targets the same cluster, token, and namespace as the API client
-    rather than relying on the ambient env alone (which would miss nd config-file
-    overrides). Shared by every binary wrapper so they stay consistent.
+    rather than relying on the ambient env alone (which would miss settings that
+    exist only in the nd config file). Shared by every binary wrapper so they stay consistent.
     """
     return {**os.environ, **config.to_env()}
