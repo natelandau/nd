@@ -16,6 +16,7 @@ from nd.commands.update import UpdateOutcome, UpdateStatus, UpdateTarget, build_
 from nd.jobfiles import JobFile
 from nd.nomad import NomadClient, NomadConfig, NomadError
 from nd.nomad.models.job import JobListStub
+from tests.unit.commands.panel_helpers import discard_panel_update
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
@@ -82,7 +83,7 @@ def test_update_one_compile_failure_skips_stop(httpx2_mock: respx.Router, mocker
     async def go() -> UpdateOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
-                client, target, node_names={}, update=lambda *_a: None, nomad=nomad, purge=True
+                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
 
     outcome = asyncio.run(go())
@@ -111,7 +112,7 @@ def test_update_one_aborts_register_when_stop_fails(
     async def go() -> UpdateOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
-                client, target, node_names={}, update=lambda *_a: None, nomad=nomad, purge=True
+                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
 
     outcome = asyncio.run(go())
@@ -138,7 +139,7 @@ def test_update_one_register_failure_reports_job_down(
     async def go() -> UpdateOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
-                client, target, node_names={}, update=lambda *_a: None, nomad=nomad, purge=True
+                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
 
     outcome = asyncio.run(go())
@@ -178,7 +179,7 @@ def test_update_one_recreate_sequence_succeeds(httpx2_mock: respx.Router, mocker
     async def go() -> UpdateOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
-                client, target, node_names={}, update=lambda *_a: None, nomad=nomad, purge=True
+                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
 
     outcome = asyncio.run(go())
@@ -223,7 +224,7 @@ def test_update_one_no_purge_skips_purge(httpx2_mock: respx.Router, mocker) -> N
     async def go() -> UpdateOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
-                client, target, node_names={}, update=lambda *_a: None, nomad=nomad, purge=False
+                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=False
             )
 
     outcome = asyncio.run(go())
@@ -262,7 +263,7 @@ def test_update_one_watch_error_does_not_escape(
     async def go() -> UpdateOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
-                client, target, node_names={}, update=lambda *_a: None, nomad=nomad, purge=True
+                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
 
     outcome = asyncio.run(go())
@@ -308,7 +309,7 @@ def test_update_one_purge_failed_still_redeploys(
     async def go() -> UpdateOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
-                client, target, node_names={}, update=lambda *_a: None, nomad=nomad, purge=True
+                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
 
     outcome = asyncio.run(go())
@@ -336,7 +337,7 @@ def test_update_one_drain_timeout_maps_to_timeout(
     async def go() -> UpdateOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
-                client, target, node_names={}, update=lambda *_a: None, nomad=nomad, purge=True
+                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
 
     outcome = asyncio.run(go())

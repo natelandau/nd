@@ -2,40 +2,49 @@
 
 from __future__ import annotations
 
+from nd.nomad.models.allocation import AllocListStub, TaskState
 from nd.ui.alloc_rows import alloc_children
 
 
-class _TS:
-    def __init__(self, state: str, *, failed: bool = False) -> None:
-        self.state = state
-        self.failed = failed
+def _task_state(state: str, *, failed: bool = False) -> TaskState:
+    return TaskState(state=state, failed=failed, restarts=0)
 
 
-class _Alloc:
-    def __init__(
-        self, name: str, group: str, node_id: str, status: str, task_states: dict | None = None
-    ) -> None:
-        self.name = name
-        self.task_group = group
-        self.node_id = node_id
-        self.client_status = status
-        self.task_states = task_states or {}
+def _alloc(
+    name: str,
+    group: str,
+    node_id: str,
+    status: str,
+    task_states: dict[str, TaskState] | None = None,
+) -> AllocListStub:
+    return AllocListStub(
+        id=name,
+        name=name,
+        node_id=node_id,
+        job_id=group,
+        task_group=group,
+        client_status=status,
+        desired_status="run",
+        task_states_raw=task_states,
+        create_index=1,
+        modify_index=1,
+    )
 
 
 def test_alloc_children_builds_node_and_task_rows() -> None:
     """Verify an allocation renders a node row plus lifecycle-ordered task rows."""
     # Given one allocation on a named node with prestart, main, sidecar, and poststop tasks
     allocs = [
-        _Alloc(
+        _alloc(
             "cartlog.cartlog-group[0]",
             "cartlog-group",
             "node-aaaa",
             "pending",
             {
-                "cartlog": _TS("running"),
-                "create_filesystem": _TS("dead"),  # finished prestart task
-                "cartlog_ezbak_sidecar": _TS("pending"),
-                "poststop-ezbak": _TS("pending"),
+                "cartlog": _task_state("running"),
+                "create_filesystem": _task_state("dead"),  # finished prestart task
+                "cartlog_ezbak_sidecar": _task_state("pending"),
+                "poststop-ezbak": _task_state("pending"),
             },
         )
     ]
@@ -49,7 +58,7 @@ def test_alloc_children_builds_node_and_task_rows() -> None:
     }
 
     # When building the detail rows
-    children = alloc_children(allocs, node_names, lifecycle)  # type: ignore[arg-type]
+    children = alloc_children(allocs, node_names, lifecycle)
 
     # Then the node row comes first at depth 1, labeled by the node name
     assert children[0].depth == 1
@@ -75,17 +84,17 @@ def test_alloc_children_shows_all_tasks_without_lifecycle() -> None:
     """Verify an empty lifecycle map shows every task by name, including post-stop ones."""
     # Given an allocation draining, with a stopped main task and a running cleanup task
     allocs = [
-        _Alloc(
+        _alloc(
             "web.web[0]",
             "web",
             "n1",
             "running",
-            {"web": _TS("dead"), "cleanup": _TS("running")},
+            {"web": _task_state("dead"), "cleanup": _task_state("running")},
         )
     ]
 
     # When building rows with no lifecycle metadata (e.g. during a stop)
-    children = alloc_children(allocs, {"n1": "rpi2"}, {})  # type: ignore[arg-type]
+    children = alloc_children(allocs, {"n1": "rpi2"}, {})
 
     # Then every task is shown, sorted by name, with no role label
     task_rows = [c for c in children if c.depth == 2]
@@ -99,17 +108,17 @@ def test_alloc_children_stopping_colors_and_relabels() -> None:
     """Verify stopping mode reads terminal rows as green "stopped" and others yellow."""
     # Given an allocation still draining: node running, one task stopped, one still alive
     allocs = [
-        _Alloc(
+        _alloc(
             "web.web[0]",
             "web",
             "n1",
             "running",
-            {"web": _TS("dead"), "cleanup": _TS("running")},
+            {"web": _task_state("dead"), "cleanup": _task_state("running")},
         )
     ]
 
     # When building rows in stopping mode
-    children = alloc_children(allocs, {"n1": "rpi2"}, {}, stopping=True)  # type: ignore[arg-type]
+    children = alloc_children(allocs, {"n1": "rpi2"}, {}, stopping=True)
 
     # Then the still-running node row reads yellow (we are waiting on it)
     node_row = next(c for c in children if c.depth == 1)
@@ -125,12 +134,12 @@ def test_alloc_children_disambiguates_duplicate_nodes() -> None:
     """Verify two allocations on the same node get a #index suffix."""
     # Given two allocations placed on the same node
     allocs = [
-        _Alloc("web.web[0]", "web", "n1", "running"),
-        _Alloc("web.web[1]", "web", "n1", "running"),
+        _alloc("web.web[0]", "web", "n1", "running"),
+        _alloc("web.web[1]", "web", "n1", "running"),
     ]
 
     # When building the detail rows
-    children = alloc_children(allocs, {"n1": "rpi2"}, {})  # type: ignore[arg-type]
+    children = alloc_children(allocs, {"n1": "rpi2"}, {})
 
     # Then each node row is suffixed with the allocation index to stay distinct
     node_labels = [c.cells[0] for c in children if c.depth == 1]

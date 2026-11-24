@@ -6,6 +6,7 @@ import respx
 
 from nd.nomad.client import NomadClient
 from nd.nomad.config import NomadConfig
+from nd.nomad.models.agent import AgentSelf
 
 _ADDR = "http://nomad.test:4646"
 
@@ -18,7 +19,7 @@ def test_client_round_trips_through_a_resource(httpx2_mock: respx.Router):
     )
 
     # When calling a resource through the client's async context manager
-    async def run() -> object:
+    async def run() -> AgentSelf:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await client.agent.self()
 

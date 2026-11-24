@@ -32,6 +32,7 @@ from nd.targets import resolve_targets
 from nd.ui.duration import fmt_elapsed as _fmt_elapsed
 from nd.ui.live_panel import LiveRow, _build_panel
 from nd.ui.prompts import clear_prompt_line as _clear_prompt_line
+from tests.unit.commands.panel_helpers import discard_panel_update
 
 _ADDR = "http://nomad.test:4646"
 
@@ -199,10 +200,10 @@ def test_stop_and_wait_returns_stopped_when_allocs_drain(httpx2_mock: respx.Rout
     mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
 
     # When stopping and waiting
-    async def run() -> object:
+    async def run() -> StopOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await stop_and_wait(
-                client, _job("web"), purge=False, node_names={}, update=lambda *_a: None
+                client, _job("web"), purge=False, node_names={}, update=discard_panel_update
             )
 
     outcome = asyncio.run(run())
@@ -225,10 +226,10 @@ def test_stop_and_wait_skips_transient_alloc_decode_error(httpx2_mock: respx.Rou
     mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
 
     # When stopping and waiting through the transient decode error
-    async def run() -> object:
+    async def run() -> StopOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await stop_and_wait(
-                client, _job("web"), purge=False, node_names={}, update=lambda *_a: None
+                client, _job("web"), purge=False, node_names={}, update=discard_panel_update
             )
 
     outcome = asyncio.run(run())
@@ -248,10 +249,10 @@ def test_stop_and_wait_times_out_when_never_terminal(httpx2_mock: respx.Router, 
     mocker.patch("nd.commands.stop.POLL_INTERVAL_SECONDS", 0.01)
 
     # When stopping and waiting
-    async def run() -> object:
+    async def run() -> StopOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await stop_and_wait(
-                client, _job("web"), purge=False, node_names={}, update=lambda *_a: None
+                client, _job("web"), purge=False, node_names={}, update=discard_panel_update
             )
 
     outcome = asyncio.run(run())
@@ -284,7 +285,7 @@ def test_stop_and_wait_reports_phase_and_drain_detail(httpx2_mock: respx.Router,
         detail_labels.extend(c.cells[0] for c in children)
 
     # When stopping and waiting, capturing the phase texts and detail rows
-    async def run() -> object:
+    async def run() -> StopOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await stop_and_wait(
                 client, _job("web"), purge=False, node_names={}, update=_update
@@ -311,10 +312,10 @@ def test_stop_and_wait_purges_after_drain(httpx2_mock: respx.Router, mocker):
     mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
 
     # When stopping with purge=True
-    async def run() -> object:
+    async def run() -> StopOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await stop_and_wait(
-                client, _job("web"), purge=True, node_names={}, update=lambda *_a: None
+                client, _job("web"), purge=True, node_names={}, update=discard_panel_update
             )
 
     outcome = asyncio.run(run())
@@ -334,10 +335,10 @@ def test_stop_and_wait_reports_drained_alloc_count(httpx2_mock: respx.Router, mo
     mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
 
     # When stopping without purge
-    async def run() -> object:
+    async def run() -> StopOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await stop_and_wait(
-                client, _job("web"), purge=False, node_names={}, update=lambda *_a: None
+                client, _job("web"), purge=False, node_names={}, update=discard_panel_update
             )
 
     outcome = asyncio.run(run())
@@ -355,10 +356,10 @@ def test_stop_and_wait_purge_reports_drained_alloc_count(httpx2_mock: respx.Rout
     mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
 
     # When stopping with purge=True
-    async def run() -> object:
+    async def run() -> StopOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await stop_and_wait(
-                client, _job("web"), purge=True, node_names={}, update=lambda *_a: None
+                client, _job("web"), purge=True, node_names={}, update=discard_panel_update
             )
 
     outcome = asyncio.run(run())
@@ -378,10 +379,10 @@ def test_stop_and_wait_does_not_purge_on_timeout(httpx2_mock: respx.Router, mock
     mocker.patch("nd.commands.stop.POLL_INTERVAL_SECONDS", 0.01)
 
     # When stopping with purge=True
-    async def run() -> object:
+    async def run() -> StopOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await stop_and_wait(
-                client, _job("web"), purge=True, node_names={}, update=lambda *_a: None
+                client, _job("web"), purge=True, node_names={}, update=discard_panel_update
             )
 
     outcome = asyncio.run(run())
@@ -404,10 +405,10 @@ def test_stop_and_wait_reports_failed_when_purge_fails(httpx2_mock: respx.Router
     mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
 
     # When stopping with purge=True
-    async def run() -> object:
+    async def run() -> StopOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await stop_and_wait(
-                client, _job("web"), purge=True, node_names={}, update=lambda *_a: None
+                client, _job("web"), purge=True, node_names={}, update=discard_panel_update
             )
 
     outcome = asyncio.run(run())
@@ -423,10 +424,10 @@ def test_stop_and_wait_reports_failed_on_nomad_error(httpx2_mock: respx.Router):
     httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(status_code=500, text="boom")
 
     # When stopping and waiting
-    async def run() -> object:
+    async def run() -> StopOutcome:
         async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
             return await stop_and_wait(
-                client, _job("web"), purge=False, node_names={}, update=lambda *_a: None
+                client, _job("web"), purge=False, node_names={}, update=discard_panel_update
             )
 
     outcome = asyncio.run(run())

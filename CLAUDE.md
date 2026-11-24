@@ -9,7 +9,7 @@ uv sync               # Install dependencies
 uv run nd [COMMAND]   # Run the CLI; bare `nd` shows the status dashboard
 uv run duty lint      # ruff, ty, typos, prek
 uv run duty test      # pytest with coverage
-uv run ty check src/  # Type check only; ty covers src/, not tests/
+uv run ty check       # Type check src/, tests/, and duties.py
 ```
 
 `duty test` and `duty prek` run through gate-cache, which skips a check that already passed on the same files.
