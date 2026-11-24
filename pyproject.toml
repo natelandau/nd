@@ -60,6 +60,7 @@
         "pytest-devtools>=1.3.0",
         "pytest-httpx2>=1.0.0",
         "pytest-mock>=3.16.0",
+        "pytest-randomly>=5.1.0",
         "pytest-repeat>=0.9.4",
         "pytest-sugar>=1.1.1",
         "pytest>=9.1.1",
@@ -94,22 +95,20 @@
     branch       = true
     command_line = "--module pytest"
     data_file    = ".cache/coverage"
-    omit         = ["tests/*"]
     source       = ["src"]
 
 [tool.coverage.xml]
     output = ".cache/coverage.xml"
 
-[tool.pytest.ini_options]
-
-    addopts        = "--color=yes --doctest-modules --strict-config --strict-markers"
-    cache_dir      = ".cache/pytest"
-    columns        = 120
-    filterwarnings = ['error', 'ignore:.*Pydantic.*:UserWarning', 'ignore::DeprecationWarning:']
-    markers        = ["serial"]
-    set_columns    = true
-    testpaths      = ["tests"]
-    xfail_strict   = true
+[tool.pytest]
+    cache_dir            = ".cache/pytest"
+    columns              = "120"
+    faulthandler_timeout = "60"
+    filterwarnings       = ["error"]
+    required_plugins     = ["pytest-devtools", "pytest-httpx2", "pytest-mock", "pytest-randomly"]
+    set_columns          = true
+    strict               = true
+    testpaths            = ["tests"]
 
 [tool.ruff] # https://github.com/charliermarsh/ruff
 

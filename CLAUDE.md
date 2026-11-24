@@ -66,4 +66,5 @@ Match the existing commands: optional `NAME` substring argument and `--dry-run /
 - Assert on `exit_code`; `pp` output is not reliably captured. To assert rendered output, record with a `Console` passed to `pp.Emitter` (see `tests/unit/commands/test_status.py`).
 - Mock Nomad with respx through the `httpx2_mock` fixture (`pytest-httpx2`). Full-URL routes; pagination via `side_effect=[httpx.Response(...), ...]`, using the `httpx` that respx bundles, not `httpx2`.
 - No async pytest plugin: drive async code with `asyncio.run(...)` from sync tests.
+- pytest-randomly shuffles test order and reseeds `random` each run. A failure that depends on order: rerun with the seed from the header, `uv run duty test -p randomly --randomly-seed=<seed>`.
 - Names `test_<unit>_<scenario>`, imperative `Verify ...` docstrings, Given/When/Then comments.
