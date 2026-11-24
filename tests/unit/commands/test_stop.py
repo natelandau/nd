@@ -8,7 +8,6 @@ import msgspec
 import respx
 from nclutils import pp
 from rich.console import Console
-from typer.testing import CliRunner
 
 from nd.commands import stop as stop_module
 from nd.commands.stop import (
@@ -449,7 +448,9 @@ def _running_job_json(name: str = "web") -> dict:
     }
 
 
-def test_stop_app_reports_no_running_jobs(httpx2_mock: respx.Router, monkeypatch, tmp_path):
+def test_stop_app_reports_no_running_jobs(
+    httpx2_mock: respx.Router, monkeypatch, tmp_path, typer_runner
+):
     """Verify the command exits cleanly when no jobs are running."""
     # Given an isolated config and a cluster with only a dead job
     monkeypatch.setenv("NOMAD_ADDR", _ADDR)
@@ -457,13 +458,15 @@ def test_stop_app_reports_no_running_jobs(httpx2_mock: respx.Router, monkeypatch
     httpx2_mock.get(f"{_ADDR}/v1/jobs").respond(json=[{**_running_job_json(), "Status": "dead"}])
 
     # When invoking the stop command
-    result = CliRunner().invoke(stop_module.app, [])
+    result = typer_runner.invoke(stop_module.app, [])
 
     # Then it exits zero with nothing to stop
     assert result.exit_code == 0
 
 
-def test_stop_app_errors_on_no_substring_match(httpx2_mock: respx.Router, monkeypatch, tmp_path):
+def test_stop_app_errors_on_no_substring_match(
+    httpx2_mock: respx.Router, monkeypatch, tmp_path, typer_runner
+):
     """Verify a non-matching job argument exits non-zero."""
     # Given an isolated config and one running job
     monkeypatch.setenv("NOMAD_ADDR", _ADDR)
@@ -471,14 +474,14 @@ def test_stop_app_errors_on_no_substring_match(httpx2_mock: respx.Router, monkey
     httpx2_mock.get(f"{_ADDR}/v1/jobs").respond(json=[_running_job_json()])
 
     # When invoking with a substring that matches nothing
-    result = CliRunner().invoke(stop_module.app, ["zzz"])
+    result = typer_runner.invoke(stop_module.app, ["zzz"])
 
     # Then it exits non-zero
     assert result.exit_code == 1
 
 
 def test_stop_app_no_argument_off_a_terminal_exits_non_zero(
-    httpx2_mock: respx.Router, monkeypatch, tmp_path
+    httpx2_mock: respx.Router, monkeypatch, tmp_path, typer_runner
 ):
     """Verify a scripted stop with no job argument fails instead of silently doing nothing."""
     # Given an isolated config, two running jobs, and no terminal to pick between them
@@ -489,7 +492,7 @@ def test_stop_app_no_argument_off_a_terminal_exits_non_zero(
     )
 
     # When invoking with no job argument, which would otherwise open a multi-select
-    result = CliRunner().invoke(stop_module.app, [])
+    result = typer_runner.invoke(stop_module.app, [])
 
     # Then it exits non-zero rather than reporting "nothing selected" as success
     assert result.exit_code == 1
@@ -497,7 +500,7 @@ def test_stop_app_no_argument_off_a_terminal_exits_non_zero(
 
 
 def test_stop_app_unconfirmable_off_a_terminal_exits_non_zero(
-    httpx2_mock: respx.Router, monkeypatch, tmp_path
+    httpx2_mock: respx.Router, monkeypatch, tmp_path, typer_runner
 ):
     """Verify a scripted stop without --force fails rather than reporting a clean abort."""
     # Given an isolated config, one running job, and no terminal to confirm on
@@ -506,7 +509,7 @@ def test_stop_app_unconfirmable_off_a_terminal_exits_non_zero(
     httpx2_mock.get(f"{_ADDR}/v1/jobs").respond(json=[_running_job_json()])
 
     # When invoking on an unambiguous job without --force
-    result = CliRunner().invoke(stop_module.app, ["web"])
+    result = typer_runner.invoke(stop_module.app, ["web"])
 
     # Then the unanswerable confirmation is an error, not a silent no-op that exits 0
     assert result.exit_code == 1
@@ -514,7 +517,7 @@ def test_stop_app_unconfirmable_off_a_terminal_exits_non_zero(
 
 
 def test_stop_app_force_stops_single_match(
-    httpx2_mock: respx.Router, monkeypatch, tmp_path, mocker
+    httpx2_mock: respx.Router, monkeypatch, tmp_path, mocker, typer_runner
 ):
     """Verify a single substring match with --force stops without prompting."""
     # Given an isolated config and one running job that drains immediately
@@ -527,14 +530,14 @@ def test_stop_app_force_stops_single_match(
     mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
 
     # When invoking with --force on the substring
-    result = CliRunner().invoke(stop_module.app, ["we", "--force"])
+    result = typer_runner.invoke(stop_module.app, ["we", "--force"])
 
     # Then it stops the job and exits cleanly
     assert result.exit_code == 0
 
 
 def test_stop_app_detach_issues_stop_without_watching(
-    httpx2_mock: respx.Router, monkeypatch, tmp_path
+    httpx2_mock: respx.Router, monkeypatch, tmp_path, typer_runner
 ):
     """Verify --detach issues the stop but never polls allocations to watch the drain."""
     # Given an isolated config and one running job
@@ -544,7 +547,7 @@ def test_stop_app_detach_issues_stop_without_watching(
     stop_route = httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
 
     # When invoking with --detach (and --force to skip the confirm prompt)
-    result = CliRunner().invoke(stop_module.app, ["we", "--force", "--detach"])
+    result = typer_runner.invoke(stop_module.app, ["we", "--force", "--detach"])
 
     # Then the stop is issued once and no allocations are polled
     assert result.exit_code == 0
@@ -552,7 +555,9 @@ def test_stop_app_detach_issues_stop_without_watching(
     assert not any(call.request.url.path.endswith("/allocations") for call in httpx2_mock.calls)
 
 
-def test_stop_app_no_shutdown_delay_passthrough(httpx2_mock: respx.Router, monkeypatch, tmp_path):
+def test_stop_app_no_shutdown_delay_passthrough(
+    httpx2_mock: respx.Router, monkeypatch, tmp_path, typer_runner
+):
     """Verify --no-shutdown-delay forwards the bypass flag on the stop call."""
     # Given an isolated config and one running job, stopped with --detach for a short path
     monkeypatch.setenv("NOMAD_ADDR", _ADDR)
@@ -561,7 +566,7 @@ def test_stop_app_no_shutdown_delay_passthrough(httpx2_mock: respx.Router, monke
     stop_route = httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
 
     # When invoking with --no-shutdown-delay
-    result = CliRunner().invoke(
+    result = typer_runner.invoke(
         stop_module.app, ["we", "--force", "--detach", "--no-shutdown-delay"]
     )
 
@@ -570,7 +575,9 @@ def test_stop_app_no_shutdown_delay_passthrough(httpx2_mock: respx.Router, monke
     assert stop_route.calls.last.request.url.params["no_shutdown_delay"] == "true"
 
 
-def test_stop_app_dry_run_skips_delete(httpx2_mock: respx.Router, monkeypatch, tmp_path):
+def test_stop_app_dry_run_skips_delete(
+    httpx2_mock: respx.Router, monkeypatch, tmp_path, typer_runner
+):
     """Verify --dry-run resolves the target but never issues the stop call."""
     # Given an isolated config, one running job, and a stop endpoint
     monkeypatch.setenv("NOMAD_ADDR", _ADDR)
@@ -578,7 +585,7 @@ def test_stop_app_dry_run_skips_delete(httpx2_mock: respx.Router, monkeypatch, t
     httpx2_mock.get(f"{_ADDR}/v1/jobs").respond(json=[_running_job_json()])
 
     # When invoking with --dry-run (and --force to skip the confirm prompt)
-    result = CliRunner().invoke(stop_module.app, ["we", "--dry-run", "--force"])
+    result = typer_runner.invoke(stop_module.app, ["we", "--dry-run", "--force"])
 
     # Then it exits cleanly and never issues a DELETE (the stop call)
     assert result.exit_code == 0

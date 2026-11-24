@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx  # respx-bundled; used to build sequenced mock responses
-from typer.testing import CliRunner
 
 import nd.commands.run as run_mod
 from nd.cli import app
@@ -191,7 +190,7 @@ def test_cluster_job_states_splits_running_and_dead(
     assert dead == {"api"}
 
 
-def test_run_no_candidates_exits_clean(monkeypatch) -> None:
+def test_run_no_candidates_exits_clean(monkeypatch, typer_runner) -> None:
     """Verify run exits 0 with a message when no deployable files exist."""
     # Given no job directories and no running jobs
     monkeypatch.setattr(run_mod, "load_job_directories", list)
@@ -200,7 +199,7 @@ def test_run_no_candidates_exits_clean(monkeypatch) -> None:
     monkeypatch.setattr(run_mod, "_cluster_job_states", _async_return((set(), set())))
 
     # When invoking the run command
-    result = CliRunner().invoke(app, ["run"])
+    result = typer_runner.invoke(app, ["run"])
 
     # Then it exits cleanly with code 0
     assert result.exit_code == 0
@@ -235,7 +234,7 @@ def test_register_detached_registers_without_watching(httpx2_mock: respx.Router,
 
 
 def test_run_app_detach_skips_watch(
-    httpx2_mock: respx.Router, monkeypatch, mocker, tmp_path
+    httpx2_mock: respx.Router, monkeypatch, mocker, tmp_path, typer_runner
 ) -> None:
     """Verify the run command with --detach registers without entering the watch loop."""
     # Given one deployable file, a stubbed binary, and a register endpoint
@@ -255,7 +254,7 @@ def test_run_app_detach_skips_watch(
     httpx2_mock.post(f"{_ADDR}/v1/jobs").respond(json={"EvalID": "e1", "Warnings": ""})
 
     # When invoking run --detach naming the job so it auto-selects
-    result = CliRunner().invoke(app, ["run", "web", "--detach"])
+    result = typer_runner.invoke(app, ["run", "web", "--detach"])
 
     # Then it exits cleanly without polling any rollout state
     assert result.exit_code == 0
@@ -593,7 +592,7 @@ def test_maybe_purge_dead_continues_after_one_failure(
 
 
 def test_run_clean_purges_dead_before_register(
-    httpx2_mock: respx.Router, monkeypatch, mocker, tmp_path
+    httpx2_mock: respx.Router, monkeypatch, mocker, tmp_path, typer_runner
 ) -> None:
     """Verify --clean purges a dead job before registering the new version."""
     # Given a discovered job "web" that the cluster reports as dead
@@ -616,7 +615,7 @@ def test_run_clean_purges_dead_before_register(
     )
 
     # When running with --clean --detach (detach skips the rollout watch)
-    result = CliRunner().invoke(app, ["run", "web", "--clean", "--detach"])
+    result = typer_runner.invoke(app, ["run", "web", "--clean", "--detach"])
 
     # Then the purge is issued before the register
     assert result.exit_code == 0
@@ -627,7 +626,7 @@ def test_run_clean_purges_dead_before_register(
 
 
 def test_run_clean_dry_run_does_not_purge(
-    httpx2_mock: respx.Router, monkeypatch, mocker, tmp_path
+    httpx2_mock: respx.Router, monkeypatch, mocker, tmp_path, typer_runner
 ) -> None:
     """Verify --dry-run reports the purge but never issues the deregister."""
     # Given a discovered dead job and --clean --dry-run
@@ -645,7 +644,7 @@ def test_run_clean_dry_run_does_not_purge(
     monkeypatch.setattr(run_mod.NomadBinary, "create", classmethod(lambda cls, cfg: nomad))
 
     # When running as a dry run
-    result = CliRunner().invoke(app, ["run", "web", "--clean", "--dry-run"])
+    result = typer_runner.invoke(app, ["run", "web", "--clean", "--dry-run"])
 
     # Then nothing is purged
     assert result.exit_code == 0

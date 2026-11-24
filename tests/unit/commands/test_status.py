@@ -5,7 +5,6 @@ import asyncio
 import respx
 from nclutils import pp
 from rich.console import Console
-from typer.testing import CliRunner
 
 from nd.commands.status import Health, StatusReport, build_report
 from nd.commands.status.report import (
@@ -1104,7 +1103,7 @@ def test_collect_aggregates_all_endpoints(httpx2_mock: respx.Router, monkeypatch
     assert report.leader_name == "srv1"
 
 
-def test_status_command_exits_zero(httpx2_mock: respx.Router, monkeypatch, tmp_path):
+def test_status_command_exits_zero(httpx2_mock: respx.Router, monkeypatch, tmp_path, typer_runner):
     """Verify the status command runs end to end and exits successfully."""
     # Given a fully mocked cluster and an isolated config environment
     monkeypatch.setenv("NOMAD_ADDR", _ADDR)
@@ -1114,7 +1113,7 @@ def test_status_command_exits_zero(httpx2_mock: respx.Router, monkeypatch, tmp_p
     # When invoking the status sub-app
     from nd.commands import status
 
-    result = CliRunner().invoke(status.app, [])
+    result = typer_runner.invoke(status.app, [])
 
     # Then it exits cleanly
     assert result.exit_code == 0
@@ -1139,7 +1138,7 @@ def test_collect_returns_report_and_host_panels(httpx2_mock: respx.Router, monke
 
 
 def test_status_command_hosts_flag_uses_host_view(
-    httpx2_mock: respx.Router, monkeypatch, tmp_path, mocker
+    httpx2_mock: respx.Router, monkeypatch, tmp_path, mocker, typer_runner
 ):
     """Verify `nd status --hosts` renders the host view instead of the default dashboard."""
     # Given a fully mocked cluster and both render paths patched
@@ -1152,7 +1151,7 @@ def test_status_command_hosts_flag_uses_host_view(
     # When invoking the status sub-app with --hosts
     from nd.commands import status
 
-    result = CliRunner().invoke(status.app, ["--hosts"])
+    result = typer_runner.invoke(status.app, ["--hosts"])
 
     # Then it exits cleanly and dispatches to the host view only
     assert result.exit_code == 0
@@ -1161,7 +1160,7 @@ def test_status_command_hosts_flag_uses_host_view(
 
 
 def test_status_command_default_uses_dashboard_view(
-    httpx2_mock: respx.Router, monkeypatch, tmp_path, mocker
+    httpx2_mock: respx.Router, monkeypatch, tmp_path, mocker, typer_runner
 ):
     """Verify `nd status` with no flag renders the default dashboard, not the host view."""
     # Given a fully mocked cluster and both render paths patched
@@ -1174,7 +1173,7 @@ def test_status_command_default_uses_dashboard_view(
     # When invoking the status sub-app with no flag
     from nd.commands import status
 
-    result = CliRunner().invoke(status.app, [])
+    result = typer_runner.invoke(status.app, [])
 
     # Then it exits cleanly and dispatches to the default dashboard only
     assert result.exit_code == 0
@@ -1183,7 +1182,7 @@ def test_status_command_default_uses_dashboard_view(
 
 
 def test_verbose_flag_works_before_or_after_command(
-    httpx2_mock: respx.Router, monkeypatch, tmp_path
+    httpx2_mock: respx.Router, monkeypatch, tmp_path, typer_runner
 ):
     """Verify -v is accepted both as `nd -v status` and `nd status -v`."""
     # Given a fully mocked cluster and an isolated config environment
@@ -1194,11 +1193,9 @@ def test_verbose_flag_works_before_or_after_command(
     # When invoking the root app with -v before and after the command name
     from nd import cli
 
-    runner = CliRunner()
-
     # Then both positions are accepted and exit cleanly
-    assert runner.invoke(cli.app, ["-v", "status"]).exit_code == 0
-    assert runner.invoke(cli.app, ["status", "-v"]).exit_code == 0
+    assert typer_runner.invoke(cli.app, ["-v", "status"]).exit_code == 0
+    assert typer_runner.invoke(cli.app, ["status", "-v"]).exit_code == 0
 
 
 def test_build_report_counts_volumes() -> None:

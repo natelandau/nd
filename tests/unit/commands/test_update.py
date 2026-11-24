@@ -6,8 +6,6 @@ import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from typer.testing import CliRunner
-
 import nd.commands.update as update_mod
 from nd.binary import NomadBinaryError
 from nd.cli import app
@@ -490,7 +488,9 @@ def test_update_one_no_marker_when_nothing_was_running(
     assert not marker_cells
 
 
-def test_update_no_candidates_exits_clean(monkeypatch, httpx2_mock: respx.Router, tmp_path) -> None:
+def test_update_no_candidates_exits_clean(
+    monkeypatch, httpx2_mock: respx.Router, tmp_path, typer_runner
+) -> None:
     """Verify update exits 0 with a message when no running job has a local file."""
     # Given no local files and an empty cluster job list
     monkeypatch.setattr(update_mod, "load_job_directories", list)
@@ -500,14 +500,14 @@ def test_update_no_candidates_exits_clean(monkeypatch, httpx2_mock: respx.Router
     httpx2_mock.get(f"{_ADDR}/v1/jobs").respond(json=[])
 
     # When invoking update
-    result = CliRunner().invoke(app, ["update"])
+    result = typer_runner.invoke(app, ["update"])
 
     # Then it exits cleanly
     assert result.exit_code == 0
 
 
 def test_update_dry_run_reports_without_acting(
-    monkeypatch, mocker, httpx2_mock: respx.Router, tmp_path
+    monkeypatch, mocker, httpx2_mock: respx.Router, tmp_path, typer_runner
 ) -> None:
     """Verify --dry-run validates and reports but stops or registers nothing."""
     # Given one local file whose job is running, and a stubbed binary
@@ -536,7 +536,7 @@ def test_update_dry_run_reports_without_acting(
     monkeypatch.setattr(update_mod.NomadBinary, "create", classmethod(lambda cls, cfg: nomad))
 
     # When invoking update --force --dry-run naming the job
-    result = CliRunner().invoke(app, ["update", "web", "--force", "--dry-run"])
+    result = typer_runner.invoke(app, ["update", "web", "--force", "--dry-run"])
 
     # Then it exits 0, validates the file, and issues no stop or register
     assert result.exit_code == 0
@@ -544,7 +544,9 @@ def test_update_dry_run_reports_without_acting(
     assert not any(call.request.method in ("DELETE", "POST") for call in httpx2_mock.calls)
 
 
-def test_update_confirm_decline_aborts(monkeypatch, httpx2_mock: respx.Router, tmp_path) -> None:
+def test_update_confirm_decline_aborts(
+    monkeypatch, httpx2_mock: respx.Router, tmp_path, typer_runner
+) -> None:
     """Verify declining the confirmation prompt aborts without stopping anything."""
     # Given a running job with a local file, but the user declines the prompt
     monkeypatch.setattr(update_mod, "load_job_directories", list)
@@ -573,7 +575,7 @@ def test_update_confirm_decline_aborts(monkeypatch, httpx2_mock: respx.Router, t
     monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: True)
 
     # When invoking update naming the job (no --force, so it prompts)
-    result = CliRunner().invoke(app, ["update", "web"])
+    result = typer_runner.invoke(app, ["update", "web"])
 
     # Then it exits 0 and never stops or registers
     assert result.exit_code == 0
