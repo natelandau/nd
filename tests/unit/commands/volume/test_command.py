@@ -61,8 +61,6 @@ def test_volume_register_dry_run_makes_no_api_calls(monkeypatch, typer_runner) -
             status="ready",
             drain=False,
             scheduling_eligibility="eligible",
-            http_addr="10.0.0.1:4646",
-            tls_enabled=False,
             meta={"nfsStorageRoot": "/srv"},
             create_index=1,
             modify_index=2,
@@ -78,7 +76,7 @@ def test_volume_register_dry_run_makes_no_api_calls(monkeypatch, typer_runner) -
     fake_client.__aenter__ = AsyncMock(return_value=fake_client)
     fake_client.__aexit__ = AsyncMock(return_value=None)
 
-    monkeypatch.setattr(cmd.NomadClient, "from_config", lambda cfg: fake_client)
+    monkeypatch.setattr(cmd, "NomadClient", lambda cfg: fake_client)
     monkeypatch.setattr(cmd.NomadConfig, "resolve", lambda: MagicMock(ui_base="http://test:4646"))
 
     # When running register in dry-run mode, naming the spec so it auto-selects
@@ -141,7 +139,7 @@ def test_volume_delete_dry_run_with_name_selects_match(monkeypatch, typer_runner
     fake_client.nodes.list = AsyncMock(return_value=[])
     fake_client.volumes.list = AsyncMock(return_value=[registered])
     fake_client.volumes.delete = AsyncMock()
-    monkeypatch.setattr(cmd.NomadClient, "from_config", lambda cfg: fake_client)
+    monkeypatch.setattr(cmd, "NomadClient", lambda cfg: fake_client)
     monkeypatch.setattr(cmd.NomadConfig, "resolve", lambda: MagicMock())
 
     # When deleting in dry-run mode, naming the matching spec
@@ -181,7 +179,7 @@ def _delete_fixture(monkeypatch) -> tuple:
     fake_client.nodes.list = AsyncMock(return_value=[])
     fake_client.volumes.list = AsyncMock(return_value=[registered])
     fake_client.volumes.delete = AsyncMock()
-    monkeypatch.setattr(cmd.NomadClient, "from_config", lambda cfg: fake_client)
+    monkeypatch.setattr(cmd, "NomadClient", lambda cfg: fake_client)
     monkeypatch.setattr(cmd.NomadConfig, "resolve", lambda: MagicMock())
     return cmd, fake_client
 

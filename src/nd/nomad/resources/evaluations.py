@@ -16,4 +16,4 @@ class EvaluationsResource(BaseResource):
 
     async def list(self) -> builtins.list[EvalListStub]:
         """List all evaluations (``GET /v1/evaluations``), following pagination."""
-        return await self._paginate_list("/evaluations", EvalListStub)
+        return await self._paginate_list(path="/evaluations", item_type=EvalListStub)

@@ -50,10 +50,10 @@ def test_list_paginates_and_decodes_stubs(httpx2_mock: respx.Router):
 
 
 def test_read_decodes_single_node(httpx2_mock: respx.Router):
-    """Verify nodes.read decodes a single node including irregular-key fields."""
+    """Verify nodes.read decodes a single node including its metadata."""
     # Given a mocked single-node endpoint
     route = httpx2_mock.get(f"{_ADDR}/v1/node/n1").respond(
-        json={**_STUB, "HTTPAddr": "10.0.0.5:4646", "TLSEnabled": False},
+        json={**_STUB, "Meta": {"role": "web"}},
     )
     resource = NodesResource(AsyncTransport(NomadConfig(address=_ADDR)))
 
@@ -65,6 +65,6 @@ def test_read_decodes_single_node(httpx2_mock: respx.Router):
 
     node = asyncio.run(run())
 
-    # Then the irregular-cased field decodes and the expected path was called
-    assert node.http_addr == "10.0.0.5:4646"
+    # Then the metadata decodes and the expected path was called
+    assert node.meta == {"role": "web"}
     assert route.calls.last.request.url.path == "/v1/node/n1"

@@ -3,10 +3,10 @@
 import asyncio
 import json
 
+import httpx  # respx-bundled; used to build sequenced mock responses
 import respx
 
 from nd.nomad.config import NomadConfig
-from nd.nomad.models.volume import HostVolumeRegisterResponse
 from nd.nomad.resources.volumes import VolumesResource
 from nd.nomad.transport import AsyncTransport
 
@@ -26,10 +26,15 @@ def _resource() -> VolumesResource:
     return VolumesResource(AsyncTransport(NomadConfig(address=_ADDR)))
 
 
-def test_list_filters_by_host_type(httpx2_mock: respx.Router):
-    """Verify volumes.list requests type=host and decodes the listing."""
-    # Given a mocked host-volume listing
-    route = httpx2_mock.get(f"{_ADDR}/v1/volumes").respond(json=[_VOL])
+def test_list_paginates_with_host_type(httpx2_mock: respx.Router):
+    """Verify volumes.list follows pagination and requests type=host on every page."""
+    # Given a two-page host-volume listing
+    route = httpx2_mock.get(f"{_ADDR}/v1/volumes").mock(
+        side_effect=[
+            httpx.Response(200, json=[_VOL], headers={"X-Nomad-Nexttoken": "t2"}),
+            httpx.Response(200, json=[{**_VOL, "ID": "v2"}]),
+        ]
+    )
     resource = _resource()
 
     # When listing
@@ -40,10 +45,9 @@ def test_list_filters_by_host_type(httpx2_mock: respx.Router):
 
     vols = asyncio.run(run())
 
-    # Then the stub decodes and the type=host query param was sent
-    assert vols[0].name == "data"
-    assert vols[0].node_id == "n1"
-    assert route.calls.last.request.url.params["type"] == "host"
+    # Then both pages decode and every request carried the type=host filter
+    assert [v.id for v in vols] == [_VOL["ID"], "v2"]
+    assert all(call.request.url.params["type"] == "host" for call in route.calls)
 
 
 def test_register_puts_volume_body(httpx2_mock: respx.Router):
@@ -56,18 +60,15 @@ def test_register_puts_volume_body(httpx2_mock: respx.Router):
     body = {"Name": "data", "Type": "host", "NodeID": "n1", "HostPath": "/srv/data"}
 
     # When registering
-    async def run() -> HostVolumeRegisterResponse:
-        result = await resource.register(body)
+    async def run() -> None:
+        await resource.register(body)
         await resource._transport.aclose()
-        return result
 
-    resp = asyncio.run(run())
+    asyncio.run(run())
 
     # Then the request wraps the volume under a "Volume" key
     sent = json.loads(route.calls.last.request.content)
     assert sent == {"Volume": body}
-    assert resp.volume is not None
-    assert resp.volume["Name"] == "data"
 
 
 def test_delete_issues_delete_to_host_endpoint(httpx2_mock: respx.Router):

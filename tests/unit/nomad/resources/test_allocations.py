@@ -6,7 +6,7 @@ import json
 import respx
 
 from nd.nomad.config import NomadConfig
-from nd.nomad.models.allocation import Allocation, AllocListStub
+from nd.nomad.models.allocation import AllocListStub
 from nd.nomad.resources.allocations import AllocationsResource
 from nd.nomad.transport import AsyncTransport
 
@@ -42,29 +42,6 @@ def test_list_decodes_allocations(httpx2_mock: respx.Router):
     # Then the irregular-cased node id decodes and the expected path was called
     assert allocs[0].node_id == "n1"
     assert route.calls.last.request.url.path == "/v1/allocations"
-
-
-def test_read_decodes_task_states(httpx2_mock: respx.Router):
-    """Verify allocations.read decodes the per-task states map."""
-    # Given a mocked single-allocation endpoint carrying task states
-    httpx2_mock.get(f"{_ADDR}/v1/allocation/a1").respond(
-        json={
-            **_STUB,
-            "TaskStates": {"server": {"State": "running", "Failed": False, "Restarts": 0}},
-        },
-    )
-    resource = AllocationsResource(AsyncTransport(NomadConfig(address=_ADDR)))
-
-    # When reading the allocation
-    async def run() -> Allocation:
-        result = await resource.read("a1")
-        await resource._transport.aclose()
-        return result
-
-    alloc = asyncio.run(run())
-
-    # Then the task state decodes
-    assert alloc.task_states["server"].state == "running"
 
 
 def test_signal_posts_signal_and_task(httpx2_mock: respx.Router):

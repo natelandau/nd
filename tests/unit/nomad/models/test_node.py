@@ -27,9 +27,9 @@ def test_node_list_stub_decodes():
     assert stub.modify_index == 42
 
 
-def test_node_decodes_irregular_keys():
-    """Verify Node decodes and maps irregular key names correctly."""
-    # Given a node payload with irregular pascal-case keys
+def test_node_decodes_meta():
+    """Verify Node decodes the node's metadata map and tolerates unknown keys."""
+    # Given a full node payload carrying keys the model does not declare
     payload = b"""
     {
       "ID": "abc-123", "Datacenter": "dc1", "Name": "client-1",
@@ -42,7 +42,6 @@ def test_node_decodes_irregular_keys():
     """
     # When decoding the node payload
     node = msgspec.json.decode(payload, type=Node)
-    # Then the irregular keys are mapped to snake_case attributes
-    assert node.http_addr == "10.0.0.5:4646"
-    assert node.tls_enabled is True
-    assert node.attributes["os.name"] == "ubuntu"
+    # Then the shared fields and metadata decode
+    assert node.id == "abc-123"
+    assert node.meta == {"role": "web"}

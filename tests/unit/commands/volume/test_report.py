@@ -31,8 +31,6 @@ def _node(*, node_id="n1", name="node1", status="ready", root="/srv") -> Node:
         status=status,
         drain=False,
         scheduling_eligibility="eligible",
-        http_addr="10.0.0.1:4646",
-        tls_enabled=False,
         meta={"nfsStorageRoot": root} if root else {},
         create_index=1,
         modify_index=2,

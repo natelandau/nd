@@ -115,6 +115,6 @@ async def _run(*, hide_running: bool = False) -> None:
     files = discover_job_files(directories)
     pp.debug(f"Discovered {len(files)} job file(s) in {len(directories)} dir(s)")
     config = NomadConfig.resolve()
-    async with NomadClient.from_config(config) as client:
+    async with NomadClient(config) as client:
         jobs = await client.jobs.list()
     _render(build_rows(files, jobs, hide_running=hide_running), config.ui_base)

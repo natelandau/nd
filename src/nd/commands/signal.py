@@ -133,7 +133,7 @@ async def _run(
         typer.Exit: If an argument matches nothing selectable, or a needed prompt
             cannot be shown.
     """
-    async with NomadClient.from_config(config) as client:
+    async with NomadClient(config) as client:
         exit_code, target = await resolve_with_client(
             client, job_arg=job, task_arg=task, running_only=True
         )

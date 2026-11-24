@@ -57,6 +57,6 @@ def test_decode_list_raises_nomad_decode_error_on_mismatch():
     # Given: a JSON array whose element has the wrong type for the 'name' field
     resp = httpx2.Response(200, json=[{"name": 123}])
 
-    # When / Then
-    with pytest.raises(NomadDecodeError):
+    # When / Then the error names the list's item type
+    with pytest.raises(NomadDecodeError, match=r"Failed to decode list\[.*_Item\]"):
         _resource()._decode_list(resp, _Item)

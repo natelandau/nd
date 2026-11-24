@@ -329,7 +329,7 @@ async def _run(  # noqa: PLR0911
         "Resolved Nomad config",
         details=[f"address={config.address}", f"namespace={config.namespace}"],
     )
-    async with NomadClient.from_config(config) as client:
+    async with NomadClient(config) as client:
         jobs = await client.jobs.list()
         running = [j for j in jobs if j.status == "running"]
         pp.debug(f"GET /v1/jobs -> {len(running)} running of {len(jobs)} jobs")

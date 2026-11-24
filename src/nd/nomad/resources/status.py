@@ -10,5 +10,5 @@ class StatusResource(BaseResource):
 
     async def leader(self) -> str:
         """Return the current leader's RPC address (``GET /v1/status/leader``)."""
-        response = await self._transport.request("GET", "/status/leader")
-        return self._decode(response, str)
+        response = await self._transport.request(method="GET", path="/status/leader")
+        return self._decode(response=response, type_=str)

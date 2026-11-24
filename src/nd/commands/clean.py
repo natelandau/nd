@@ -35,7 +35,7 @@ async def _run(*, verbose: int) -> None:
     """
     config = NomadConfig.resolve()
     pp.debug("Resolved Nomad config", details=[f"address={config.address}"])
-    async with NomadClient.from_config(config) as client:
+    async with NomadClient(config) as client:
         with pp.step("Cleaning up the cluster") as step:
             await record_step(
                 client.system.gc(), step=step, verbose=verbose, method="PUT", path="/system/gc"

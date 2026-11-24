@@ -79,7 +79,7 @@ def test_update_one_compile_failure_skips_stop(httpx2_mock: respx.Router, mocker
 
     # When updating that target
     async def go() -> UpdateOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
                 client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
@@ -108,7 +108,7 @@ def test_update_one_aborts_register_when_stop_fails(
 
     # When updating that target
     async def go() -> UpdateOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
                 client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
@@ -135,7 +135,7 @@ def test_update_one_register_failure_reports_job_down(
 
     # When updating that target
     async def go() -> UpdateOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
                 client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
@@ -175,7 +175,7 @@ def test_update_one_recreate_sequence_succeeds(httpx2_mock: respx.Router, mocker
 
     # When updating with purge enabled
     async def go() -> UpdateOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
                 client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
@@ -220,7 +220,7 @@ def test_update_one_no_purge_skips_purge(httpx2_mock: respx.Router, mocker) -> N
 
     # When updating with purge disabled
     async def go() -> UpdateOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
                 client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=False
             )
@@ -259,7 +259,7 @@ def test_update_one_watch_error_does_not_escape(
 
     # When updating that target
     async def go() -> UpdateOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
                 client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
@@ -305,7 +305,7 @@ def test_update_one_purge_failed_still_redeploys(
 
     # When updating that target
     async def go() -> UpdateOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
                 client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
@@ -333,7 +333,7 @@ def test_update_one_drain_timeout_maps_to_timeout(
 
     # When updating that target
     async def go() -> UpdateOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
                 client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
             )
@@ -386,7 +386,7 @@ def test_update_one_marks_previous_version_stopped(
 
     # When updating that target
     async def go() -> UpdateOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
                 client, target, node_names={}, update=_update, nomad=nomad, purge=True
             )
@@ -423,7 +423,7 @@ def test_update_one_no_marker_when_stop_times_out(
 
     # When updating that target
     async def go() -> UpdateOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
                 client, target, node_names={}, update=_update, nomad=nomad, purge=True
             )
@@ -476,7 +476,7 @@ def test_update_one_no_marker_when_nothing_was_running(
 
     # When updating that target
     async def go() -> UpdateOutcome:
-        async with NomadClient.from_config(NomadConfig(address=_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=_ADDR)) as client:
             return await update_mod._update_one(
                 client, target, node_names={}, update=_update, nomad=nomad, purge=True
             )
