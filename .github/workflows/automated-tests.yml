@@ -6,23 +6,30 @@ on:
     push:
         paths:
             - ".github/workflows/automated-tests.yml"
+            - ".github/workflows/reusable-tests.yml"
             - ".github/actions/**"
             - "**.py"
+            - ".pre-commit-config.yaml"
+            - ".typos.toml"
+            - ".yamllint.yml"
             - "pyproject.toml"
             - "uv.lock"
         branches:
             - main
     pull_request:
-        types:
-            - opened
-            - reopened
-            - synchronize
         paths:
             - ".github/workflows/automated-tests.yml"
+            - ".github/workflows/reusable-tests.yml"
             - ".github/actions/**"
             - "**.py"
+            - ".pre-commit-config.yaml"
+            - ".typos.toml"
+            - ".yamllint.yml"
             - "pyproject.toml"
             - "uv.lock"
+
+permissions:
+    contents: read
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -32,6 +39,7 @@ jobs:
     run-tests:
         if: ${{ !contains(github.event.head_commit.message, 'bump(release)') }}
         uses: ./.github/workflows/reusable-tests.yml
-        secrets: inherit
+        secrets:
+            CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
             run-coverage: true
