@@ -63,7 +63,7 @@ Match the existing commands: optional `NAME` substring argument and `--dry-run /
 - `commands/_orchestration.py`: `Outcome`/`Severity` for multi-target results, `run_outcome_rows` (live rows, report, exit code), `request_all` (`--detach` fan-out), `confirm_jobs`.
 - `commands/_lifecycle.py`: `watch_deploy`, `stop_and_wait`, `poll_until` (deadline poll loop), `task_lifecycle`.
 - `ui/`: styles, panels, prompts (`confirm`, `select_one`, `select_many`), durations, `text.plural`, `text.short_id`, `text.untrusted_markup` and `text.strip_terminal_controls` (required for task logs, events, and other workload text), `live_panel.run_rows` (concurrent per-target rows), `links.WebUi` and `links.file_link` (clickable job, node, and file names).
-- `targets/`: `select_targets` (substring match, multi-select, exits on no match), `job_file_label`; `alloc_target.py` for resolving one job/alloc/task.
+- `targets/`: `select_targets` (substring match, multi-select, exits on no match), `job_file_label`; `alloc_target.py`: `resolve_with_client` (one job/alloc/task), `resolve_allocation_with_client` (job/alloc only, no task prompt).
 - `nodes.py`: `node_names_by_id`, `node_label` (name, or short ID when unknown).
 
 ## Testing
