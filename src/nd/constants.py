@@ -57,6 +57,8 @@ EXEC_SHELL_PROBE = "command -v bash >/dev/null 2>&1 && exec bash || exec sh"
 # window keeps a long-lived allocation that restarted months ago from staying flagged.
 DOCTOR_RESTART_THRESHOLD = 5
 DOCTOR_RESTART_WINDOW_SECONDS = 86_400
+# `nomad` compiles nd doctor runs at once, so a large job directory does not flood the host.
+DOCTOR_COMPILE_CONCURRENCY = 8
 # Resources Nomad fills in at registration when a task sets none. The API cannot tell
 # them from the same values set on purpose.
 NOMAD_DEFAULT_CPU_MHZ = 100

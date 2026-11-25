@@ -175,3 +175,46 @@ class JobRegisterPayload(NomadModel, frozen=True, kw_only=True):
     """The ``{"Job": {...}}`` body that ``nomad job run -output`` emits for ``POST /v1/jobs``."""
 
     job: JobSpec | None = None
+
+
+class TaskDiff(NomadModel, frozen=True, kw_only=True):
+    """How a plan would change one task; ``type`` is Added, Deleted, Edited, or None."""
+
+    name: str
+    type: str
+
+
+class TaskGroupDiff(NomadModel, frozen=True, kw_only=True):
+    """How a plan would change one task group and its tasks."""
+
+    name: str
+    type: str
+    tasks_raw: list[TaskDiff] | None = msgspec.field(name="Tasks", default=None)
+
+    @property
+    def tasks(self) -> list[TaskDiff]:
+        """The group's task diffs, with a null list read as empty."""
+        return self.tasks_raw or []
+
+
+class JobDiff(NomadModel, frozen=True, kw_only=True):
+    """How a plan would change a registered job."""
+
+    type: str
+    task_groups_raw: list[TaskGroupDiff] | None = msgspec.field(name="TaskGroups", default=None)
+
+    @property
+    def task_groups(self) -> list[TaskGroupDiff]:
+        """The job's task group diffs, with a null list read as empty."""
+        return self.task_groups_raw or []
+
+    @property
+    def is_changed(self) -> bool:
+        """Whether deploying the planned job would change anything."""
+        return self.type != "None"
+
+
+class JobPlanResponse(NomadModel, frozen=True, kw_only=True):
+    """The response of ``POST /v1/job/:job_id/plan``, limited to the diff."""
+
+    diff: JobDiff | None = None

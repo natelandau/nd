@@ -5,32 +5,36 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import msgspec
 import pytest
 
 from nd.commands.doctor.cluster_checks import (
     check_blocked_eval,
     check_failed_alloc,
+    check_job_drift,
     check_lost_alloc,
     check_no_local_file,
     check_node_down,
     check_unused_volume,
 )
-from nd.commands.doctor.findings import FindingSeverity
+from nd.commands.doctor.findings import FindingSeverity, JobDrift
 from tests.builders import (
     agent_member,
     alloc_stub,
     doctor_snapshot,
     eval_stub,
     host_volume_stub,
+    job_diff,
     job_spec,
     job_stub,
     node_stub,
+    task_group_diff,
     volume_request,
 )
 
 if TYPE_CHECKING:
     from nd.nomad.models.allocation import AllocListStub
-    from nd.nomad.models.job import JobListStub, JobSpec
+    from nd.nomad.models.job import JobDiff, JobListStub, JobSpec
 
 
 @pytest.mark.parametrize(
@@ -220,3 +224,91 @@ def test_check_unused_volume(
 
     # Then an unrequested volume is reported once, by name
     assert [(f.target, f.fix_hint) for f in findings] == expected
+
+
+@pytest.mark.parametrize(
+    ("diff", "expected"),
+    [
+        pytest.param(job_diff(task_group_diff("app", "server")), "app/server", id="one-task"),
+        pytest.param(job_diff(task_group_diff("app", "app")), "app", id="task-named-like-group"),
+        pytest.param(
+            job_diff(task_group_diff("app", "a", "b"), task_group_diff("db", type_="None")),
+            "app",
+            id="several-tasks-one-group",
+        ),
+        pytest.param(
+            job_diff(task_group_diff("app"), task_group_diff("db")), "2 groups", id="groups"
+        ),
+        pytest.param(job_diff(), "job settings", id="job-settings"),
+    ],
+)
+def test_check_job_drift_names_the_change(diff: JobDiff, expected: str) -> None:
+    """Verify an edited job is a warning that names what changed and how to review it."""
+    # Given web's plan shows a change
+    web = job_stub("web")
+    snapshot = doctor_snapshot(jobs=[web], job_drift={web: diff})
+
+    # When checking drift
+    findings = check_job_drift(snapshot)
+
+    # Then one warning names the change and hints at nd plan
+    assert [(f.severity, f.target, f.problem, f.fix_hint) for f in findings] == [
+        (FindingSeverity.WARNING, "web", expected, "nd plan web")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("drift", "expected"),
+    [
+        pytest.param(job_diff(type_="None"), [], id="unchanged"),
+        pytest.param(
+            "bad file",
+            [(FindingSeverity.WARNING, "web", "plan failed: bad file", None)],
+            id="plan-failed",
+        ),
+    ],
+)
+def test_check_job_drift_without_a_change(
+    drift: JobDrift, expected: list[tuple[FindingSeverity, str, str, str | None]]
+) -> None:
+    """Verify an unchanged job is quiet and a failed comparison is reported."""
+    # Given web's plan result
+    web = job_stub("web")
+    snapshot = doctor_snapshot(jobs=[web], job_drift={web: drift})
+
+    # When checking drift
+    findings = check_job_drift(snapshot)
+
+    # Then only the failure is reported
+    assert [(f.severity, f.target, f.problem, f.fix_hint) for f in findings] == expected
+
+
+def test_check_job_drift_not_checked() -> None:
+    """Verify a skipped comparison is one info finding naming why, with no job attached."""
+    # Given drift that could not be checked
+    snapshot = doctor_snapshot(jobs=[job_stub("web")], drift_not_checked="nomad binary not found")
+
+    # When checking drift
+    findings = check_job_drift(snapshot)
+
+    # Then one info finding gives the reason and belongs to no job
+    assert [(f.severity, f.problem, f.job_name) for f in findings] == [
+        (FindingSeverity.INFO, "nomad binary not found", None)
+    ]
+
+
+def test_check_job_drift_keeps_same_named_jobs_apart() -> None:
+    """Verify jobs sharing a name in different namespaces keep their own plan results."""
+    # Given web in two namespaces, where only the media one changed
+    default_web = job_stub("web")
+    media_web = msgspec.structs.replace(job_stub("web"), namespace="media")
+    snapshot = doctor_snapshot(
+        jobs=[default_web, media_web],
+        job_drift={default_web: job_diff(type_="None"), media_web: job_diff()},
+    )
+
+    # When checking drift
+    findings = check_job_drift(snapshot)
+
+    # Then exactly one finding is reported
+    assert len(findings) == 1

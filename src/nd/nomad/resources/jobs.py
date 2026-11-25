@@ -4,14 +4,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import msgspec
+
 if TYPE_CHECKING:
     import builtins
 
+from nd.nomad.errors import NomadDecodeError
+from nd.nomad.models import decode_json
 from nd.nomad.models.allocation import AllocListStub
 from nd.nomad.models.deployment import Deployment
 from nd.nomad.models.job import (
     JobDeregisterResponse,
     JobListStub,
+    JobPlanResponse,
     JobRegisterResponse,
     JobSpec,
 )
@@ -75,3 +80,32 @@ class JobsResource(BaseResource):
         recent deployment must select it by ``CreateIndex`` rather than position.
         """
         return await self._paginate_list(path=f"/job/{job_id}/deployments", item_type=Deployment)
+
+    async def plan(self, body: bytes, *, namespace: str | None = None) -> JobPlanResponse:
+        """Preview what registering a compiled job would change (``POST /v1/job/:id/plan``).
+
+        Use this to compare a local job file with what runs, without changing the cluster.
+        Pass the ``{"Job": {...}}`` payload from ``nomad job run -output``. The request
+        path uses the compiled job's ID, which can differ from its name. Pass the running
+        job's own ``namespace`` when it came from a listing, since Nomad files a compiled
+        job that names no namespace under a wildcard configured namespace.
+
+        Raises:
+            NomadDecodeError: If ``body`` holds no job ID.
+        """
+        # The compiled job is untyped Nomad JSON, passed through unchanged.
+        request = decode_json(data=body, type_=dict[str, object])
+        job = request.get("Job")
+        job_id = job.get("ID") if isinstance(job, dict) else None
+        if not isinstance(job_id, str) or not job_id:
+            msg = (
+                f'Compiled job has no job ID; expected {{"Job": {{"ID": ...}}}}, got {body[:200]!r}'
+            )
+            raise NomadDecodeError(msg)
+        response = await self._transport.request(
+            method="POST",
+            path=f"/job/{job_id}/plan",
+            params={"namespace": namespace} if namespace else None,
+            content=msgspec.json.encode({**request, "Diff": True}),
+        )
+        return self._decode(response=response, type_=JobPlanResponse)

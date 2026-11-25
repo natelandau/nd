@@ -1,8 +1,11 @@
 """Tests for the jobs resource."""
 
+import json
+
 import pytest
 import respx
 
+from nd.nomad import NomadDecodeError
 from tests.builders import alloc_stub, deployment, job_spec, job_stub, to_payload
 from tests.helpers import NOMAD_TEST_ADDR, run_with_client
 
@@ -141,3 +144,60 @@ def test_get_queries_the_job_namespace(httpx2_mock: respx.Router):
 
     # Then the request names that namespace
     assert route.calls.last.request.url.params["namespace"] == "media"
+
+
+def test_plan_posts_compiled_job_with_diff(httpx2_mock: respx.Router):
+    """Verify jobs.plan posts the compiled job to its ID's plan path and asks for a diff."""
+    # Given a plan endpoint for a job whose ID differs from its name
+    route = httpx2_mock.post(f"{NOMAD_TEST_ADDR}/v1/job/web-prod/plan").respond(
+        json={
+            "Diff": {
+                "Type": "Edited",
+                "TaskGroups": [
+                    {
+                        "Name": "app",
+                        "Type": "Edited",
+                        "Tasks": [{"Name": "server", "Type": "Edited"}],
+                    }
+                ],
+            }
+        }
+    )
+    body = b'{"Job": {"ID": "web-prod", "Name": "web", "TaskGroups": null}}'
+
+    # When planning the compiled job in the job's namespace
+    resp = run_with_client(lambda client: client.jobs.plan(body, namespace="media"))
+
+    # Then the job is sent with a diff request in that namespace and the diff decodes
+    assert route.calls.last.request.url.params["namespace"] == "media"
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["Diff"] is True
+    assert sent["Job"]["ID"] == "web-prod"
+    assert resp.diff is not None
+    assert resp.diff.is_changed
+    assert resp.diff.task_groups[0].tasks[0].name == "server"
+
+
+def test_plan_decodes_null_task_groups(httpx2_mock: respx.Router):
+    """Verify an unchanged plan with null task groups reads as no change."""
+    # Given a plan endpoint reporting no change
+    httpx2_mock.post(f"{NOMAD_TEST_ADDR}/v1/job/web/plan").respond(
+        json={"Diff": {"Type": "None", "TaskGroups": None}}
+    )
+
+    # When planning the compiled job
+    resp = run_with_client(lambda client: client.jobs.plan(b'{"Job": {"ID": "web"}}'))
+
+    # Then the diff is unchanged with no groups
+    assert resp.diff is not None
+    assert not resp.diff.is_changed
+    assert resp.diff.task_groups == []
+
+
+def test_plan_rejects_body_without_job_id():
+    """Verify a compiled body with no job ID fails before any request."""
+    # Given a compiled body with no job
+    # When planning it
+    # Then a decode error names the problem
+    with pytest.raises(NomadDecodeError, match="no job ID"):
+        run_with_client(lambda client: client.jobs.plan(b'{"Job": null}'))

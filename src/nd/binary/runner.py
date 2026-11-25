@@ -58,8 +58,9 @@ class NomadBinary:
         try:
             run_command([self._path, "job", "validate", str(file)], env=self._env)
         except ShellCommandError as exc:
-            msg = f"`nomad job validate {file}` failed: {_stderr(exc)}"
-            raise NomadBinaryError(msg) from exc
+            detail = _stderr(exc)
+            msg = f"`nomad job validate {file}` failed: {detail}"
+            raise NomadBinaryError(msg, detail=detail) from exc
 
     async def validate_all(self, paths: Iterable[Path]) -> None:
         """Validate every job file concurrently before acting on any of them.
@@ -97,8 +98,9 @@ class NomadBinary:
                 [self._path, "job", "plan", str(file)], env=self._env, stream=True, check=False
             )
         except ShellCommandError as exc:
-            msg = f"`nomad job plan {file}` could not run: {_stderr(exc)}"
-            raise NomadBinaryError(msg) from exc
+            detail = _stderr(exc)
+            msg = f"`nomad job plan {file}` could not run: {detail}"
+            raise NomadBinaryError(msg, detail=detail) from exc
         return result.returncode
 
     def compile_to_json(self, file: Path) -> bytes:
@@ -112,8 +114,9 @@ class NomadBinary:
         try:
             result = run_command([self._path, "job", "run", "-output", str(file)], env=self._env)
         except ShellCommandError as exc:
-            msg = f"`nomad job run -output {file}` failed: {_stderr(exc)}"
-            raise NomadBinaryError(msg) from exc
+            detail = _stderr(exc)
+            msg = f"`nomad job run -output {file}` failed: {detail}"
+            raise NomadBinaryError(msg, detail=detail) from exc
         return result.stdout.encode("utf-8")
 
     async def compile_job(self, file: Path) -> bytes:

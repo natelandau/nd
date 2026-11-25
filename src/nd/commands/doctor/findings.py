@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from nd.nomad.models.agent import AgentMember
     from nd.nomad.models.allocation import AllocListStub
     from nd.nomad.models.evaluation import EvalListStub
-    from nd.nomad.models.job import JobListStub, JobSpec
+    from nd.nomad.models.job import JobDiff, JobListStub, JobSpec
     from nd.nomad.models.node import NodeListStub
     from nd.nomad.models.volume import HostVolumeListStub
 
@@ -47,6 +47,10 @@ class Finding:
     fix_hint: str | None = None  # the nd command that fixes the finding
 
 
+# How a running job compares with its local file: the plan's diff, or why there is none.
+type JobDrift = JobDiff | str
+
+
 @dataclass(frozen=True)
 class DoctorSnapshot:
     """Everything the checks read, fetched once so each check stays free of I/O."""
@@ -62,6 +66,8 @@ class DoctorSnapshot:
     job_directories_configured: bool
     unnamed_job_files: list[Path]  # job files that name their job with a variable
     volume_spec_names: frozenset[str]  # names of local host volume spec files
+    job_drift: dict[JobListStub, JobDrift]  # plan result for each job planned against its file
+    drift_not_checked: str | None  # why no job could be planned, such as a missing binary
     now_ns: int
 
     @cached_property

@@ -20,7 +20,15 @@ if TYPE_CHECKING:
 
 
 class NomadBinaryError(Exception):
-    """Raised when the `nomad` binary is missing or a `nomad` invocation fails."""
+    """Raised when the `nomad` binary is missing or a `nomad` invocation fails.
+
+    `detail` holds the binary's own output, such as the HCL error, without the command
+    that produced it, for callers that already show which file failed.
+    """
+
+    def __init__(self, message: str, *, detail: str | None = None) -> None:
+        super().__init__(message)
+        self.detail = message if detail is None else detail
 
 
 def ensure_nomad() -> Path:
