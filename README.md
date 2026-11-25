@@ -359,6 +359,27 @@ loudly instead of silently doing nothing.
 `nd restart` follows the same rules. Without `--task`, it never asks for a task, so
 naming a job with one running allocation is enough.
 
+### JSON output for scripts and agents
+
+Add `--json` to `nd list`, `nd status`, or `nd status --hosts` to get the result as
+one JSON document. Stdout holds only the JSON. Errors and `-v` output go to stderr,
+so you can pipe stdout to `jq`.
+
+| Command                    | Output                                                                                                                                                                         |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `nd list --json`           | An array of `{job, status, file}`. The status is the Nomad job status, or `not deployed`.                                                                                       |
+| `nd status --json`         | An object with `health`, `cluster`, `servers`, `nodes`, `jobs`, `allocations`, `volumes`, `deployments`, and `problem_evaluations`.                                             |
+| `nd status --hosts --json` | The same object, with a `hosts` array. Each host lists its jobs with a `started_at` time.                                                                                       |
+
+Each job in `nd status --json` has two statuses. `status` is the status that `nd`
+shows, and it can be `degraded`. `nomad_status` is the status that Nomad reports.
+Times use ISO 8601 in UTC.
+
+```bash
+# Names of jobs that are not running cleanly
+nd status --json | jq -r '.jobs[] | select(.status != "running") | .name'
+```
+
 ### Verbosity
 
 Add `-v` for debug output or `-vv` to trace each API request with timings. The flag

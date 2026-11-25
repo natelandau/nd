@@ -10,14 +10,18 @@ import typer
 from nclutils import pp
 
 from nd.commands._common import (
+    JsonOption,
     VerboseOption,
     configure_verbosity,
     list_volumes_or_empty,
     record_step,
+    use_json_output,
 )
+from nd.commands.status.json_output import build_status_json
 from nd.commands.status.render import render_hosts, render_report
 from nd.commands.status.report import build_host_report, build_report
 from nd.nomad import NomadClient, NomadConfig
+from nd.ui.json_output import print_json
 
 if TYPE_CHECKING:
     from nd.commands.status.report import HostPanel, StatusReport
@@ -36,10 +40,16 @@ def status(
             "--hosts", help="Pivot the dashboard to one panel per host (jobs, status, uptime)."
         ),
     ] = False,
+    json_output: JsonOption = False,  # noqa: FBT002
 ) -> None:
     """Show an at-a-glance overview of the Nomad cluster."""
     verbose = configure_verbosity(ctx, verbose)
+    if json_output:
+        use_json_output()
     report, host_panels = asyncio.run(_collect(verbose=verbose, hosts=hosts))
+    if json_output:
+        print_json(build_status_json(report, host_panels if hosts else None))
+        return
     if verbose:  # separate the progress tree from the dashboard
         pp.console().print()
     if hosts:
