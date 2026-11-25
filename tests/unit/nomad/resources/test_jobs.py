@@ -165,10 +165,11 @@ def test_plan_posts_compiled_job_with_diff(httpx2_mock: respx.Router):
     )
     body = b'{"Job": {"ID": "web-prod", "Name": "web", "TaskGroups": null}}'
 
-    # When planning the compiled job
-    resp = run_with_client(lambda client: client.jobs.plan(body))
+    # When planning the compiled job in the job's namespace
+    resp = run_with_client(lambda client: client.jobs.plan(body, namespace="media"))
 
-    # Then the job is sent with a diff request and the diff decodes
+    # Then the job is sent with a diff request in that namespace and the diff decodes
+    assert route.calls.last.request.url.params["namespace"] == "media"
     sent = json.loads(route.calls.last.request.content)
     assert sent["Diff"] is True
     assert sent["Job"]["ID"] == "web-prod"

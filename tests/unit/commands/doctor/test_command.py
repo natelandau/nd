@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
     import respx
 
-    from nd.commands.doctor.findings import DoctorSnapshot
+    from nd.commands.doctor.findings import DoctorSnapshot, JobDrift
     from nd.nomad import NomadClient
     from nd.nomad.models.job import JobSpec
 
@@ -60,6 +60,11 @@ def _deploy(cluster: respx.Router, nomad_env: str, *specs: JobSpec) -> None:
     )
     for spec in specs:
         cluster.get(f"{nomad_env}/v1/job/{spec.name}").respond(json=to_payload(spec))
+
+
+def _drift_by_name(snapshot: DoctorSnapshot) -> dict[str, JobDrift]:
+    """Key the snapshot's plan results by job name, for tests with unique names."""
+    return {job.name: drift for job, drift in snapshot.job_drift.items()}
 
 
 async def _collect(client: NomadClient) -> DoctorSnapshot:
@@ -258,9 +263,9 @@ def test_collect_snapshot_plans_running_jobs_with_files(
     snapshot = run_with_client(_collect)
 
     # Then web and backup are planned and the dead job's file is never compiled
-    assert snapshot.job_drift is not None
-    assert set(snapshot.job_drift) == {"web", "backup"}
-    web_diff = snapshot.job_drift["web"]
+    drift = _drift_by_name(snapshot)
+    assert set(drift) == {"web", "backup"}
+    web_diff = drift["web"]
     assert isinstance(web_diff, JobDiff)
     assert web_diff.is_changed
     assert all(call.args[0] != old_file for call in fake_nomad_binary.compile_job.call_args_list)
@@ -281,24 +286,71 @@ def test_collect_snapshot_records_compile_error(
     snapshot = run_with_client(_collect)
 
     # Then web's drift is the compiler's error, without the command
-    assert snapshot.job_drift == {"web": "Error parsing job file"}
+    assert _drift_by_name(snapshot) == {"web": "Error parsing job file"}
 
 
+@pytest.mark.parametrize(
+    ("status", "body", "expected"),
+    [
+        pytest.param(400, "invalid job", "invalid job", id="bad-request"),
+        pytest.param(
+            400,
+            "1 error occurred:\n\t* Task group app validation failed\n\n",
+            "Task group app validation failed",
+            id="multi-error",
+        ),
+        pytest.param(500, "", "Nomad returned HTTP 500", id="server-error"),
+        pytest.param(200, "not json", "Failed to decode JobPlanResponse", id="bad-response"),
+    ],
+)
 def test_collect_snapshot_records_rejected_plan(
-    cluster: respx.Router, nomad_env: str, job_files, fake_nomad_binary: MagicMock
+    cluster: respx.Router,
+    nomad_env: str,
+    job_files,
+    fake_nomad_binary: MagicMock,
+    status: int,
+    body: str,
+    expected: str,
 ) -> None:
-    """Verify a job Nomad rejects at plan time is recorded as Nomad's reason."""
+    """Verify a rejected or unreadable plan is recorded as the reason instead of failing doctor."""
     # Given a running web whose plan Nomad rejects
     job_files("web.hcl", "web")
     _deploy(cluster, nomad_env, job_spec("web", tasks=[task_spec()]))
     fake_nomad_binary.compile_job.side_effect = _compiled
-    cluster.post(f"{nomad_env}/v1/job/web/plan").respond(400, text="invalid job")
+    cluster.post(f"{nomad_env}/v1/job/web/plan").respond(status, text=body)
 
     # When collecting the snapshot
     snapshot = run_with_client(_collect)
 
-    # Then web's drift is Nomad's reason
-    assert snapshot.job_drift == {"web": "invalid job"}
+    # Then web's drift starts with the line that states Nomad's reason
+    drift = _drift_by_name(snapshot)["web"]
+    assert isinstance(drift, str)
+    assert drift.startswith(expected)
+
+
+def test_collect_snapshot_without_plan_permission(
+    cluster: respx.Router, nomad_env: str, job_files, fake_nomad_binary: MagicMock
+) -> None:
+    """Verify a token that cannot plan skips drift once instead of failing every job."""
+    # Given two running jobs with files and a token the plan endpoint refuses
+    job_files("web.hcl", "web")
+    job_files("db.hcl", "db")
+    _deploy(
+        cluster,
+        nomad_env,
+        job_spec("web", tasks=[task_spec()]),
+        job_spec("db", tasks=[task_spec()]),
+    )
+    fake_nomad_binary.compile_job.side_effect = _compiled
+    for job_id in ("web", "db"):
+        cluster.post(f"{nomad_env}/v1/job/{job_id}/plan").respond(403, text="Permission denied")
+
+    # When collecting the snapshot
+    snapshot = run_with_client(_collect)
+
+    # Then drift is recorded as not checked rather than as two failures
+    assert snapshot.job_drift == {}
+    assert snapshot.drift_not_checked
 
 
 def test_collect_snapshot_without_nomad_binary(
@@ -312,8 +364,9 @@ def test_collect_snapshot_without_nomad_binary(
     # When collecting the snapshot
     snapshot = run_with_client(_collect)
 
-    # Then drift is recorded as not checked
-    assert snapshot.job_drift is None
+    # Then drift is recorded as not checked, with the reason
+    assert snapshot.job_drift == {}
+    assert snapshot.drift_not_checked
 
 
 def test_collect_snapshot_skips_binary_when_nothing_to_plan(
@@ -328,6 +381,7 @@ def test_collect_snapshot_skips_binary_when_nothing_to_plan(
 
     # Then the missing binary is not reported
     assert snapshot.job_drift == {}
+    assert snapshot.drift_not_checked is None
 
 
 def test_doctor_fails_on_drift(

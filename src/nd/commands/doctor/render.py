@@ -65,6 +65,9 @@ _CHECK_DISPLAY: dict[str, _CheckDisplay] = {
     ),
     "default-resources": _CheckDisplay("Default resources", "CPU and memory never set"),
     "no-local-file": _CheckDisplay("No local job file", "running without a job file"),
+    "drift-not-checked": _CheckDisplay(
+        "Drift not checked", "jobs not compared with their files", "CHECK", "REASON"
+    ),
     "job-drift": _CheckDisplay(
         "Out of sync", "deployed job differs from its file", "JOB", "CHANGED"
     ),

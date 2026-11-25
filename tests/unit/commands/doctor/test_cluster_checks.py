@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import msgspec
 import pytest
 
 from nd.commands.doctor.cluster_checks import (
@@ -244,7 +245,8 @@ def test_check_unused_volume(
 def test_check_job_drift_names_the_change(diff: JobDiff, expected: str) -> None:
     """Verify an edited job is a warning that names what changed and how to review it."""
     # Given web's plan shows a change
-    snapshot = doctor_snapshot(jobs=[job_stub("web")], job_drift={"web": diff})
+    web = job_stub("web")
+    snapshot = doctor_snapshot(jobs=[web], job_drift={web: diff})
 
     # When checking drift
     findings = check_job_drift(snapshot)
@@ -256,39 +258,57 @@ def test_check_job_drift_names_the_change(diff: JobDiff, expected: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("drift", "binary_missing", "expected"),
+    ("drift", "expected"),
     [
-        pytest.param(job_diff(type_="None"), False, [], id="unchanged"),
+        pytest.param(job_diff(type_="None"), [], id="unchanged"),
         pytest.param(
             "bad file",
-            False,
             [(FindingSeverity.WARNING, "web", "plan failed: bad file", None)],
             id="plan-failed",
-        ),
-        pytest.param(
-            None,
-            True,
-            [(FindingSeverity.INFO, "nomad", "binary not found; drift not checked", None)],
-            id="binary-missing",
         ),
     ],
 )
 def test_check_job_drift_without_a_change(
-    drift: JobDrift | None,
-    *,
-    binary_missing: bool,
-    expected: list[tuple[FindingSeverity, str, str, str | None]],
+    drift: JobDrift, expected: list[tuple[FindingSeverity, str, str, str | None]]
 ) -> None:
-    """Verify an unchanged job is quiet and a failed or skipped comparison is reported."""
-    # Given web's plan result, or a missing nomad binary
+    """Verify an unchanged job is quiet and a failed comparison is reported."""
+    # Given web's plan result
+    web = job_stub("web")
+    snapshot = doctor_snapshot(jobs=[web], job_drift={web: drift})
+
+    # When checking drift
+    findings = check_job_drift(snapshot)
+
+    # Then only the failure is reported
+    assert [(f.severity, f.target, f.problem, f.fix_hint) for f in findings] == expected
+
+
+def test_check_job_drift_not_checked() -> None:
+    """Verify a skipped comparison is one info finding naming why, with no job attached."""
+    # Given drift that could not be checked
+    snapshot = doctor_snapshot(jobs=[job_stub("web")], drift_not_checked="nomad binary not found")
+
+    # When checking drift
+    findings = check_job_drift(snapshot)
+
+    # Then one info finding gives the reason and belongs to no job
+    assert [(f.severity, f.problem, f.job_name) for f in findings] == [
+        (FindingSeverity.INFO, "nomad binary not found", None)
+    ]
+
+
+def test_check_job_drift_keeps_same_named_jobs_apart() -> None:
+    """Verify jobs sharing a name in different namespaces keep their own plan results."""
+    # Given web in two namespaces, where only the media one changed
+    default_web = job_stub("web")
+    media_web = msgspec.structs.replace(job_stub("web"), namespace="media")
     snapshot = doctor_snapshot(
-        jobs=[job_stub("web")],
-        job_drift={"web": drift} if drift is not None else None,
-        binary_missing=binary_missing,
+        jobs=[default_web, media_web],
+        job_drift={default_web: job_diff(type_="None"), media_web: job_diff()},
     )
 
     # When checking drift
     findings = check_job_drift(snapshot)
 
-    # Then only the failure or the skip is reported
-    assert [(f.severity, f.target, f.problem, f.fix_hint) for f in findings] == expected
+    # Then exactly one finding is reported
+    assert len(findings) == 1

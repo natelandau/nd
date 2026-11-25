@@ -422,8 +422,8 @@ def doctor_snapshot(
     job_directories_configured: bool = True,
     unnamed_job_files: list[Path] | None = None,
     volume_spec_names: frozenset[str] = frozenset(),
-    job_drift: dict[str, JobDrift] | None = None,
-    binary_missing: bool = False,
+    job_drift: dict[JobListStub, JobDrift] | None = None,
+    drift_not_checked: str | None = None,
     now_ns: int = 0,
 ) -> DoctorSnapshot:
     """Build a cluster snapshot for nd doctor checks; every listing defaults to empty.
@@ -443,6 +443,7 @@ def doctor_snapshot(
         job_directories_configured=job_directories_configured,
         unnamed_job_files=unnamed_job_files or [],
         volume_spec_names=volume_spec_names,
-        job_drift=None if binary_missing else job_drift or {},
+        job_drift=job_drift or {},
+        drift_not_checked=drift_not_checked,
         now_ns=now_ns,
     )

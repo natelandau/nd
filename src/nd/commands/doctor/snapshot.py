@@ -15,7 +15,7 @@ from nd.commands._common import list_volumes_or_empty
 from nd.commands.doctor.findings import DoctorSnapshot
 from nd.constants import DOCTOR_COMPILE_CONCURRENCY
 from nd.jobfiles import candidates_for, discover_job_files, load_job_directories
-from nd.nomad import NomadBadRequestError, NomadNotFoundError
+from nd.nomad import NomadAuthError, NomadDecodeError, NomadHTTPError, NomadNotFoundError
 from nd.volumefiles import discover_volume_files, load_volume_directories
 
 if TYPE_CHECKING:
@@ -35,57 +35,99 @@ async def _job_spec_or_none(client: NomadClient, job: JobListStub) -> JobSpec | 
         return None
 
 
-def _jobs_to_plan(jobs: list[JobListStub], job_file_paths: dict[str, Path]) -> dict[str, Path]:
+def _jobs_to_plan(jobs: list[JobListStub], job_file_paths: dict[str, Path]) -> list[JobListStub]:
     """Pick the jobs whose deployed spec can drift from a file: live, file-backed, not children."""
-    return {
-        job.name: job_file_paths[job.name]
+    return [
+        job
         for job in jobs
         if job.status != "dead" and not job.is_child and job.name in job_file_paths
-    }
+    ]
 
 
-def _first_line(text: str) -> str:
-    """Keep the first non-blank line, so an error fits one table cell."""
-    return next((line.strip() for line in text.splitlines() if line.strip()), text)
+def _error_summary(text: str) -> str:
+    """Pick the line that states the error, so it fits one table cell.
+
+    Nomad leads with a heading such as ``1 error occurred:`` or ``Error parsing job file
+    from web.hcl:``, so skip lines ending in a colon when a later line holds the cause.
+    """
+    lines = [line.strip().removeprefix("* ") for line in text.splitlines() if line.strip()]
+    return next((line for line in lines if not line.endswith(":")), lines[0] if lines else "")
 
 
 async def _plan_against_file(
-    client: NomadClient, binary: NomadBinary, path: Path, limit: asyncio.Semaphore
+    *,
+    client: NomadClient,
+    binary: NomadBinary,
+    job: JobListStub,
+    path: Path,
+    limit: asyncio.Semaphore,
 ) -> JobDrift:
-    """Compile one job file and ask Nomad what deploying it would change."""
+    """Compile one job file and ask Nomad what deploying it would change.
+
+    A token without plan permission raises `NomadAuthError`, since it fails every job
+    the same way and is reported once by the caller.
+    """
     try:
         async with limit:
             body = await binary.compile_job(path)
-        response = await client.jobs.plan(body)
+        response = await client.jobs.plan(body, namespace=job.namespace)
     except NomadBinaryError as exc:
-        return _first_line(exc.detail)
-    except NomadBadRequestError as exc:
-        return _first_line(exc.body)
+        return _error_summary(exc.detail) or str(exc)
+    except NomadAuthError:
+        raise
+    except NomadHTTPError as exc:
+        return _error_summary(exc.body) or f"Nomad returned HTTP {exc.status_code}"
+    except NomadDecodeError as exc:
+        return str(exc)
     return response.diff or "Nomad returned no diff"
 
 
-async def _plan_local_jobs(
-    client: NomadClient, config: NomadConfig, files_by_job: dict[str, Path]
-) -> dict[str, JobDrift] | None:
-    """Plan every job against its local file concurrently, keyed by job name.
+@dataclass(frozen=True)
+class _DriftResults:
+    """Each planned job's result, or why no job could be planned."""
 
-    Returns:
-        dict[str, JobDrift] | None: Each job's plan result, or None when the `nomad`
-            binary is missing. The binary is resolved only when a job needs it, so a
-            setup with no local job files never hears about a missing binary.
+    by_job: dict[JobListStub, JobDrift]
+    not_checked: str | None = None
+
+
+async def _plan_local_jobs(
+    *,
+    client: NomadClient,
+    config: NomadConfig,
+    jobs: list[JobListStub],
+    job_file_paths: dict[str, Path],
+) -> _DriftResults:
+    """Plan every job against its local file concurrently.
+
+    The binary is resolved only when a job needs it, so a setup with no local job files
+    never hears about a missing binary.
     """
-    if not files_by_job:
-        return {}
+    if not jobs:
+        return _DriftResults(by_job={})
     try:
         binary = NomadBinary.create(config)
     except NomadBinaryError as exc:
         pp.debug(f"Skipping drift check: {exc}")
-        return None
+        return _DriftResults(by_job={}, not_checked="nomad binary not found")
     limit = asyncio.Semaphore(DOCTOR_COMPILE_CONCURRENCY)
+    # Collect every result so one refused plan does not leave the others unretrieved.
     results = await asyncio.gather(
-        *(_plan_against_file(client, binary, path, limit) for path in files_by_job.values())
+        *(
+            _plan_against_file(
+                client=client, binary=binary, job=job, path=job_file_paths[job.name], limit=limit
+            )
+            for job in jobs
+        ),
+        return_exceptions=True,
     )
-    return dict(zip(files_by_job, results, strict=True))
+    if any(isinstance(result, NomadAuthError) for result in results):
+        return _DriftResults(by_job={}, not_checked="token cannot plan jobs")
+    by_job: dict[JobListStub, JobDrift] = {}
+    for job, result in zip(jobs, results, strict=True):
+        if isinstance(result, BaseException):
+            raise result
+        by_job[job] = result
+    return _DriftResults(by_job=by_job)
 
 
 @dataclass(frozen=True)
@@ -137,11 +179,16 @@ async def collect_snapshot(client: NomadClient, config: NomadConfig) -> DoctorSn
         asyncio.to_thread(_discover_local_files),
     )
     jobs, allocs, nodes, members, evals, volumes = listings
-    files_by_job = _jobs_to_plan(jobs, local_files.job_file_paths)
+    jobs_to_plan = _jobs_to_plan(jobs=jobs, job_file_paths=local_files.job_file_paths)
     # A child runs its parent's spec, so fetching it repeats the parent's findings.
-    specs, job_drift = await asyncio.gather(
+    specs, drift = await asyncio.gather(
         asyncio.gather(*(_job_spec_or_none(client, job) for job in jobs if not job.is_child)),
-        _plan_local_jobs(client, config, files_by_job),
+        _plan_local_jobs(
+            client=client,
+            config=config,
+            jobs=jobs_to_plan,
+            job_file_paths=local_files.job_file_paths,
+        ),
     )
 
     return DoctorSnapshot(
@@ -156,6 +203,7 @@ async def collect_snapshot(client: NomadClient, config: NomadConfig) -> DoctorSn
         job_directories_configured=local_files.job_directories_configured,
         unnamed_job_files=local_files.unnamed_job_files,
         volume_spec_names=local_files.volume_spec_names,
-        job_drift=job_drift,
+        job_drift=drift.by_job,
+        drift_not_checked=drift.not_checked,
         now_ns=time.time_ns(),
     )

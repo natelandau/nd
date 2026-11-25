@@ -66,9 +66,8 @@ class DoctorSnapshot:
     job_directories_configured: bool
     unnamed_job_files: list[Path]  # job files that name their job with a variable
     volume_spec_names: frozenset[str]  # names of local host volume spec files
-    # Job name -> plan result for each planned job; None when the `nomad` binary needed
-    # to compile the files is missing.
-    job_drift: dict[str, JobDrift] | None
+    job_drift: dict[JobListStub, JobDrift]  # plan result for each job planned against its file
+    drift_not_checked: str | None  # why no job could be planned, such as a missing binary
     now_ns: int
 
     @cached_property

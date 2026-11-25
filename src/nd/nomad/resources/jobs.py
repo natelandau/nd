@@ -81,12 +81,14 @@ class JobsResource(BaseResource):
         """
         return await self._paginate_list(path=f"/job/{job_id}/deployments", item_type=Deployment)
 
-    async def plan(self, body: bytes) -> JobPlanResponse:
+    async def plan(self, body: bytes, *, namespace: str | None = None) -> JobPlanResponse:
         """Preview what registering a compiled job would change (``POST /v1/job/:id/plan``).
 
         Use this to compare a local job file with what runs, without changing the cluster.
         Pass the ``{"Job": {...}}`` payload from ``nomad job run -output``. The request
-        path uses the compiled job's ID, which can differ from its name.
+        path uses the compiled job's ID, which can differ from its name. Pass the running
+        job's own ``namespace`` when it came from a listing, since Nomad files a compiled
+        job that names no namespace under a wildcard configured namespace.
 
         Raises:
             NomadDecodeError: If ``body`` holds no job ID.
@@ -103,6 +105,7 @@ class JobsResource(BaseResource):
         response = await self._transport.request(
             method="POST",
             path=f"/job/{job_id}/plan",
+            params={"namespace": namespace} if namespace else None,
             content=msgspec.json.encode({**request, "Diff": True}),
         )
         return self._decode(response=response, type_=JobPlanResponse)
