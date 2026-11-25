@@ -408,3 +408,25 @@ def test_update_confirm_decline_aborts(
     # Then it exits 0 and never stops or registers
     assert result.exit_code == 0
     assert not any(call.request.method in ("DELETE", "POST") for call in httpx2_mock.calls)
+
+
+@pytest.mark.usefixtures("nomad_env")
+def test_update_invalid_job_file_exits_without_stopping(
+    job_files: Callable[..., Path],
+    fake_nomad_binary: MagicMock,
+    httpx2_mock: respx.Router,
+    typer_runner,
+) -> None:
+    """Verify a job file that fails validation stops nothing, so the running job stays up."""
+    # Given a running job whose local file fails validation
+    job_files("web.hcl", "web")
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/jobs").respond(json=[to_payload(job_stub("web"))])
+    fake_nomad_binary.validate_all.side_effect = NomadBinaryError("web.hcl: invalid")
+
+    # When updating the job without a prompt
+    result = typer_runner.invoke(app, ["update", "web", "--force"])
+
+    # Then the command fails before any stop or register is sent
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert not any(call.request.method in ("DELETE", "POST") for call in httpx2_mock.calls)

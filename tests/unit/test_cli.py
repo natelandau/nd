@@ -8,6 +8,8 @@ import respx
 
 from nd import __version__
 from nd.cli import app, main
+from nd.nomad import NomadAuthError, NomadConfigError, NomadError, NomadServerError
+from nd.ui.prompts import PromptUnavailableError
 from tests.helpers import NOMAD_TEST_ADDR
 
 
@@ -94,3 +96,42 @@ def test_main_maps_connection_error_to_clean_exit(httpx2_mock: respx.Router, mon
     with pytest.raises(SystemExit) as exit_info:
         main()
     assert exit_info.value.code == 1
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(PromptUnavailableError("Selection requires a terminal"), id="no-terminal"),
+        pytest.param(
+            NomadAuthError("denied", status_code=403, method="GET", path="/jobs", body=""),
+            id="auth",
+        ),
+        pytest.param(NomadConfigError("bad config"), id="config"),
+        pytest.param(
+            NomadServerError("boom", status_code=500, method="GET", path="/jobs", body=""),
+            id="other-nomad-error",
+        ),
+        pytest.param(NomadError("decode failed"), id="base-nomad-error"),
+    ],
+)
+def test_main_maps_expected_errors_to_exit_one(mocker, error: Exception):
+    """Verify every expected failure exits 1 with a message instead of a traceback."""
+    # Given a command that fails with an error main() knows how to report
+    mocker.patch("nd.cli.app", side_effect=error)
+
+    # When running main()
+    # Then it exits 1 rather than letting the exception escape
+    with pytest.raises(SystemExit) as exit_info:
+        main()
+    assert exit_info.value.code == 1
+
+
+def test_main_lets_unexpected_errors_escape(mocker):
+    """Verify a bug surfaces as its own exception instead of a misleading clean exit."""
+    # Given a command that fails with an error main() does not handle
+    mocker.patch("nd.cli.app", side_effect=ValueError("bug"))
+
+    # When running main()
+    # Then the error propagates unchanged
+    with pytest.raises(ValueError, match="bug"):
+        main()

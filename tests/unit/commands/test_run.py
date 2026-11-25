@@ -309,3 +309,27 @@ def test_deploy_one_failure_before_register_reports_failed(
     # Then the outcome is a failure and no request reached the cluster
     assert outcome.severity is Severity.FAIL
     assert not httpx2_mock.calls
+
+
+@pytest.mark.usefixtures("nomad_env")
+def test_run_invalid_job_file_exits_without_registering(
+    httpx2_mock: respx.Router,
+    job_files: Callable[..., Path],
+    fake_nomad_binary: MagicMock,
+    typer_runner,
+) -> None:
+    """Verify a job file that fails validation is never registered or purged."""
+    # Given a dead job whose local file fails validation
+    job_files("web.hcl", "web")
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/jobs").respond(
+        json=[to_payload(job_stub("web", status="dead"))]
+    )
+    fake_nomad_binary.validate_all.side_effect = NomadBinaryError("web.hcl: invalid")
+
+    # When running it with --clean, which would otherwise purge the dead job first
+    result = typer_runner.invoke(app, ["run", "web", "--clean"])
+
+    # Then the command fails before any purge or register is sent
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert not any(call.request.method in ("DELETE", "POST") for call in httpx2_mock.calls)

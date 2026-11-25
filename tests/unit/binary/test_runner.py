@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from nclutils.sh import ShellCommandError, ShellCommandFailedError
+from nclutils.sh import ShellCommandError
 
 from nd.binary import NomadBinary, NomadBinaryError
 from nd.binary import runner as runner_mod
@@ -85,20 +85,6 @@ def test_compile_to_json_forwards_config_env(monkeypatch, nomad) -> None:
     assert calls[0]["env"]["NOMAD_ADDR"] == NOMAD_TEST_ADDR
 
 
-def test_compile_to_json_failure_raises(monkeypatch, nomad) -> None:
-    """Verify a non-zero compile raises NomadBinaryError with stderr."""
-
-    # Given a binary that fails
-    def fake_run(argv, **kw) -> None:
-        raise ShellCommandFailedError(msg="boom")
-
-    monkeypatch.setattr(runner_mod, "run_command", fake_run)
-
-    # When / Then compiling raises the friendly error
-    with pytest.raises(NomadBinaryError):
-        nomad.compile_to_json(Path("/home/user/web.hcl"))
-
-
 def test_validate_all_validates_each_file_once(monkeypatch, nomad) -> None:
     """Verify validate_all validates every distinct file once, ignoring repeats."""
     # Given a recording validate and a path list with a repeated file
@@ -152,19 +138,20 @@ def test_plan_returns_exit_code(monkeypatch, nomad) -> None:
     assert recorded_kwargs[0]["env"]["NOMAD_ADDR"] == NOMAD_TEST_ADDR
 
 
-def test_plan_launch_failure_raises(monkeypatch, nomad) -> None:
-    """Verify a binary that cannot launch raises NomadBinaryError."""
+@pytest.mark.parametrize("method", ["validate", "compile_to_json", "plan"])
+def test_job_spec_command_failure_raises(monkeypatch, nomad, method: str) -> None:
+    """Verify a failed or unlaunchable `nomad job` call raises NomadBinaryError with its stderr."""
 
-    # Given a binary that cannot launch
+    # Given a binary call that fails with an error on stderr
     def fake_run(argv, **kwargs) -> None:
         msg = "cannot launch"
         raise ShellCommandError(msg)
 
     monkeypatch.setattr(runner_mod, "run_command", fake_run)
 
-    # When / Then plan propagates the error as NomadBinaryError
-    with pytest.raises(NomadBinaryError):
-        nomad.plan(Path("/home/user/web.hcl"))
+    # When / Then the call raises the friendly error carrying the reason
+    with pytest.raises(NomadBinaryError, match="cannot launch"):
+        getattr(nomad, method)(Path("/home/user/web.hcl"))
 
 
 # --- allocations (interactive exec, log streaming) -----------------------------------
@@ -365,3 +352,14 @@ def test_stream_logs_export_with_tail_writes_snapshot(monkeypatch, tmp_path, nom
     assert "10" in argv
     assert "-f" not in argv
     assert out.read_bytes() == b"x\n"
+
+
+def test_exec_command_launch_failure_raises(monkeypatch, nomad) -> None:
+    """Verify an exec the binary cannot launch raises NomadBinaryError instead of a shell error."""
+    # Given an interactive runner that cannot start the binary
+    run = _patch_run_interactive(monkeypatch)
+    run.side_effect = ShellCommandError("cannot launch")
+
+    # When / Then exec raises the friendly error carrying the reason
+    with pytest.raises(NomadBinaryError, match="cannot launch"):
+        nomad.exec_command("alloc-1", "web", ["/bin/sh"], tty=False)

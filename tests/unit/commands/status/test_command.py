@@ -27,7 +27,9 @@ def mocked_cluster(httpx2_mock: respx.Router, nomad_env: str) -> None:
     httpx2_mock.get(f"{nomad_env}/v1/status/leader").respond(json="10.0.0.1:4647")
     httpx2_mock.get(f"{nomad_env}/v1/deployments").respond(json=[])
     httpx2_mock.get(f"{nomad_env}/v1/evaluations").respond(json=[])
-    httpx2_mock.get(f"{nomad_env}/v1/volumes", params={"type": "host"}).respond(json=[])
+    httpx2_mock.get(f"{nomad_env}/v1/volumes", params={"type": "host"}, name="volumes").respond(
+        json=[]
+    )
 
 
 @pytest.mark.usefixtures("mocked_cluster")
@@ -44,6 +46,23 @@ def test_collect_aggregates_all_endpoints() -> None:
     assert report.allocs_running == 1
     assert report.servers_total == 1
     assert report.leader_name == "srv1"
+
+
+@pytest.mark.usefixtures("mocked_cluster")
+def test_collect_renders_without_volumes_when_the_endpoint_fails(
+    httpx2_mock: respx.Router,
+) -> None:
+    """Verify a token without volume access still gets the rest of the dashboard."""
+    # Given a cluster whose volumes endpoint refuses the token
+    httpx2_mock.routes["volumes"].respond(403, text="Permission denied")
+
+    # When collecting status
+    report, _panels = asyncio.run(_collect(verbose=0))
+
+    # Then the report is built from the other endpoints, with no volume rows
+    assert report.health is Health.HEALTHY
+    assert report.jobs_running == 1
+    assert report.volume_rows == []
 
 
 @pytest.mark.usefixtures("mocked_cluster")
