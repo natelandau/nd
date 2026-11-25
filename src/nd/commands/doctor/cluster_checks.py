@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from nd.nomad.models.allocation import AllocListStub
+    from nd.nomad.models.job import JobDiff
 
 # Client statuses of an allocation whose node stopped reporting.
 _LOST_ALLOC_STATUSES = frozenset({"lost", "unknown"})
@@ -152,6 +153,59 @@ def check_no_local_file(snapshot: DoctorSnapshot) -> list[Finding]:
         for job in sorted(snapshot.jobs, key=lambda j: j.name)
         if job.status != "dead" and not job.is_child and job.name not in snapshot.job_file_paths
     ]
+
+
+def _describe_diff(diff: JobDiff) -> str:
+    """Say what a plan would change in one short cell: a group, a group's task, or a count."""
+    groups = [group for group in diff.task_groups if group.type != "None"]
+    if not groups:
+        return "job settings"
+    if len(groups) > 1:
+        return f"{len(groups)} groups"
+    group = groups[0]
+    tasks = [task.name for task in group.tasks if task.type != "None"]
+    # A task named like its group adds nothing to the group's name.
+    if len(tasks) == 1 and tasks[0] != group.name:
+        return f"{group.name}/{tasks[0]}"
+    return group.name
+
+
+def check_job_drift(snapshot: DoctorSnapshot) -> list[Finding]:
+    """Flag running jobs whose deployed spec differs from their local job file.
+
+    Returns:
+        list[Finding]: One warning per edited job or job whose plan failed, by job name,
+            or one info finding when the `nomad` binary needed for the comparison is missing.
+    """
+    if not snapshot.nomad_binary_found:
+        return [
+            Finding(
+                check="job-drift",
+                severity=FindingSeverity.INFO,
+                target="nomad",
+                problem="binary not found; drift not checked",
+            )
+        ]
+    job_ids = {job.name: job.id for job in snapshot.jobs}
+    findings: list[Finding] = []
+    for name, drift in sorted(snapshot.job_drift.items()):
+        if drift.diff is None:
+            problem, fix_hint = f"plan failed: {drift.error}", None
+        elif drift.diff.is_changed:
+            problem, fix_hint = _describe_diff(drift.diff), f"nd plan {name}"
+        else:
+            continue
+        findings.append(
+            job_finding(
+                check="job-drift",
+                severity=FindingSeverity.WARNING,
+                job_id=job_ids[name],
+                job_name=name,
+                problem=problem,
+                fix_hint=fix_hint,
+            )
+        )
+    return findings
 
 
 def check_unused_volume(snapshot: DoctorSnapshot) -> list[Finding]:

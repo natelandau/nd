@@ -10,12 +10,14 @@ import pytest
 from nd.commands.doctor.cluster_checks import (
     check_blocked_eval,
     check_failed_alloc,
+    check_job_drift,
     check_lost_alloc,
     check_no_local_file,
     check_node_down,
     check_unused_volume,
 )
-from nd.commands.doctor.findings import FindingSeverity
+from nd.commands.doctor.findings import FindingSeverity, JobDrift
+from nd.nomad.models.job import JobDiff, TaskDiff, TaskGroupDiff
 from tests.builders import (
     agent_member,
     alloc_stub,
@@ -220,3 +222,95 @@ def test_check_unused_volume(
 
     # Then an unrequested volume is reported once, by name
     assert [(f.target, f.fix_hint) for f in findings] == expected
+
+
+def _group(name: str, *tasks: str, type_: str = "Edited") -> TaskGroupDiff:
+    """Build a group diff whose listed tasks are edited."""
+    return TaskGroupDiff(
+        name=name, type=type_, tasks_raw=[TaskDiff(name=t, type="Edited") for t in tasks]
+    )
+
+
+_EDITED = FindingSeverity.WARNING
+
+
+@pytest.mark.parametrize(
+    ("drift", "binary_found", "expected"),
+    [
+        pytest.param(JobDrift(diff=JobDiff(type="None")), True, [], id="unchanged"),
+        pytest.param(
+            JobDrift(diff=JobDiff(type="Edited", task_groups_raw=[_group("app", "server")])),
+            True,
+            [(_EDITED, "web", "app/server", "nd plan web")],
+            id="one-task",
+        ),
+        pytest.param(
+            JobDrift(
+                diff=JobDiff(
+                    type="Edited",
+                    task_groups_raw=[_group("app", "a", "b"), _group("db", type_="None")],
+                )
+            ),
+            True,
+            [(_EDITED, "web", "app", "nd plan web")],
+            id="several-tasks-one-group",
+        ),
+        pytest.param(
+            JobDrift(diff=JobDiff(type="Edited", task_groups_raw=[_group("app"), _group("db")])),
+            True,
+            [(_EDITED, "web", "2 groups", "nd plan web")],
+            id="two-groups",
+        ),
+        pytest.param(
+            JobDrift(diff=JobDiff(type="Edited", task_groups_raw=[_group("app", "app")])),
+            True,
+            [(_EDITED, "web", "app", "nd plan web")],
+            id="task-named-like-group",
+        ),
+        pytest.param(
+            JobDrift(diff=JobDiff(type="Edited")),
+            True,
+            [(_EDITED, "web", "job settings", "nd plan web")],
+            id="job-settings",
+        ),
+        pytest.param(
+            JobDrift(
+                diff=JobDiff(type="Edited", task_groups_raw=[_group("a"), _group("b"), _group("c")])
+            ),
+            True,
+            [(_EDITED, "web", "3 groups", "nd plan web")],
+            id="three-groups",
+        ),
+        pytest.param(
+            JobDrift(error="bad file"),
+            True,
+            [(_EDITED, "web", "plan failed: bad file", None)],
+            id="error",
+        ),
+        pytest.param(
+            None,
+            False,
+            [(FindingSeverity.INFO, "nomad", "binary not found; drift not checked", None)],
+            id="binary-missing",
+        ),
+    ],
+)
+def test_check_job_drift(
+    drift: JobDrift | None,
+    *,
+    binary_found: bool,
+    expected: list[tuple[FindingSeverity, str, str, str | None]],
+) -> None:
+    """Verify a running job that differs from its file is flagged with what changed."""
+    # Given web's plan result, or a missing nomad binary
+    snapshot = doctor_snapshot(
+        jobs=[job_stub("web")],
+        job_drift={"web": drift} if drift else {},
+        nomad_binary_found=binary_found,
+    )
+
+    # When checking drift
+    findings = check_job_drift(snapshot)
+
+    # Then each finding names its target, what changed, and the command to review it
+    assert [(f.severity, f.target, f.problem, f.fix_hint) for f in findings] == expected

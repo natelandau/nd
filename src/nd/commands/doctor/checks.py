@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from nd.commands.doctor.cluster_checks import (
     check_blocked_eval,
     check_failed_alloc,
+    check_job_drift,
     check_lost_alloc,
     check_no_local_file,
     check_node_down,
@@ -32,6 +33,7 @@ CHECKS: tuple[Callable[[DoctorSnapshot], list[Finding]], ...] = (
     check_no_health_check,
     check_default_resources,
     check_no_local_file,
+    check_job_drift,
     check_unused_volume,
     check_blocked_eval,
     check_node_down,

@@ -319,3 +319,21 @@ def test_collect_snapshot_skips_binary_when_nothing_to_plan(
     # Then the missing binary is not reported
     assert snapshot.nomad_binary_found is True
     assert snapshot.job_drift == {}
+
+
+def test_doctor_fails_on_drift(
+    cluster: respx.Router, nomad_env: str, job_files, fake_nomad_binary: MagicMock, typer_runner
+) -> None:
+    """Verify a running job that differs from its local file fails nd doctor."""
+    # Given a running web whose plan shows a change
+    job_files("web.hcl", "web")
+    _deploy(cluster, nomad_env, job_spec("web", tasks=[task_spec()]))
+    fake_nomad_binary.compile_job.side_effect = _compiled
+    _plan(cluster, nomad_env, "web", "Edited")
+
+    # When running nd doctor
+    result = typer_runner.invoke(doctor.app, [])
+
+    # Then the drift warning fails the command
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
