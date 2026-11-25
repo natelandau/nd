@@ -9,7 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 if TYPE_CHECKING:
-    from rich.console import RenderableType
+    from rich.console import OverflowMethod, RenderableType
 
 
 def titled_panel(
@@ -23,9 +23,18 @@ def titled_panel(
     return Panel(body, title=title, title_align="left", border_style=border_style, expand=expand)
 
 
-def status_table(*columns: str) -> Table:
-    """Build a borderless status table with the given column headers."""
+def status_table(*columns: str, overflow: OverflowMethod = "ellipsis") -> Table:
+    """Build a borderless status table with the given column headers.
+
+    Args:
+        *columns: The column headers.
+        overflow: How every column handles a value too long for it. Pass ``fold`` to
+            wrap a rare long value instead of cutting it off.
+
+    Returns:
+        Table: The empty table.
+    """
     table = Table(box=box.SIMPLE, expand=True, pad_edge=False)
     for column in columns:
-        table.add_column(column)
+        table.add_column(column, overflow=overflow)
     return table

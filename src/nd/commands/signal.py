@@ -17,6 +17,7 @@ from nd.commands._common import (
 )
 from nd.nomad import NomadClient, NomadConfig
 from nd.targets import resolve_with_client
+from nd.ui.text import short_id
 
 # The names every Nomad driver's SignalTask parses (consul-template's SignalLookup).
 # Deriving this from the local libc instead diverges both ways: it drops SIGNULL and
@@ -147,7 +148,7 @@ async def _run(
         if target is None:
             return exit_code
 
-        where = f"task {target.task} in alloc {target.alloc_id[:8]} ({target.job_name})"
+        where = f"task {target.task} in alloc {short_id(target.alloc_id)} ({target.job_name})"
         if dry_run:
             pp.dryrun(f"Would send {sig} to {where}")
             return 0

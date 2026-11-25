@@ -13,7 +13,12 @@ import msgspec
 
 from nd.commands.doctor.findings import DoctorSnapshot, JobDrift
 from nd.nomad.models.agent import AgentMember
-from nd.nomad.models.allocation import AllocListStub, TaskState
+from nd.nomad.models.allocation import (
+    AllocDeploymentStatus,
+    AllocListStub,
+    TaskEvent,
+    TaskState,
+)
 from nd.nomad.models.deployment import Deployment, TaskGroupDeploymentState
 from nd.nomad.models.evaluation import EvalListStub
 from nd.nomad.models.job import (
@@ -78,7 +83,13 @@ def job_stub(
 
 
 def task_state(
-    state: str = "running", *, started_at: str = "", restarts: int = 0, last_restart: str = ""
+    state: str = "running",
+    *,
+    failed: bool = False,
+    started_at: str = "",
+    restarts: int = 0,
+    last_restart: str = "",
+    events: list[TaskEvent] | None = None,
 ) -> TaskState:
     """Build one task's state within an allocation.
 
@@ -87,11 +98,21 @@ def task_state(
     """
     return TaskState(
         state=state,
-        failed=False,
+        failed=failed,
         restarts=restarts,
         started_at_raw=started_at,
         last_restart_raw=last_restart,
+        events_raw=events,
     )
+
+
+def task_event(event_type: str = "Terminated", message: str = "Exit Code: 1") -> TaskEvent:
+    """Build one task event.
+
+    Returns:
+        TaskEvent: The event.
+    """
+    return TaskEvent(type=event_type, display_message=message)
 
 
 def task_spec(
@@ -230,6 +251,9 @@ def alloc_stub(
     desired_status: str = "run",
     next_allocation: str = "",
     create_time: int = 0,
+    create_index: int = 1,
+    job_version: int = 0,
+    healthy: bool | None = None,
     task_states: dict[str, TaskState] | None = None,
 ) -> AllocListStub:
     """Build an allocation list entry; the name defaults to `<job_id>.<task_group>[0]`.
@@ -248,7 +272,9 @@ def alloc_stub(
         next_allocation=next_allocation,
         task_states_raw=task_states,
         create_time=create_time,
-        create_index=1,
+        job_version=job_version,
+        deployment_status=AllocDeploymentStatus(healthy=healthy),
+        create_index=create_index,
         modify_index=2,
     )
 

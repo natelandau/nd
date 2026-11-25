@@ -41,6 +41,14 @@ HOSTS_TWO_COLUMN_MIN_WIDTH = 120
 # How long to wait for a registered job's deployment (or allocations, for batch/system
 # jobs that create no deployment) to reach a terminal state before warning.
 DEPLOY_TIMEOUT_SECONDS = 300.0
+# When a deployment fails, nd explains it with the failed allocations' recent task events
+# and the end of each failed task's stderr. These caps keep a job with many failed
+# allocations from flooding the terminal.
+DEPLOY_FAILURE_MAX_ALLOCS = 3
+DEPLOY_FAILURE_EVENTS_PER_TASK = 5
+DEPLOY_FAILURE_STDERR_LINES = 15
+# Bytes read back from the end of stderr; enough for the line count above.
+DEPLOY_FAILURE_STDERR_BYTES = 4096
 
 # --- Allocation exec / logs ------------------------------------------------------------
 # The POSIX shell guaranteed to exist; used as the `-c` interpreter for the probe

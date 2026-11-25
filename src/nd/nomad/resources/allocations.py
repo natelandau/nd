@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     import builtins
@@ -35,3 +35,40 @@ class AllocationsResource(BaseResource):
             path=f"/client/allocation/{alloc_id}/signal",
             json={"Signal": signal, "Task": task},
         )
+
+    async def log_tail(
+        self,
+        alloc_id: str,
+        *,
+        task: str,
+        stream: Literal["stdout", "stderr"],
+        max_bytes: int,
+    ) -> str:
+        """Read the end of one task's log without following it.
+
+        ``GET /v1/client/fs/logs/:alloc_id`` with ``origin=end``. Use it to show why a
+        task failed without streaming its whole log.
+
+        Args:
+            alloc_id: Allocation carrying the task.
+            task: Name of the task whose log to read.
+            stream: Which log to read.
+            max_bytes: How many bytes to read back from the end of the log. The first
+                line returned may be partial.
+
+        Returns:
+            str: The log text, decoded as UTF-8 with undecodable bytes replaced.
+        """
+        response = await self._transport.request(
+            method="GET",
+            path=f"/client/fs/logs/{alloc_id}",
+            params={
+                "task": task,
+                "type": stream,
+                "origin": "end",
+                "offset": max_bytes,
+                "plain": "true",
+                "follow": "false",
+            },
+        )
+        return response.content.decode(errors="replace")

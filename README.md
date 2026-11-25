@@ -194,6 +194,10 @@ catches a broken spec without registering anything.
 validated and registered, then watched live until its deployment or allocations
 settle. Use `--detach` to register and return without watching the rollout.
 
+If a deployment fails, `nd run` shows why. For each failed allocation, it prints the
+recent task events, such as a driver failure or a failed health check, and the last
+lines that each failed task wrote to stderr.
+
 If a selected job is still present in the cluster as a dead job (stopped without
 `--purge`), `nd run` offers to garbage-collect it first so the new version deploys
 onto a clean slate rather than on top of stale deployment history. Pass `--clean`
@@ -215,7 +219,8 @@ container that tracks a moving tag. It only offers jobs that are both running an
 have a local file.
 
 Each selected job is stopped, drained, purged, then re-registered from its local
-file and watched until the new rollout settles. The job is fully recreated, so
+file and watched until the new rollout settles. If the new rollout fails, `nd update`
+shows why, the same as `nd run`. The job is fully recreated, so
 expect brief downtime. `nd update` confirms before it acts unless you pass `--force`
 (`-f`). It purges the job by default, while `nd stop` purges only with `--purge`.
 Pass `--no-purge` to keep the job's version history.

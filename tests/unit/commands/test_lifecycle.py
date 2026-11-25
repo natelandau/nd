@@ -19,7 +19,7 @@ from nd.commands._lifecycle import (
     task_lifecycle,
     watch_deploy,
 )
-from nd.commands._orchestration import Outcome, Severity
+from nd.commands._orchestration import Severity
 from nd.nomad import NomadDecodeError
 from nd.nomad.models.deployment import TaskGroupDeploymentState
 from tests.builders import alloc_stub, deployment, job_stub, task_state, to_payload
@@ -28,11 +28,12 @@ from tests.helpers import NOMAD_TEST_ADDR, discard_panel_update, run_with_client
 if TYPE_CHECKING:
     import respx
 
+    from nd.commands._lifecycle import DeployOutcome
     from nd.nomad.models.allocation import AllocListStub
     from nd.ui.live_panel import PanelUpdate
 
 
-def _watch(job_id: str = "web", *, since_index: int = 0) -> Outcome:
+def _watch(job_id: str = "web", *, since_index: int = 0) -> DeployOutcome:
     """Watch a job's deploy against the mocked cluster, discarding panel updates."""
     return run_with_client(
         lambda client: watch_deploy(
@@ -194,14 +195,18 @@ def test_watch_service_failure_reports_failed(httpx2_mock: respx.Router) -> None
             )
         ]
     )
-    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/allocations").respond(json=[])
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/allocations").respond(
+        json=[to_payload(alloc_stub("a1", job_id="web", client_status="failed"))]
+    )
 
     # When watching the deployment to completion
     outcome = _watch()
 
-    # Then the outcome status is FAILED and carries the status description
+    # Then the outcome status is FAILED, carries the status description, and names the
+    # failed allocation that explains it
     assert outcome.severity is Severity.FAIL
     assert outcome.detail == "Rollout timed out"
+    assert [a.alloc_id for a in outcome.failed_allocs] == ["a1"]
 
 
 def test_watch_batch_all_allocs_complete_reports_deployed(httpx2_mock: respx.Router) -> None:

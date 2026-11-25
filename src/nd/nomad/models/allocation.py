@@ -15,6 +15,13 @@ _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _RETIRED_DESIRED_STATUSES = frozenset({"stop", "evict"})
 
 
+class TaskEvent(NomadModel, frozen=True, kw_only=True):
+    """One entry in a task's event history, such as a driver failure or a restart."""
+
+    type: str
+    display_message: str = ""
+
+
 class TaskState(NomadModel, frozen=True, kw_only=True):
     """Run state of a single task within an allocation."""
 
@@ -28,6 +35,13 @@ class TaskState(NomadModel, frozen=True, kw_only=True):
     # RFC3339 timestamp of the task's most recent restart; null or a zero sentinel when
     # the task never restarted.
     last_restart_raw: str | None = msgspec.field(name="LastRestart", default=None)
+    # Nomad keeps the latest 10 events, oldest first, and may send null for none.
+    events_raw: list[TaskEvent] | None = msgspec.field(name="Events", default=None)
+
+    @property
+    def events(self) -> list[TaskEvent]:
+        """The task's recent events, oldest first, with Nomad's null read as empty."""
+        return self.events_raw or []
 
     @property
     def started_at(self) -> str:
@@ -72,6 +86,13 @@ def _rfc3339_to_ns(value: str) -> int:
     return max(0, ns)
 
 
+class AllocDeploymentStatus(NomadModel, frozen=True, kw_only=True):
+    """An allocation's health as judged by the deployment that placed it."""
+
+    # None until the deployment has decided.
+    healthy: bool | None = None
+
+
 class AllocListStub(NomadModel, frozen=True, kw_only=True):
     """An allocation as returned by ``GET /v1/allocations``."""
 
@@ -81,8 +102,11 @@ class AllocListStub(NomadModel, frozen=True, kw_only=True):
     node_id: str = msgspec.field(name="NodeID")
     job_id: str = msgspec.field(name="JobID")
     task_group: str
+    job_version: int = 0
     client_status: str
     desired_status: str
+    # Null for an allocation no deployment placed, such as a batch job's.
+    deployment_status: AllocDeploymentStatus | None = None
     # Set to the id of the alloc that superseded this one in a reschedule chain; empty
     # when this is the head (latest) attempt. Distinguishes a failed corpse that recovered
     # (a replacement is running) from one Nomad has not been able to replace.
@@ -146,3 +170,18 @@ class AllocListStub(NomadModel, frozen=True, kw_only=True):
         a replacement already recovered from is not stuck.
         """
         return self.is_current and self.client_status in FAILED_ALLOC_STATUSES
+
+    @property
+    def is_deploy_failure(self) -> bool:
+        """Whether the allocation failed, has a failed task, or its deployment judged it unhealthy.
+
+        Use this to find the allocations that explain a failed deployment. Unlike
+        ``is_stuck_failure`` it keeps replaced allocations, because a deployment's
+        failed attempts are its evidence even after Nomad rescheduled them.
+        """
+        unhealthy = self.deployment_status is not None and self.deployment_status.healthy is False
+        return (
+            unhealthy
+            or self.client_status in FAILED_ALLOC_STATUSES
+            or any(state.failed for state in self.task_states.values())
+        )

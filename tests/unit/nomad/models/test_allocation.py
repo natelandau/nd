@@ -45,6 +45,37 @@ def test_alloc_list_stub_decodes_task_states():
     assert stub.task_states["cleanup"].state == "running"
 
 
+def test_alloc_list_stub_decodes_task_events_and_deployment_health():
+    """Verify task events, the job version, and deployment health decode, nulls included."""
+    # Given a stub payload with events on one task, null events on another, and health
+    payload = b"""
+    {
+      "ID": "a1", "Name": "web.web[0]", "NodeID": "n1", "JobID": "web",
+      "TaskGroup": "web", "JobVersion": 3, "ClientStatus": "failed",
+      "DesiredStatus": "run", "CreateIndex": 1, "ModifyIndex": 2,
+      "DeploymentStatus": {"Healthy": false, "Canary": false},
+      "TaskStates": {
+        "app": {"State": "dead", "Failed": true, "Restarts": 0, "Events": [
+          {"Type": "Terminated", "Time": 1636017249803624000,
+           "DisplayMessage": "Exit Code: 1", "ExitCode": 1}
+        ]},
+        "sidecar": {"State": "pending", "Failed": false, "Restarts": 0, "Events": null}
+      }
+    }
+    """
+
+    # When decoding
+    stub = msgspec.json.decode(payload, type=AllocListStub)
+
+    # Then the events, version, and health decode, and null events read as none
+    event = stub.task_states["app"].events[0]
+    assert (event.type, event.display_message) == ("Terminated", "Exit Code: 1")
+    assert stub.task_states["sidecar"].events == []
+    assert stub.job_version == 3
+    assert stub.deployment_status is not None
+    assert stub.deployment_status.healthy is False
+
+
 def test_alloc_list_stub_defaults_task_states_empty():
     """Verify the allocation list stub defaults task_states to an empty dict."""
     # Given a stub payload with no TaskStates
