@@ -7,9 +7,12 @@ surface.
 """
 
 from nd.targets.alloc_target import (
+    ResolvedAllocation,
     ResolvedTarget,
     SelectionError,
     resolve_alloc_task,
+    resolve_allocation,
+    resolve_allocation_with_client,
     resolve_target,
     resolve_with_client,
 )
@@ -24,12 +27,15 @@ from nd.targets.selection import (
 )
 
 __all__ = [
+    "ResolvedAllocation",
     "ResolvedTarget",
     "SelectionError",
     "TargetResolution",
     "job_file_label",
     "pick_single",
     "resolve_alloc_task",
+    "resolve_allocation",
+    "resolve_allocation_with_client",
     "resolve_target",
     "resolve_targets",
     "resolve_with_client",

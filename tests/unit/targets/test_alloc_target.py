@@ -7,9 +7,11 @@ from typing import TYPE_CHECKING
 import pytest
 
 from nd.targets.alloc_target import (
+    ResolvedAllocation,
     ResolvedTarget,
     SelectionError,
     resolve_alloc_task,
+    resolve_allocation_with_client,
     resolve_with_client,
 )
 from nd.ui.prompts import PromptUnavailableError
@@ -278,3 +280,22 @@ def test_resolve_with_client_passes_through_a_soft_exit(httpx2_mock: respx.Route
 
     # Then the caller is told to exit zero with nothing to act on
     assert result == (0, None)
+
+
+def test_resolve_allocation_skips_the_task_choice(monkeypatch, httpx2_mock: respx.Router):
+    """Verify resolving an allocation never asks for a task, even when it runs several."""
+    # Given one running allocation with two running tasks and a session that cannot prompt
+    _mock_cluster(
+        httpx2_mock,
+        jobs=[job_stub("web")],
+        allocs=[
+            alloc_stub("alloc-1", task_states={"server": task_state(), "sidecar": task_state()})
+        ],
+    )
+    monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: False)
+
+    # When resolving only the allocation
+    result = run_with_client(lambda client: resolve_allocation_with_client(client, job_arg="web"))
+
+    # Then the allocation resolves without the task prompt a task resolver would need
+    assert result == (0, ResolvedAllocation(job_name="web", alloc_id="alloc-1"))

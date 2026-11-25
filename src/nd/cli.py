@@ -15,6 +15,7 @@ from nd.commands import (
     exec,  # noqa: A004
     logs,
     plan,
+    restart,
     run,
     signal,
     status,
@@ -46,6 +47,7 @@ app.add_typer(update.app, name="update")
 app.add_typer(logs.app, name="logs")
 app.add_typer(exec.app, name="exec")
 app.add_typer(signal.app, name="signal")
+app.add_typer(restart.app, name="restart")
 app.add_typer(volume.app, name="volume")
 
 
