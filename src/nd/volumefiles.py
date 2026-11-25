@@ -8,9 +8,8 @@ from typing import TYPE_CHECKING, Any
 import hcl2
 from lark.exceptions import LarkError
 from nclutils import pp
-from nclutils.fs import find_files
 
-from nd.constants import JOB_FILE_GLOBS
+from nd.jobfiles import find_spec_files, is_job_file
 from nd.nomad.config import load_config_directories
 
 if TYPE_CHECKING:
@@ -66,13 +65,22 @@ def _unquote(value: Any) -> Any:  # noqa: ANN401
 def parse_volume_spec(path: Path) -> VolumeSpec | None:
     """Parse an HCL file into a `VolumeSpec`, or None if it is not a host volume.
 
-    Returns None when the file does not parse as HCL, is not ``type = "host"``, or has
-    no name, so non-volume files sharing the directory are skipped rather than failing
-    discovery.
+    Returns None when the file is a job file, does not parse as HCL, is not
+    ``type = "host"``, or has no name, so non-volume files sharing the directory are
+    skipped rather than failing discovery.
     """
     try:
-        data: dict[str, Any] = hcl2.loads(path.read_text(encoding="utf-8"))
-    except (ValueError, OSError, LarkError) as exc:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        pp.debug(f"Skipping {path}: not readable ({exc})")
+        return None
+    # Job files skip the HCL parse: it is the slow step, and job specs often use
+    # syntax python-hcl2 rejects.
+    if is_job_file(text):
+        return None
+    try:
+        data: dict[str, Any] = hcl2.loads(text)
+    except (ValueError, LarkError) as exc:
         pp.debug(f"Skipping {path}: not parseable as HCL ({exc})")
         return None
 
@@ -106,38 +114,17 @@ def parse_volume_spec(path: Path) -> VolumeSpec | None:
 
 
 def discover_volume_files(directories: list[Path]) -> list[VolumeSpec]:
-    """Find and parse host-volume specs in each existing directory, sorted by name.
+    """Find and parse the host-volume specs in the given directories, sorted by name.
 
-    Files are discovered with the same globs as job files (``*.hcl``/``*.nomad``) and
-    classified by content, so a directory may hold both job and volume specs. Missing
-    directories are skipped silently.
+    A directory may hold both job and volume specs; only volume specs are returned.
     """
-    specs: list[VolumeSpec] = []
-    for directory in directories:
-        if not directory.is_dir():
-            continue
-        specs.extend(
-            spec
-            for path in find_files(directory, globs=JOB_FILE_GLOBS)
-            if (spec := parse_volume_spec(path)) is not None
-        )
+    specs = [spec for path in find_spec_files(directories) if (spec := parse_volume_spec(path))]
     return sorted(specs, key=lambda s: s.name)
 
 
 def load_volume_directories(config_path: Path | None = None) -> list[Path]:
-    """Read the ``[volumes] directories`` list from the nd TOML config, expanding ``~``.
+    """Read the volume directories from the ``[volumes]`` table of the nd config.
 
-    Returns an empty list when the config file or ``[volumes]`` table is absent.
-
-    Args:
-        config_path: Explicit path to an nd config file. Defaults to the XDG config
-            location when omitted.
-
-    Returns:
-        Expanded Path objects for each configured volume directory.
-
-    Raises:
-        NomadConfigError: If the config file cannot be read or the ``[volumes]`` section
-            or ``directories`` value has the wrong type.
+    See ``load_config_directories`` for the file format and errors.
     """
     return load_config_directories(section="volumes", config_path=config_path)

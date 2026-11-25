@@ -2,9 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
-from nd.nomad.errors import NomadConfigError
 from nd.volumefiles import (
     discover_volume_files,
     load_volume_directories,
@@ -94,14 +91,15 @@ def test_parse_volume_spec_skips_interpolated_name(tmp_path: Path) -> None:
 
 def test_discover_volume_files_keeps_only_host_specs(tmp_path: Path) -> None:
     """Verify discovery returns host specs sorted by name and skips other files."""
-    # Given a dir with a host volume, a job file, and an unparsable file
+    # Given a dir with a host volume, a job file, and unparsable and non-UTF-8 files
     d = tmp_path / "vols"
     d.mkdir()
     (d / "data.hcl").write_text(_HOST_SPEC, encoding="utf-8")
     (d / "web.hcl").write_text('job "web" {}', encoding="utf-8")
     (d / "broken.nomad").write_text("not = = hcl", encoding="utf-8")
+    (d / "binary.hcl").write_bytes(b"\xff\xfe")
     # When discovering
-    specs = discover_volume_files([d, tmp_path / "missing"])
+    specs = discover_volume_files([d])
     # Then only the host volume spec is returned
     assert [s.name for s in specs] == ["data"]
 
@@ -118,21 +116,12 @@ def test_load_volume_directories_reads_table(tmp_path: Path) -> None:
     assert dirs[1] == Path("/srv/vols")
 
 
-def test_load_volume_directories_absent_returns_empty(tmp_path: Path) -> None:
-    """Verify a missing [volumes] table yields an empty list."""
-    # Given a config without a [volumes] table
-    cfg = tmp_path / "config.toml"
-    cfg.write_text('[nomad]\naddress = "http://x:4646"\n', encoding="utf-8")
-    # When loading volume directories
-    # Then no directories are returned
-    assert load_volume_directories(cfg) == []
+def test_parse_volume_spec_skips_job_files(tmp_path: Path) -> None:
+    """Verify a file containing a job block is never read as a volume spec."""
+    # Given a job file that also carries host-volume top-level attributes
+    f = tmp_path / "web.hcl"
+    f.write_text('name = "data"\ntype = "host"\njob "web" {}', encoding="utf-8")
 
-
-def test_load_volume_directories_bad_type_raises(tmp_path: Path) -> None:
-    """Verify a non-list directories value raises NomadConfigError."""
-    # Given a malformed [volumes] table
-    cfg = tmp_path / "config.toml"
-    cfg.write_text('[volumes]\ndirectories = "nope"\n', encoding="utf-8")
-    # Then loading raises
-    with pytest.raises(NomadConfigError):
-        load_volume_directories(cfg)
+    # When parsing it as a volume spec
+    # Then it is treated as a job file and skipped
+    assert parse_volume_spec(f) is None

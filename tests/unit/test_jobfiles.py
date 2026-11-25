@@ -4,15 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from nd.jobfiles import (
     discover_job_files,
     extract_job_names,
+    find_spec_files,
     is_job_file,
     load_job_directories,
 )
-from nd.nomad.errors import NomadConfigError
 
 
 def test_extract_job_names_multiple_blocks() -> None:
@@ -48,9 +46,10 @@ def test_discover_job_files_excludes_non_job_specs(tmp_path: Path) -> None:
     d.mkdir()
     (d / "web.hcl").write_text('job "web" {}', encoding="utf-8")
     (d / "vol-data.hcl").write_text('name = "data"\ntype = "host"', encoding="utf-8")
+    (d / "binary.hcl").write_bytes(b"\xff\xfe")
     # When discovering
     files = discover_job_files([d])
-    # Then only the job file is returned
+    # Then only the job file is returned and the non-UTF-8 file is skipped
     assert {jf.path.name for jf in files} == {"web.hcl"}
 
 
@@ -62,9 +61,8 @@ def test_discover_job_files_scans_existing_dirs(tmp_path: Path) -> None:
     (d / "web.hcl").write_text('job "web" {}', encoding="utf-8")
     (d / "batch.nomad").write_text('job "batch" {}', encoding="utf-8")
     (d / "notes.txt").write_text("ignore me", encoding="utf-8")
-    missing = tmp_path / "nope"
-    # When (a non-existent directory is silently skipped)
-    files = discover_job_files([d, missing])
+    # When
+    files = discover_job_files([d])
     # Then
     names = {jf.path.name: jf.job_names for jf in files}
     assert names == {"web.hcl": ["web"], "batch.nomad": ["batch"]}
@@ -82,44 +80,29 @@ def test_load_job_directories_reads_table(tmp_path: Path) -> None:
     assert dirs[1] == Path("/srv/nomad")
 
 
-def test_load_job_directories_missing_table(tmp_path: Path) -> None:
-    """Verify a config with no [jobs] table yields no directories."""
-    cfg = tmp_path / "config.toml"
-    cfg.write_text('[nomad]\naddress = "http://x:4646"\n', encoding="utf-8")
-    assert load_job_directories(cfg) == []
+def test_find_spec_files_scans_a_repeated_directory_once(tmp_path: Path) -> None:
+    """Verify a directory listed twice yields each spec file once."""
+    # Given a directory with one spec file, configured twice
+    d = tmp_path / "jobs"
+    d.mkdir()
+    (d / "web.hcl").write_text('job "web" {}', encoding="utf-8")
+
+    # When listing spec files
+    files = find_spec_files([d, d])
+
+    # Then the file appears once
+    assert files == [d / "web.hcl"]
 
 
-def test_load_job_directories_unreadable_toml(tmp_path: Path) -> None:
-    """Verify malformed TOML raises NomadConfigError."""
-    # Given a config file containing invalid TOML
-    cfg = tmp_path / "config.toml"
-    cfg.write_text("[jobs\ndirectories = ", encoding="utf-8")
+def test_find_spec_files_skips_missing_directory(tmp_path: Path) -> None:
+    """Verify a configured directory that does not exist contributes no files."""
+    # Given one existing directory with a spec file and one missing directory
+    d = tmp_path / "jobs"
+    d.mkdir()
+    (d / "web.hcl").write_text('job "web" {}', encoding="utf-8")
 
-    # When loading job directories from the malformed file
-    # Then a NomadConfigError is raised
-    with pytest.raises(NomadConfigError):
-        load_job_directories(cfg)
+    # When listing spec files
+    files = find_spec_files([d, tmp_path / "missing"])
 
-
-def test_load_job_directories_non_table_jobs(tmp_path: Path) -> None:
-    """Verify a [jobs] section that is a scalar instead of a table raises NomadConfigError."""
-    # Given a config file where jobs is a plain string, not a table
-    cfg = tmp_path / "config.toml"
-    cfg.write_text('jobs = "not a table"\n', encoding="utf-8")
-
-    # When loading job directories from the config
-    # Then a NomadConfigError is raised because [jobs] must be a table
-    with pytest.raises(NomadConfigError):
-        load_job_directories(cfg)
-
-
-def test_load_job_directories_non_list_directories(tmp_path: Path) -> None:
-    """Verify a directories value that is not a list raises NomadConfigError."""
-    # Given a config file where directories is a plain string, not a list
-    cfg = tmp_path / "config.toml"
-    cfg.write_text('[jobs]\ndirectories = "string"\n', encoding="utf-8")
-
-    # When loading job directories from the config
-    # Then a NomadConfigError is raised because directories must be a list
-    with pytest.raises(NomadConfigError):
-        load_job_directories(cfg)
+    # Then only the existing directory's file is listed
+    assert files == [d / "web.hcl"]

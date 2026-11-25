@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from nclutils import pp
 from nclutils.fs import find_files
 
 from nd.constants import JOB_FILE_GLOBS
@@ -15,14 +16,9 @@ if TYPE_CHECKING:
     from collections.abc import Set as AbstractSet
     from pathlib import Path
 
-# Matches a top-level `job "name" {` block opener with a literal (non-interpolated)
-# name. Interpolated names (containing `${`) are intentionally skipped.
-_JOB_BLOCK_RE = re.compile(r'^\s*job\s+"([^"$]+)"\s*\{', re.MULTILINE)
-
-# Detects the presence of a top-level `job "..." {` block regardless of whether the
-# name is literal or interpolated, so a real job file with a computed name still
-# validates as a job file (its name just resolves to nothing via extract_job_names).
-_JOB_BLOCK_DETECT_RE = re.compile(r'^\s*job\s+"[^"]+"\s*\{', re.MULTILINE)
+# A `job "name" {` block opener. The name may be an interpolation such as `${var.x}`:
+# such a file is still a job file, but its name cannot be selected.
+_JOB_BLOCK_RE = re.compile(r'^\s*job\s+"([^"]+)"\s*\{', re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -67,10 +63,8 @@ def candidates_for(
 
 def extract_job_names(text: str) -> list[str]:
     """Return every literal ``job "<name>"`` in declaration order, deduplicated."""
-    seen: dict[str, None] = {}
-    for match in _JOB_BLOCK_RE.finditer(text):
-        seen.setdefault(match.group(1), None)
-    return list(seen)
+    names = (match.group(1) for match in _JOB_BLOCK_RE.finditer(text))
+    return list(dict.fromkeys(name for name in names if "${" not in name))
 
 
 def is_job_file(text: str) -> bool:
@@ -79,47 +73,54 @@ def is_job_file(text: str) -> bool:
     A ``.hcl``/``.nomad`` extension alone does not make a file a job spec, so callers
     validate by content before treating a file as a job.
     """
-    return _JOB_BLOCK_DETECT_RE.search(text) is not None
+    return _JOB_BLOCK_RE.search(text) is not None
+
+
+def find_spec_files(directories: list[Path]) -> list[Path]:
+    """List the Nomad spec files (``*.hcl``/``*.nomad``) in the given directories.
+
+    Use for job and volume discovery alike, since both kinds share these extensions
+    and are told apart by content. A directory listed twice is scanned once, and a
+    missing directory contributes no files.
+
+    Args:
+        directories: Directories to search, in configured order.
+
+    Returns:
+        list[Path]: Matching files, sorted by path.
+    """
+    unique_directories = dict.fromkeys(directories)
+    return sorted(
+        path
+        for directory in unique_directories
+        for path in find_files(path=directory, globs=JOB_FILE_GLOBS)
+    )
 
 
 def discover_job_files(directories: list[Path]) -> list[JobFile]:
-    """Find job files in each existing directory and parse their job names.
-
-    Non-existent directories are skipped silently. Files are returned sorted
-    by path so output is deterministic across runs.
+    """Find the job files in the given directories and read the job names each declares.
 
     Args:
         directories: Directories to search for Nomad job files.
 
     Returns:
-        JobFile instances for every matching file, sorted by path.
+        list[JobFile]: Every readable file containing a ``job`` block, sorted by path.
     """
     files: list[JobFile] = []
-    for directory in directories:
-        if not directory.is_dir():
-            continue
-        for path in find_files(directory, globs=JOB_FILE_GLOBS):
+    for path in find_spec_files(directories):
+        try:
             text = path.read_text(encoding="utf-8")
-            if not is_job_file(text):
-                continue
+        except (OSError, UnicodeDecodeError) as exc:
+            pp.warning(f"Skipping {path}: expected a readable UTF-8 file ({exc})")
+            continue
+        if is_job_file(text):
             files.append(JobFile(path=path, job_names=extract_job_names(text)))
-    return sorted(files, key=lambda jf: str(jf.path))
+    return files
 
 
 def load_job_directories(config_path: Path | None = None) -> list[Path]:
-    """Read the ``[jobs] directories`` list from the nd TOML config, expanding ``~``.
+    """Read the job directories from the ``[jobs]`` table of the nd config.
 
-    Returns an empty list when the config file or ``[jobs]`` table is absent.
-
-    Args:
-        config_path: Explicit path to an nd config file. Defaults to the
-            XDG config location when omitted.
-
-    Returns:
-        Expanded Path objects for each configured job directory.
-
-    Raises:
-        NomadConfigError: If the config file cannot be read or the ``[jobs]``
-            section or ``directories`` value has the wrong type.
+    See ``load_config_directories`` for the file format and errors.
     """
     return load_config_directories(section="jobs", config_path=config_path)

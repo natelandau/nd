@@ -1,9 +1,11 @@
 """Tests for Nomad connection config resolution."""
 
+from pathlib import Path
+
 import pytest
 
 from nd.constants import DEFAULT_NOMAD_ADDRESS
-from nd.nomad.config import NomadConfig
+from nd.nomad.config import NomadConfig, load_config_directories
 from nd.nomad.errors import NomadConfigError
 
 
@@ -149,3 +151,34 @@ def test_to_env_omits_unset_optional_fields():
     assert "NOMAD_TOKEN" not in env
     assert "NOMAD_NAMESPACE" not in env
     assert "NOMAD_CLIENT_CERT" not in env
+
+
+def test_load_config_directories_missing_table_is_empty(tmp_path: Path) -> None:
+    """Verify a config without the requested table yields no directories."""
+    # Given a config file with no [jobs] table
+    cfg = tmp_path / "config.toml"
+    cfg.write_text('[nomad]\naddress = "http://x:4646"\n', encoding="utf-8")
+
+    # When reading the [jobs] directories
+    # Then none are returned
+    assert load_config_directories(section="jobs", config_path=cfg) == []
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param("[jobs\ndirectories = ", id="malformed-toml"),
+        pytest.param('jobs = "not a table"\n', id="section-not-a-table"),
+        pytest.param('[jobs]\ndirectories = "string"\n', id="directories-not-a-list"),
+    ],
+)
+def test_load_config_directories_rejects_invalid_config(tmp_path: Path, content: str) -> None:
+    """Verify an unreadable config or a wrongly typed section raises NomadConfigError."""
+    # Given a config file with an invalid [jobs] section
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(content, encoding="utf-8")
+
+    # When reading the [jobs] directories
+    # Then a config error is raised
+    with pytest.raises(NomadConfigError):
+        load_config_directories(section="jobs", config_path=cfg)
