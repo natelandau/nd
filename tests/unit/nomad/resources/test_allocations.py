@@ -57,18 +57,6 @@ def test_restart_posts_the_requested_scope(httpx2_mock: respx.Router, task, all_
     assert json.loads(route.calls.last.request.content) == body
 
 
-def test_restart_rejects_a_task_with_all_tasks(httpx2_mock: respx.Router):
-    """Verify asking for one task and every task at once fails before any request."""
-    # Given a reachable cluster
-    # When restarting with both a task and all_tasks
-    # Then it raises without contacting Nomad
-    with pytest.raises(ValueError, match="not both"):
-        run_with_client(
-            lambda client: client.allocations.restart("a1", task="server", all_tasks=True)
-        )
-    assert not httpx2_mock.calls
-
-
 def test_log_tail_reads_plain_text_from_the_end(httpx2_mock: respx.Router):
     """Verify allocations.log_tail asks for the stream's end as plain text and returns it."""
     # Given a mocked logs endpoint returning plain text

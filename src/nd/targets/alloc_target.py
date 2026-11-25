@@ -32,20 +32,18 @@ class SelectionError(Exception):
 
 
 @dataclass(frozen=True)
-class ResolvedTarget:
-    """A fully resolved single-task target: the chosen job, allocation, and task."""
-
-    job_name: str
-    alloc_id: str
-    task: str
-
-
-@dataclass(frozen=True)
 class ResolvedAllocation:
     """A resolved allocation target, for commands that act on a whole allocation."""
 
     job_name: str
     alloc_id: str
+
+
+@dataclass(frozen=True)
+class ResolvedTarget(ResolvedAllocation):
+    """A fully resolved single-task target: the chosen job, allocation, and task."""
+
+    task: str
 
 
 @dataclass(frozen=True)
@@ -145,9 +143,9 @@ async def _resolve_job_and_alloc(
 
 
 async def resolve_allocation(
-    client: NomadClient, *, job_arg: str | None, running_only: bool = True
+    client: NomadClient, *, job_arg: str | None
 ) -> ResolvedAllocation | None:
-    """Resolve a job and one of its allocations, prompting only where ambiguous.
+    """Resolve a running job and one of its running allocations, prompting only where ambiguous.
 
     Use it for an action on a whole allocation, where a task prompt would ask a question
     the action does not need answered. Returns the resolved allocation, or None when
@@ -160,7 +158,7 @@ async def resolve_allocation(
             caller exits 1).
     """
     resolved = await _resolve_job_and_alloc(
-        client, job_arg=job_arg, target_filter=_TargetFilter(running_only=running_only)
+        client, job_arg=job_arg, target_filter=_TargetFilter(running_only=True)
     )
     if resolved is None:
         return None
@@ -240,16 +238,14 @@ async def resolve_with_client(
 
 
 async def resolve_allocation_with_client(
-    client: NomadClient, *, job_arg: str | None, running_only: bool = True
+    client: NomadClient, *, job_arg: str | None
 ) -> tuple[int, ResolvedAllocation | None]:
     """Resolve an allocation through an already-open client, mapping failures to an exit code.
 
     The allocation-only counterpart of :func:`resolve_with_client`, with the same
     ``(exit_code, target)`` contract.
     """
-    return await _exit_code_for(
-        resolve_allocation(client, job_arg=job_arg, running_only=running_only)
-    )
+    return await _exit_code_for(resolve_allocation(client, job_arg=job_arg))
 
 
 async def resolve_target(

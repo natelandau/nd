@@ -88,22 +88,15 @@ async def _run(
         int: The exit code: the resolver's code when there is nothing to restart, else 0.
     """
     async with NomadClient(config) as client:
-        if task is not None:
-            exit_code, task_target = await resolve_with_client(
-                client, job_arg=job, task_arg=task, running_only=True
-            )
-            if task_target is None:
-                return exit_code
-            job_name, alloc_id = task_target.job_name, task_target.alloc_id
-            what = f"task {task}"
-        else:
-            exit_code, alloc_target = await resolve_allocation_with_client(
-                client, job_arg=job, running_only=True
-            )
-            if alloc_target is None:
-                return exit_code
-            job_name, alloc_id = alloc_target.job_name, alloc_target.alloc_id
-            what = "all tasks" if all_tasks else "running tasks"
+        exit_code, target = await (
+            resolve_with_client(client, job_arg=job, task_arg=task, running_only=True)
+            if task is not None
+            else resolve_allocation_with_client(client, job_arg=job)
+        )
+        if target is None:
+            return exit_code
+        job_name, alloc_id = target.job_name, target.alloc_id
+        what = f"task {task}" if task is not None else "all tasks" if all_tasks else "running tasks"
 
         where = f"{what} in alloc {short_id(alloc_id)} ({job_name})"
         if dry_run:

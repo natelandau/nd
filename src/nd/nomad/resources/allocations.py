@@ -36,7 +36,9 @@ class AllocationsResource(BaseResource):
             json={"Signal": signal, "Task": task},
         )
 
-    async def restart(self, alloc_id: str, *, task: str | None, all_tasks: bool) -> None:
+    async def restart(
+        self, alloc_id: str, *, task: str | None = None, all_tasks: bool = False
+    ) -> None:
         """Restart one task, or every task, in an allocation without rescheduling it.
 
         ``POST /v1/client/allocation/:alloc_id/restart``. Use it to bounce a hung or stale
@@ -48,14 +50,8 @@ class AllocationsResource(BaseResource):
             task: Name of the one task to restart, or None for the allocation's tasks.
             all_tasks: With no ``task``, also re-run tasks that already finished, such as
                 non-sidecar prestart and poststart tasks. Without it Nomad restarts only
-                the running tasks.
-
-        Raises:
-            ValueError: If both ``task`` and ``all_tasks`` are given, which Nomad rejects.
+                the running tasks. Nomad rejects it combined with ``task``.
         """
-        if task is not None and all_tasks:
-            msg = f"restart takes a task ('{task}') or all_tasks, not both"
-            raise ValueError(msg)
         body: dict[str, str | bool] = {"AllTasks": True} if all_tasks else {}
         if task is not None:
             body["TaskName"] = task
