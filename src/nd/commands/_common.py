@@ -32,6 +32,20 @@ VerboseOption = Annotated[
 
 ForceOption = Annotated[bool, typer.Option("--force", "-f", help="Skip the confirmation prompt.")]
 
+JsonOption = Annotated[
+    bool,
+    typer.Option("--json", help="Print the result as JSON on stdout instead of a table."),
+]
+
+
+def use_json_output() -> None:
+    """Reserve stdout for a JSON document so scripts can parse it.
+
+    Hide info and success lines, and send every other ``pp`` line, including ``-v``
+    progress, to stderr. Call after ``configure_verbosity``.
+    """
+    pp.configure(quiet=True, console=pp.err_console())
+
 
 def dry_run_option(help_text: str) -> OptionInfo:
     """Declare a command's ``--dry-run/-n`` flag with help saying what it skips.
