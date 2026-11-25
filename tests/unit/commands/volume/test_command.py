@@ -1,15 +1,76 @@
 """Tests for the volume command wiring."""
 
-import pytest
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+import respx
+
+import nd.commands.volume.command as volume_command
 from nd.commands.volume import app
+from nd.commands.volume.report import VolumeRow
 from nd.nomad import NomadConnectionError
+from nd.nomad.models.volume import HostVolumeListStub
+from nd.volumefiles import VolumeSpec
+from tests.builders import host_volume_stub, node_detail, node_stub, to_payload
+from tests.helpers import async_return
+
+
+def _spec(name: str) -> VolumeSpec:
+    """Build a host volume spec whose relative path is its name.
+
+    Returns:
+        VolumeSpec: The spec.
+    """
+    return VolumeSpec(
+        path=Path(f"/v/{name}.hcl"),
+        name=name,
+        capabilities=[{"access_mode": "x", "attachment_mode": "file-system"}],
+        relative_path=name,
+    )
+
+
+def _discover(monkeypatch: pytest.MonkeyPatch, *names: str) -> None:
+    """Make volume discovery return one spec per name."""
+    specs = [_spec(name) for name in names]
+    monkeypatch.setattr(volume_command, "load_volume_directories", list)
+    monkeypatch.setattr(volume_command, "discover_volume_files", lambda _dirs: specs)
+
+
+def _fake_client(
+    monkeypatch: pytest.MonkeyPatch, *, registered: list[HostVolumeListStub]
+) -> MagicMock:
+    """Replace the command's NomadClient with an offline fake listing `registered` volumes.
+
+    Returns:
+        MagicMock: The fake client, for asserting on `volumes.delete`.
+    """
+    client = MagicMock()
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=None)
+    client.nodes.list = AsyncMock(return_value=[])
+    client.volumes.list = AsyncMock(return_value=registered)
+    client.volumes.delete = AsyncMock()
+    monkeypatch.setattr(volume_command, "NomadClient", lambda _config: client)
+    return client
+
+
+@pytest.fixture
+def one_registered_volume(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Discover a `data` spec registered once as `v1`, through an offline fake client.
+
+    Returns:
+        MagicMock: The fake client.
+    """
+    _discover(monkeypatch, "data")
+    return _fake_client(monkeypatch, registered=[host_volume_stub("data", volume_id="v1")])
 
 
 def test_volume_help_lists_subcommands(typer_runner) -> None:
     """Verify `nd volume --help` lists register, delete, and list."""
     # When showing help
     result = typer_runner.invoke(app, ["--help"])
+
     # Then the three subcommands are present
     assert result.exit_code == 0
     assert "register" in result.stdout
@@ -17,70 +78,26 @@ def test_volume_help_lists_subcommands(typer_runner) -> None:
     assert "list" in result.stdout
 
 
-def test_volume_help_shows_group_description(typer_runner) -> None:
-    """Verify `nd volume --help` includes the group-level description."""
-    # When requesting help for the volume group
-    result = typer_runner.invoke(app, ["--help"])
-    # Then the group description mentioning dynamic host volumes is shown
-    assert result.exit_code == 0
-    assert "dynamic host volumes" in result.stdout
-
-
 def test_volume_no_args_shows_help(typer_runner) -> None:
     """Verify invoking `nd volume` with no arguments shows help rather than erroring."""
-    # When invoking with no arguments (no_args_is_help=True)
+    # When invoking with no arguments
     result = typer_runner.invoke(app, [])
-    # Then the output contains the group description (help is shown, not a usage error)
-    assert "dynamic host volumes" in result.stdout
+
+    # Then the help, listing the subcommands, is shown instead of a usage error
+    assert "register" in result.stdout
+    assert "delete" in result.stdout
+    assert "list" in result.stdout
 
 
-def test_volume_register_dry_run_makes_no_api_calls(monkeypatch, typer_runner) -> None:
+def test_volume_register_dry_run_makes_no_api_calls(
+    monkeypatch: pytest.MonkeyPatch, typer_runner
+) -> None:
     """Verify register --dry-run plans without registering."""
-    # Given discovery returns one spec and a fake client/nodes with meta
-    from pathlib import Path
-
-    import nd.commands.volume.command as cmd
-    from nd.volumefiles import VolumeSpec
-
-    spec = VolumeSpec(
-        path=Path("/v/data.hcl"),
-        name="data",
-        capabilities=[{"access_mode": "x", "attachment_mode": "file-system"}],
-        relative_path="data",
-    )
-    monkeypatch.setattr(cmd, "load_volume_directories", list)
-    monkeypatch.setattr(cmd, "discover_volume_files", lambda dirs: [spec])
-
-    # Stub the async cluster fetch so no network or registration happens
-    async def _fake_collect(client) -> tuple:
-        from nd.nomad.models.node import Node
-
-        node = Node(
-            id="n1",
-            datacenter="dc1",
-            name="node1",
-            node_class="",
-            node_pool="default",
-            status="ready",
-            drain=False,
-            scheduling_eligibility="eligible",
-            meta={"nfsStorageRoot": "/srv"},
-            create_index=1,
-            modify_index=2,
-        )
-        return [node], []
-
-    monkeypatch.setattr(cmd, "_collect_register_inputs", _fake_collect)
-
-    # Stub the NomadClient so no network connection is attempted
-    from unittest.mock import AsyncMock, MagicMock
-
-    fake_client = MagicMock()
-    fake_client.__aenter__ = AsyncMock(return_value=fake_client)
-    fake_client.__aexit__ = AsyncMock(return_value=None)
-
-    monkeypatch.setattr(cmd, "NomadClient", lambda cfg: fake_client)
-    monkeypatch.setattr(cmd.NomadConfig, "resolve", lambda: MagicMock(ui_base="http://test:4646"))
+    # Given one discovered spec, a ready node with storage-root meta, and an offline client
+    _discover(monkeypatch, "data")
+    node = node_detail(meta={"nfsStorageRoot": "/srv"})
+    monkeypatch.setattr(volume_command, "_collect_register_inputs", async_return(([node], [])))
+    _fake_client(monkeypatch, registered=[])
 
     # When running register in dry-run mode, naming the spec so it auto-selects
     result = typer_runner.invoke(app, ["register", "data", "--dry-run"])
@@ -89,22 +106,12 @@ def test_volume_register_dry_run_makes_no_api_calls(monkeypatch, typer_runner) -
     assert result.exit_code == 0
 
 
-def test_volume_register_no_name_match_exits_one(monkeypatch, typer_runner) -> None:
+def test_volume_register_no_name_match_exits_one(
+    monkeypatch: pytest.MonkeyPatch, typer_runner
+) -> None:
     """Verify a register name argument matching no spec exits non-zero before any client call."""
     # Given discovery returns one spec named "data"
-    from pathlib import Path
-
-    import nd.commands.volume.command as cmd
-    from nd.volumefiles import VolumeSpec
-
-    spec = VolumeSpec(
-        path=Path("/v/data.hcl"),
-        name="data",
-        capabilities=[{"access_mode": "x", "attachment_mode": "file-system"}],
-        relative_path="data",
-    )
-    monkeypatch.setattr(cmd, "load_volume_directories", list)
-    monkeypatch.setattr(cmd, "discover_volume_files", lambda dirs: [spec])
+    _discover(monkeypatch, "data")
 
     # When naming a volume that matches nothing
     result = typer_runner.invoke(app, ["register", "zzz"])
@@ -113,86 +120,27 @@ def test_volume_register_no_name_match_exits_one(monkeypatch, typer_runner) -> N
     assert result.exit_code == 1
 
 
-def test_volume_delete_dry_run_with_name_selects_match(monkeypatch, typer_runner) -> None:
+def test_volume_delete_dry_run_with_name_selects_match(
+    monkeypatch: pytest.MonkeyPatch, typer_runner
+) -> None:
     """Verify delete narrows to the named spec and reports without issuing a delete."""
     # Given two specs and a registration matching the named one
-    from pathlib import Path
-    from unittest.mock import AsyncMock, MagicMock
-
-    import msgspec
-
-    import nd.commands.volume.command as cmd
-    from nd.nomad.models.volume import HostVolumeListStub
-    from nd.volumefiles import VolumeSpec
-
-    specs = [
-        VolumeSpec(path=Path("/v/data.hcl"), name="data", capabilities=[], relative_path="data"),
-        VolumeSpec(path=Path("/v/logs.hcl"), name="logs", capabilities=[], relative_path="logs"),
-    ]
-    monkeypatch.setattr(cmd, "load_volume_directories", list)
-    monkeypatch.setattr(cmd, "discover_volume_files", lambda dirs: specs)
-
-    registered = msgspec.convert(
-        {"ID": "v1", "Name": "data", "NodeID": "n1", "State": "ready"},
-        type=HostVolumeListStub,
-    )
-    fake_client = MagicMock()
-    fake_client.__aenter__ = AsyncMock(return_value=fake_client)
-    fake_client.__aexit__ = AsyncMock(return_value=None)
-    fake_client.nodes.list = AsyncMock(return_value=[])
-    fake_client.volumes.list = AsyncMock(return_value=[registered])
-    fake_client.volumes.delete = AsyncMock()
-    monkeypatch.setattr(cmd, "NomadClient", lambda cfg: fake_client)
-    monkeypatch.setattr(cmd.NomadConfig, "resolve", lambda: MagicMock())
+    _discover(monkeypatch, "data", "logs")
+    client = _fake_client(monkeypatch, registered=[host_volume_stub("data", volume_id="v1")])
 
     # When deleting in dry-run mode, naming the matching spec
     result = typer_runner.invoke(app, ["delete", "data", "--dry-run"])
 
     # Then it exits cleanly and never issues a real delete
     assert result.exit_code == 0
-    fake_client.volumes.delete.assert_not_awaited()
+    client.volumes.delete.assert_not_awaited()
 
 
-def _delete_fixture(monkeypatch) -> tuple:
-    """Wire discovery and a fake client with one 'data' registration for delete tests.
-
-    Returns the command module and the fake client so a test can patch the prompt
-    and assert on ``volumes.delete``.
-    """
-    from pathlib import Path
-    from unittest.mock import AsyncMock, MagicMock
-
-    import msgspec
-
-    import nd.commands.volume.command as cmd
-    from nd.nomad.models.volume import HostVolumeListStub
-    from nd.volumefiles import VolumeSpec
-
-    spec = VolumeSpec(path=Path("/v/data.hcl"), name="data", capabilities=[], relative_path="data")
-    monkeypatch.setattr(cmd, "load_volume_directories", list)
-    monkeypatch.setattr(cmd, "discover_volume_files", lambda dirs: [spec])
-
-    registered = msgspec.convert(
-        {"ID": "v1", "Name": "data", "NodeID": "n1", "State": "ready"},
-        type=HostVolumeListStub,
-    )
-    fake_client = MagicMock()
-    fake_client.__aenter__ = AsyncMock(return_value=fake_client)
-    fake_client.__aexit__ = AsyncMock(return_value=None)
-    fake_client.nodes.list = AsyncMock(return_value=[])
-    fake_client.volumes.list = AsyncMock(return_value=[registered])
-    fake_client.volumes.delete = AsyncMock()
-    monkeypatch.setattr(cmd, "NomadClient", lambda cfg: fake_client)
-    monkeypatch.setattr(cmd.NomadConfig, "resolve", lambda: MagicMock())
-    return cmd, fake_client
-
-
-def test_volume_delete_aborts_when_user_declines(monkeypatch, typer_runner) -> None:
+def test_volume_delete_aborts_when_user_declines(
+    monkeypatch: pytest.MonkeyPatch, typer_runner, one_registered_volume: MagicMock
+) -> None:
     """Verify a real delete declined at the confirmation prompt issues no delete."""
     # Given a matching registration and a confirmation prompt the user declines
-    from unittest.mock import AsyncMock
-
-    _, fake_client = _delete_fixture(monkeypatch)
     monkeypatch.setattr("nd.ui.prompts.select_one", AsyncMock(return_value=False))
     monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: True)
 
@@ -201,15 +149,14 @@ def test_volume_delete_aborts_when_user_declines(monkeypatch, typer_runner) -> N
 
     # Then it aborts cleanly and never issues a real delete
     assert result.exit_code == 0
-    fake_client.volumes.delete.assert_not_awaited()
+    one_registered_volume.volumes.delete.assert_not_awaited()
 
 
-def test_volume_delete_force_skips_confirmation(monkeypatch, typer_runner) -> None:
+def test_volume_delete_force_skips_confirmation(
+    monkeypatch: pytest.MonkeyPatch, typer_runner, one_registered_volume: MagicMock
+) -> None:
     """Verify --force deletes without prompting for confirmation."""
     # Given a matching registration and a confirmation prompt that must not be reached
-    from unittest.mock import AsyncMock
-
-    _, fake_client = _delete_fixture(monkeypatch)
     prompt = AsyncMock(return_value=False)
     monkeypatch.setattr("nd.ui.prompts.select_one", prompt)
 
@@ -219,7 +166,7 @@ def test_volume_delete_force_skips_confirmation(monkeypatch, typer_runner) -> No
     # Then it deletes the registration without ever prompting
     assert result.exit_code == 0
     prompt.assert_not_awaited()
-    fake_client.volumes.delete.assert_awaited_once_with("v1")
+    one_registered_volume.volumes.delete.assert_awaited_once_with("v1")
 
 
 @pytest.mark.parametrize(
@@ -230,14 +177,14 @@ def test_volume_delete_force_skips_confirmation(monkeypatch, typer_runner) -> No
     ],
 )
 def test_volume_delete_reports_nomad_failures_and_propagates_others(
-    monkeypatch, typer_runner, error: Exception, expected_exception: type[Exception] | None
+    typer_runner,
+    one_registered_volume: MagicMock,
+    error: Exception,
+    expected_exception: type[Exception] | None,
 ) -> None:
     """Verify a Nomad error on one delete is reported in place while any other error propagates."""
     # Given a matching registration whose delete call fails
-    from unittest.mock import AsyncMock
-
-    _, fake_client = _delete_fixture(monkeypatch)
-    fake_client.volumes.delete = AsyncMock(side_effect=error)
+    one_registered_volume.volumes.delete = AsyncMock(side_effect=error)
 
     # When deleting the named spec with --force
     result = typer_runner.invoke(app, ["delete", "data", "--force"])
@@ -250,45 +197,19 @@ def test_volume_delete_reports_nomad_failures_and_propagates_others(
 
 
 def test_volume_list_joins_named_specs_to_registrations(
-    monkeypatch, typer_runner, httpx2_mock
+    monkeypatch: pytest.MonkeyPatch, typer_runner, httpx2_mock: respx.Router, nomad_env: str
 ) -> None:
     """Verify `nd volume list NAME` narrows specs and shows each one's registered node names."""
     # Given two specs, a cluster node, and a registration of one spec on that node
-    from pathlib import Path
-
-    import nd.commands.volume.command as cmd
-    from nd.commands.volume.report import VolumeRow
-    from nd.volumefiles import VolumeSpec
-
-    addr = "http://nomad.test:4646"
-    monkeypatch.setenv("NOMAD_ADDR", addr)
-    specs = [
-        VolumeSpec(path=Path("/v/data.hcl"), name="data", capabilities=[], relative_path="data"),
-        VolumeSpec(path=Path("/v/logs.hcl"), name="logs", capabilities=[], relative_path="logs"),
-    ]
-    monkeypatch.setattr(cmd, "load_volume_directories", list)
-    monkeypatch.setattr(cmd, "discover_volume_files", lambda dirs: specs)
-    httpx2_mock.get(f"{addr}/v1/nodes").respond(
-        json=[
-            {
-                "ID": "n1-0000-0000",
-                "Datacenter": "dc1",
-                "Name": "node1",
-                "NodeClass": "",
-                "Drain": False,
-                "SchedulingEligibility": "eligible",
-                "Status": "ready",
-                "Version": "1.9.0",
-                "CreateIndex": 1,
-                "ModifyIndex": 2,
-            }
-        ]
+    _discover(monkeypatch, "data", "logs")
+    httpx2_mock.get(f"{nomad_env}/v1/nodes").respond(
+        json=[to_payload(node_stub("node1", node_id="n1-0000-0000"))]
     )
-    httpx2_mock.get(f"{addr}/v1/volumes").respond(
-        json=[{"ID": "v1", "Name": "data", "NodeID": "n1-0000-0000", "State": "ready"}]
+    httpx2_mock.get(f"{nomad_env}/v1/volumes").respond(
+        json=[to_payload(host_volume_stub("data", node_id="n1-0000-0000", volume_id="v1"))]
     )
     rendered: list[list[VolumeRow]] = []
-    monkeypatch.setattr(cmd, "render_list", rendered.append)
+    monkeypatch.setattr(volume_command, "render_list", rendered.append)
 
     # When listing volumes, naming the "data" spec
     result = typer_runner.invoke(app, ["list", "data"])

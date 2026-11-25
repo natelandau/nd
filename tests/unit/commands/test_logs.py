@@ -3,6 +3,8 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from nd.binary import NomadBinaryError
 from nd.cli import app
 from nd.targets import ResolvedTarget
@@ -26,46 +28,34 @@ def _patch(monkeypatch, *, target: ResolvedTarget | None, exit_code: int = 0) ->
     return nomad.stream_logs
 
 
-def test_logs_passes_default_both_follow(monkeypatch, typer_runner):
-    """Verify a resolved target streams both stdout and stderr with no tail or export."""
+@pytest.mark.parametrize(
+    ("argv", "expected_kwargs"),
+    [
+        pytest.param(
+            [],
+            {"streams": ("stdout", "stderr"), "tail": None, "export_path": None},
+            id="default-both-streams",
+        ),
+        pytest.param(
+            ["--stderr", "--tail", "50"], {"streams": ("stderr",), "tail": 50}, id="stderr-tail"
+        ),
+        pytest.param(["--stdout"], {"streams": ("stdout",)}, id="stdout-only"),
+    ],
+)
+def test_logs_forwards_stream_options(
+    monkeypatch, typer_runner, *, argv: list[str], expected_kwargs: dict[str, object]
+):
+    """Verify the stream selection and --tail reach stream_logs, defaulting to both streams."""
     # Given a resolver that returns a concrete target
     stream = _patch(monkeypatch, target=ResolvedTarget("web", "alloc-1", "server"))
 
-    # When invoking logs with just a job name
-    result = typer_runner.invoke(app, ["logs", "web"])
+    # When invoking logs with the parametrized options
+    result = typer_runner.invoke(app, ["logs", "web", *argv])
 
-    # Then stream_logs is called for both streams and the command succeeds
+    # Then the options reach stream_logs
     assert result.exit_code == 0
-    assert stream.call_args.kwargs["streams"] == ("stdout", "stderr")
-    assert stream.call_args.kwargs["tail"] is None
-    assert stream.call_args.kwargs["export_path"] is None
-
-
-def test_logs_forwards_stderr_and_tail(monkeypatch, typer_runner):
-    """Verify --stderr isolates the stderr stream and --tail is forwarded."""
-    # Given a resolver that returns a concrete target
-    stream = _patch(monkeypatch, target=ResolvedTarget("web", "alloc-1", "server"))
-
-    # When tailing 50 stderr lines
-    result = typer_runner.invoke(app, ["logs", "web", "--stderr", "--tail", "50"])
-
-    # Then the flags reach stream_logs
-    assert result.exit_code == 0
-    assert stream.call_args.kwargs["streams"] == ("stderr",)
-    assert stream.call_args.kwargs["tail"] == 50
-
-
-def test_logs_stdout_flag_isolates_stdout(monkeypatch, typer_runner):
-    """Verify --stdout limits the read to the stdout stream only."""
-    # Given a resolver that returns a concrete target
-    stream = _patch(monkeypatch, target=ResolvedTarget("web", "alloc-1", "server"))
-
-    # When invoking logs with --stdout
-    result = typer_runner.invoke(app, ["logs", "web", "--stdout"])
-
-    # Then stream_logs reads only stdout
-    assert result.exit_code == 0
-    assert stream.call_args.kwargs["streams"] == ("stdout",)
+    for name, expected in expected_kwargs.items():
+        assert stream.call_args.kwargs[name] == expected
 
 
 def test_logs_no_target_exits_with_resolver_code(monkeypatch, typer_runner):

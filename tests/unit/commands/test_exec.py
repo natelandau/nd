@@ -92,17 +92,33 @@ def test_exec_missing_binary_exits_one(monkeypatch, typer_runner):
     assert result.exit_code == 1
 
 
-def test_exec_runs_command_after_separator(monkeypatch, typer_runner):
-    """Verify a command after `--` reaches the binary layer verbatim."""
+@pytest.mark.parametrize(
+    ("argv", "expected_command"),
+    [
+        pytest.param(["web", "--", "ps", "-ef"], ["ps", "-ef"], id="plain-command"),
+        pytest.param(
+            ["web", "--", "ls", "-la", "/alloc"], ["ls", "-la", "/alloc"], id="dashed-arguments"
+        ),
+        pytest.param(
+            ["web", "--", "sh", "-c", "--", "x"],
+            ["sh", "-c", "--", "x"],
+            id="second-separator-belongs-to-command",
+        ),
+    ],
+)
+def test_exec_runs_command_after_separator(
+    monkeypatch, typer_runner, *, argv: list[str], expected_command: list[str]
+):
+    """Verify everything after the first `--` reaches the binary layer verbatim, unparsed."""
     # Given a resolver that returns a concrete target
     exec_command = _patch(monkeypatch, target=ResolvedTarget("web", "alloc-1", "server"))
 
     # When passing a command after the separator
-    result = typer_runner.invoke(app, ["exec", "web", "--", "ps", "-ef"])
+    result = typer_runner.invoke(app, ["exec", *argv])
 
     # Then the command runs as-is with no shell wrapping
     assert result.exit_code == 0
-    assert exec_command.call_args.args == ("alloc-1", "server", ["ps", "-ef"])
+    assert exec_command.call_args.args == ("alloc-1", "server", expected_command)
 
 
 def test_exec_command_keeps_job_argument_optional(monkeypatch, typer_runner):
@@ -117,32 +133,6 @@ def test_exec_command_keeps_job_argument_optional(monkeypatch, typer_runner):
     assert result.exit_code == 0
     assert _RESOLVE_CALLS["job_arg"] is None
     assert exec_command.call_args.args[2] == ["ps", "-ef"]
-
-
-def test_exec_command_preserves_dashed_arguments(monkeypatch, typer_runner):
-    """Verify option-looking arguments after `--` reach the container untouched."""
-    # Given a resolver that returns a concrete target
-    exec_command = _patch(monkeypatch, target=ResolvedTarget("web", "alloc-1", "server"))
-
-    # When the command carries its own flags
-    result = typer_runner.invoke(app, ["exec", "web", "--", "ls", "-la", "/alloc"])
-
-    # Then nd does not try to parse them
-    assert result.exit_code == 0
-    assert exec_command.call_args.args[2] == ["ls", "-la", "/alloc"]
-
-
-def test_exec_command_splits_on_the_first_separator_only(monkeypatch, typer_runner):
-    """Verify a second `--` belongs to the command rather than splitting again."""
-    # Given a resolver that returns a concrete target
-    exec_command = _patch(monkeypatch, target=ResolvedTarget("web", "alloc-1", "server"))
-
-    # When the command itself contains a separator
-    result = typer_runner.invoke(app, ["exec", "web", "--", "sh", "-c", "--", "x"])
-
-    # Then only the first one is consumed
-    assert result.exit_code == 0
-    assert exec_command.call_args.args[2] == ["sh", "-c", "--", "x"]
 
 
 def test_exec_option_still_follows_the_job_argument(monkeypatch, typer_runner):

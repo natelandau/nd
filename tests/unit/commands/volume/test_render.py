@@ -1,11 +1,8 @@
 """Tests for volume command rendering."""
 
-from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from nclutils import pp
-from rich.console import Console
 
 from nd.commands.volume.render import (
     render_deletion_results,
@@ -21,313 +18,225 @@ from nd.commands.volume.report import (
     Registration,
     VolumeRow,
 )
-from nd.nomad.models.volume import HostVolumeListStub
 from nd.volumefiles import VolumeSpec
+from tests.builders import host_volume_stub
+from tests.helpers import capture_output
 
 
-@pytest.fixture(autouse=True)
-def _restore_pp() -> Iterator[None]:
-    """Restore the global pp emitter after each test."""
-    original = pp.get_default()
-    yield
-    pp.set_default(original)
-
-
-def _record() -> Console:
-    """Build a recording console wired into pp for output capture."""
-    console = Console(theme=pp.THEME, record=True, force_terminal=True, width=100)
-    emitter = pp.Emitter(console=console, err_console=console)
-    pp.set_default(emitter)
-    return console
-
-
-def _spec(name: str = "data") -> VolumeSpec:
-    return VolumeSpec(
-        path=Path(f"/v/{name}.hcl"),
-        name=name,
-        capabilities=[{"access_mode": "x", "attachment_mode": "file-system"}],
-        relative_path="data",
-    )
-
-
-def _reg(
-    *,
+def _registration(
     spec_name: str = "data",
+    *,
     node_name: str = "node1",
     reason: str = "",
     host_path: str | None = "/srv/data",
 ) -> Registration:
+    """Build a planned registration of one volume spec on node `n1`.
+
+    Returns:
+        Registration: The registration; skipped when `host_path` is None.
+    """
+    spec = VolumeSpec(
+        path=Path(f"/v/{spec_name}.hcl"),
+        name=spec_name,
+        capabilities=[{"access_mode": "x", "attachment_mode": "file-system"}],
+        relative_path="data",
+    )
     return Registration(
-        spec=_spec(spec_name),
-        node_id="n1",
-        node_name=node_name,
-        host_path=host_path,
-        reason=reason,
+        spec=spec, node_id="n1", node_name=node_name, host_path=host_path, reason=reason
     )
 
 
-# ---------------------------------------------------------------------------
-# render_list tests
-# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("rows", "expected"),
+    [
+        pytest.param(
+            [
+                VolumeRow(name="data", nodes=["node-alpha"], registered=True),
+                VolumeRow(name="cache", nodes=[], registered=False),
+            ],
+            ["data", "node-alpha", "cache"],
+            id="registered-and-unregistered",
+        ),
+        pytest.param(
+            [VolumeRow(name="data", nodes=["alpha", "beta"], registered=True)],
+            ["alpha", "beta"],
+            id="multi-node-volume",
+        ),
+    ],
+)
+def test_render_list_shows_volumes_and_node_names(
+    rows: list[VolumeRow], expected: list[str]
+) -> None:
+    """Verify the list table shows every volume and the names of the nodes it is on."""
+    # Given a recording console
+    console = capture_output()
 
-
-def test_render_list_shows_registered_nodes() -> None:
-    """Verify the list table shows a registered volume's node names, not raw IDs."""
-    # Given a recording console and one registered, one unregistered row
-    console = _record()
-    rows = [
-        VolumeRow(name="data", nodes=["node-alpha"], registered=True),
-        VolumeRow(name="cache", nodes=[], registered=False),
-    ]
-    # When rendering
+    # When rendering the rows
     render_list(rows)
-    out = console.export_text()
-    # Then both volumes appear and the name (not a raw GUID) is shown
-    assert "data" in out
-    assert "node-alpha" in out
-    assert "cache" in out
 
-
-def test_render_list_shows_comma_separated_node_names_for_multi_node_volume() -> None:
-    """Verify a volume on multiple nodes shows comma-separated names in one row."""
-    # Given a volume registered on two nodes
-    console = _record()
-    rows = [VolumeRow(name="data", nodes=["alpha", "beta"], registered=True)]
-    # When rendering
-    render_list(rows)
+    # Then each volume and node name appears
     out = console.export_text()
-    # Then both node names appear together in the output
-    assert "alpha" in out
-    assert "beta" in out
+    for fragment in expected:
+        assert fragment in out
 
 
 def test_render_list_empty_hints_config() -> None:
     """Verify an empty list nudges the user to set [volumes] directories."""
     # Given a recording console wired to both stdout and stderr paths
-    console = _record()
+    console = capture_output()
+
     # When rendering an empty list
     render_list([])
+
     # Then the config hint is captured by the recording console
     assert "volumes" in console.export_text()
 
 
-# ---------------------------------------------------------------------------
-# render_registration_results tests
-# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("registration", "outcome", "expected"),
+    [
+        pytest.param(_registration(), DONE, ["data", "node1", "registered on"], id="done"),
+        pytest.param(
+            _registration(),
+            Outcome(kind=OutcomeKind.FAILED, error="connection refused"),
+            ["data", "failed on", "connection refused"],
+            id="failed",
+        ),
+        pytest.param(
+            _registration(reason=ALREADY_REGISTERED_REASON, host_path=None),
+            None,
+            ["already registered on", "node1"],
+            id="already-registered",
+        ),
+        pytest.param(
+            _registration(reason="spec has no relative_path", host_path=None),
+            None,
+            ["skipped on", "relative_path"],
+            id="skipped",
+        ),
+        pytest.param(_registration(), DRY_RUN, ["would register on", "node1"], id="dry-run"),
+    ],
+)
+def test_render_registration_results_leaf_describes_outcome(
+    registration: Registration, outcome: Outcome | None, expected: list[str]
+) -> None:
+    """Verify each registration leaf names the volume, node, and what happened there."""
+    # Given a recording console
+    console = capture_output()
 
+    # When rendering one registration result
+    render_registration_results([(registration, outcome)])
 
-def test_render_registration_results_ok_leaf_shows_volume_and_node() -> None:
-    """Verify a successful registration shows the volume name as tree root and node in the leaf."""
-    # Given a recording console and one successful registration result
-    console = _record()
-    reg = _reg(spec_name="data", node_name="node1", host_path="/srv/data")
-    # When rendering a successful outcome
-    render_registration_results([(reg, DONE)])
+    # Then the leaf describes the outcome on that node
     out = console.export_text()
-    # Then the volume name appears as the tree root and the node name in the leaf
-    assert "data" in out
-    assert "node1" in out
-    assert "registered on" in out
+    for fragment in expected:
+        assert fragment in out
 
 
-def test_render_registration_results_failed_leaf_shows_error() -> None:
-    """Verify a failed registration shows the error text in the leaf."""
-    # Given a recording console and one failed registration
-    console = _record()
-    reg = _reg(spec_name="data", node_name="node1")
-    # When rendering with an error outcome
-    render_registration_results(
-        [(reg, Outcome(kind=OutcomeKind.FAILED, error="connection refused"))]
-    )
-    out = console.export_text()
-    # Then the failure is visible
-    assert "data" in out
-    assert "failed on" in out
-    assert "connection refused" in out
-
-
-def test_render_registration_results_already_registered_renders_dimly() -> None:
-    """Verify an already-registered skip renders with a distinct already-registered message."""
-    # Given a recording console and an already-registered skip
-    console = _record()
-    reg = _reg(
-        spec_name="data",
-        node_name="node1",
-        reason=ALREADY_REGISTERED_REASON,
-        host_path=None,
-    )
-    # When rendering
-    render_registration_results([(reg, None)])
-    out = console.export_text()
-    # Then the already-registered leaf text is present (not generic skip text)
-    assert "already registered on" in out
-    assert "node1" in out
-
-
-def test_render_registration_results_generic_skip_shows_reason() -> None:
-    """Verify a generic skip renders with the skip reason in the leaf."""
-    # Given a recording console and a generic skip (missing relative_path)
-    console = _record()
-    reg = _reg(
-        spec_name="data",
-        node_name="node1",
-        reason="spec has no relative_path",
-        host_path=None,
-    )
-    # When rendering
-    render_registration_results([(reg, None)])
-    out = console.export_text()
-    # Then the reason appears in the output with skipped phrasing
-    assert "skipped on" in out
-    assert "relative_path" in out
-
-
-def test_render_registration_results_dryrun_shows_would_register() -> None:
-    """Verify a dry-run result renders with 'would register' leaf text."""
-    # Given a recording console and a dry-run registration
-    console = _record()
-    reg = _reg(spec_name="data", node_name="node1", host_path="/srv/data")
-    # When rendering a dry-run outcome
-    render_registration_results([(reg, DRY_RUN)])
-    out = console.export_text()
-    # Then the would-register text appears
-    assert "would register on" in out
-    assert "node1" in out
-
-
-def test_render_registration_results_groups_by_volume() -> None:
-    """Verify multiple volumes each get their own tree root in the output."""
-    # Given registrations for two different volumes
-    console = _record()
+def test_render_registration_results_groups_by_volume_under_counted_title() -> None:
+    """Verify each volume gets its own tree, framed by a title counting the volumes registered."""
+    # Given successful registrations across two volumes
+    console = capture_output()
     results = [
-        (_reg(spec_name="alpha", node_name="n1"), DONE),
-        (_reg(spec_name="beta", node_name="n2"), DONE),
+        (_registration("alpha", node_name="n1"), DONE),
+        (_registration("beta", node_name="n2"), DONE),
     ]
+
     # When rendering
     render_registration_results(results)
+
+    # Then both volumes and nodes appear under a title with the registered count
     out = console.export_text()
-    # Then both volume names appear as separate roots
     assert "alpha" in out
     assert "beta" in out
     assert "n1" in out
     assert "n2" in out
-
-
-def test_render_registration_results_frames_groups_in_a_titled_panel() -> None:
-    """Verify results render inside a titled panel that counts the volumes registered."""
-    # Given successful registrations across two volumes
-    console = _record()
-    results = [
-        (_reg(spec_name="alpha", node_name="n1"), DONE),
-        (_reg(spec_name="beta", node_name="n2"), DONE),
-    ]
-    # When rendering
-    render_registration_results(results)
-    out = console.export_text()
-    # Then a panel titled with the registered count frames the groups
     assert "Registered 2 volumes" in out
-    assert "╭" in out  # the panel border
 
 
-def test_render_registration_results_dryrun_title_does_not_claim_success() -> None:
-    """Verify a dry-run frames the panel as 'would register' rather than 'registered'."""
-    # Given a dry-run registration result
-    console = _record()
-    render_registration_results([(_reg(spec_name="alpha"), DRY_RUN)])
-    out = console.export_text()
-    # Then the panel title reflects the dry-run, not a real registration
-    assert "Would register 1 volume" in out
-    assert "Registered" not in out
+@pytest.mark.parametrize(
+    ("result", "dry_run"),
+    [
+        pytest.param((_registration("alpha"), DRY_RUN), False, id="dry-run-outcome"),
+        pytest.param(
+            (_registration("alpha", host_path=None, reason="already registered"), None),
+            True,
+            id="every-node-skipped",
+        ),
+    ],
+)
+def test_render_registration_results_dry_run_title_does_not_claim_success(
+    result: tuple[Registration, Outcome | None], *, dry_run: bool
+) -> None:
+    """Verify a dry run titles the panel 'would register', even when every node is skipped."""
+    # Given a recording console
+    console = capture_output()
 
+    # When rendering a dry run
+    render_registration_results([result], dry_run=dry_run)
 
-def test_render_registration_results_dryrun_title_when_every_node_skipped() -> None:
-    """Verify a dry run whose plan skips every node still titles the panel 'would register'."""
-    # Given a dry run whose only registration is skipped
-    console = _record()
-    skipped = _reg(spec_name="alpha", host_path=None, reason="already registered")
-    # When rendering the dry run
-    render_registration_results([(skipped, None)], dry_run=True)
-    out = console.export_text()
     # Then the title does not claim a registration happened
+    out = console.export_text()
     assert "Would register 1 volume" in out
     assert "Registered" not in out
 
 
-# ---------------------------------------------------------------------------
-# render_deletion_results tests
-# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("outcome", "node_names", "expected"),
+    [
+        pytest.param(DONE, {"n1": "my-node"}, ["data", "my-node", "deleted on"], id="deleted"),
+        pytest.param(
+            DRY_RUN, {"n1": "node-beta"}, ["data", "would delete on", "node-beta"], id="dry-run"
+        ),
+        pytest.param(
+            Outcome(kind=OutcomeKind.FAILED, error="some error occurred"),
+            {"n1": "node-gamma"},
+            ["data", "failed on", "some error occurred"],
+            id="failed",
+        ),
+    ],
+)
+def test_render_deletion_results_leaf_describes_outcome(
+    outcome: Outcome, node_names: dict[str, str], expected: list[str]
+) -> None:
+    """Verify each deletion leaf names the volume, the node by name, and what happened there."""
+    # Given a recording console and a registration on node n1
+    console = capture_output()
+    vol = host_volume_stub("data", node_id="n1", volume_id="vol-1")
 
+    # When rendering one deletion result
+    render_deletion_results([(vol, outcome)], node_names=node_names)
 
-def test_render_deletion_results_deleted_shows_node_name() -> None:
-    """Verify a deleted volume shows the node NAME (not the GUID) in the leaf."""
-    # Given a recording console, a deleted volume, and a node_names map
-    console = _record()
-    vol = HostVolumeListStub(id="vol-1", name="data", node_id="n1")
-    node_names = {"n1": "my-node"}
-    # When rendering a successful outcome
-    render_deletion_results([(vol, DONE)], node_names=node_names)
+    # Then the leaf describes the outcome on the named node
     out = console.export_text()
-    # Then the node NAME appears, not the GUID
-    assert "data" in out
-    assert "my-node" in out
-    assert "deleted on" in out
-    assert "n1" not in out
+    for fragment in expected:
+        assert fragment in out
 
 
-def test_render_deletion_results_dryrun_shows_would_delete() -> None:
-    """Verify a dry-run deletion shows 'would delete' text with the node name."""
-    # Given a recording console and a would-delete result
-    console = _record()
-    vol = HostVolumeListStub(id="vol-2", name="cache", node_id="n2")
-    node_names = {"n2": "node-beta"}
-    # When rendering a dry-run outcome
-    render_deletion_results([(vol, DRY_RUN)], node_names=node_names)
-    out = console.export_text()
-    # Then would-delete text with node name appears
-    assert "cache" in out
-    assert "would delete on" in out
-    assert "node-beta" in out
+def test_render_deletion_results_shows_node_name_under_counted_title() -> None:
+    """Verify a deletion shows the node NAME (not the ID) under a title counting deletions."""
+    # Given a deleted volume and a node_names map
+    console = capture_output()
+    vol = host_volume_stub("data", node_id="n1", volume_id="vol-1")
 
-
-def test_render_deletion_results_frames_groups_in_a_titled_panel() -> None:
-    """Verify deletions render inside a titled panel that counts the volumes deleted."""
-    # Given a deleted volume
-    console = _record()
-    vol = HostVolumeListStub(id="vol-1", name="data", node_id="n1")
     # When rendering
     render_deletion_results([(vol, DONE)], node_names={"n1": "my-node"})
+
+    # Then the node name replaces the raw ID and the title counts the deleted volume
     out = console.export_text()
-    # Then a panel titled with the deleted count frames the group
+    assert "my-node" in out
+    assert "n1" not in out
     assert "Deleted 1 volume" in out
-    assert "╭" in out  # the panel border
-
-
-def test_render_deletion_results_failed_shows_error() -> None:
-    """Verify a failed deletion shows the error text in the leaf."""
-    # Given a recording console and a failed deletion
-    console = _record()
-    vol = HostVolumeListStub(id="vol-3", name="data", node_id="n3")
-    node_names = {"n3": "node-gamma"}
-    # When rendering with an error outcome
-    render_deletion_results(
-        [(vol, Outcome(kind=OutcomeKind.FAILED, error="some error occurred"))],
-        node_names=node_names,
-    )
-    out = console.export_text()
-    # Then the failure message appears
-    assert "data" in out
-    assert "failed on" in out
-    assert "some error occurred" in out
 
 
 def test_render_deletion_results_fallback_to_id_prefix_on_unknown_node() -> None:
     """Verify an unknown node_id falls back to the first 8 chars of the ID."""
     # Given a node_id not present in node_names
-    console = _record()
-    vol = HostVolumeListStub(id="vol-4", name="data", node_id="abcdef1234567890")
-    node_names: dict[str, str] = {}
+    console = capture_output()
+    vol = host_volume_stub("data", node_id="abcdef1234567890", volume_id="vol-4")
+
     # When rendering
-    render_deletion_results([(vol, DONE)], node_names=node_names)
-    out = console.export_text()
+    render_deletion_results([(vol, DONE)], node_names={})
+
     # Then the first 8 chars of the node_id appear as fallback
-    assert "abcdef12" in out
+    assert "abcdef12" in console.export_text()

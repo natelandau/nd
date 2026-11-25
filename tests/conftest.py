@@ -1,13 +1,65 @@
-"""Shared pytest fixtures."""
+"""Shared pytest fixtures that keep every test sealed off from the developer's machine."""
+
+from __future__ import annotations
 
 import os
+import socket
+from typing import TYPE_CHECKING
 
 import pytest
+from nclutils import pp
+
+from nd.binary import env as binary_env_module
+from tests.helpers import NOMAD_TEST_ADDR
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 @pytest.fixture(autouse=True)
-def isolate_nomad_config(monkeypatch, tmp_path_factory):
+def isolate_nomad_config(monkeypatch: pytest.MonkeyPatch, tmp_path_factory) -> None:
     """Keep the developer's NOMAD_* variables and nd config file out of every test."""
     for name in [name for name in os.environ if name.startswith("NOMAD_")]:
         monkeypatch.delenv(name)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg_config")))
+
+
+@pytest.fixture(autouse=True)
+def isolate_console_output() -> Iterator[None]:
+    """Give each test a fresh `pp` emitter so verbosity or a capture console cannot leak."""
+    original = pp.get_default()
+    pp.set_default(pp.Emitter())
+    yield
+    pp.set_default(original)
+
+
+@pytest.fixture(autouse=True)
+def block_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail any real socket connection, so an unmocked request cannot reach a live cluster.
+
+    respx intercepts mocked requests above the socket layer, so mocked tests never get here.
+    """
+
+    def _refuse(_sock: socket.socket, address: object) -> None:
+        msg = f"Test opened a real network connection to {address!r}; mock it with httpx2_mock"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(socket.socket, "connect", _refuse)
+    monkeypatch.setattr(socket.socket, "connect_ex", _refuse)
+
+
+@pytest.fixture(autouse=True)
+def hide_nomad_binary(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hide the developer's `nomad` binary, so a test that forgot to mock it fails cleanly."""
+    monkeypatch.setattr(binary_env_module, "which", lambda _name: None)
+
+
+@pytest.fixture
+def nomad_env(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Point `NomadConfig.resolve()` at the mock cluster through `NOMAD_ADDR`.
+
+    Returns:
+        str: The mock cluster address.
+    """
+    monkeypatch.setenv("NOMAD_ADDR", NOMAD_TEST_ADDR)
+    return NOMAD_TEST_ADDR

@@ -1,5 +1,7 @@
 """Tests for the Nomad client exception hierarchy."""
 
+import pytest
+
 from nd.nomad.errors import (
     NomadAuthError,
     NomadBadRequestError,
@@ -27,16 +29,17 @@ def test_http_error_carries_context():
     assert isinstance(err, NomadError)
 
 
-def test_http_subclasses_inherit_from_http_error():
+@pytest.mark.parametrize(
+    "error_class", [NomadBadRequestError, NomadAuthError, NomadNotFoundError, NomadServerError]
+)
+def test_http_subclasses_inherit_from_http_error(error_class: type[NomadHTTPError]):
     """Verify every status-specific error subclasses NomadHTTPError."""
-    # Given the four status-specific HTTP error classes
-    subclasses = (NomadBadRequestError, NomadAuthError, NomadNotFoundError, NomadServerError)
+    # Given a status-specific HTTP error class
+    # When instantiating it
+    err = error_class("x", status_code=400, method="GET", path="/p", body="")
 
-    # When instantiating each
-    # Then all are NomadHTTPError instances
-    for cls in subclasses:
-        err = cls("x", status_code=400, method="GET", path="/p", body="")
-        assert isinstance(err, NomadHTTPError)
+    # Then it is a NomadHTTPError instance
+    assert isinstance(err, NomadHTTPError)
 
 
 def test_decode_error_carries_payload():

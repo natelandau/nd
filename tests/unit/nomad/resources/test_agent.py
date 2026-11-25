@@ -1,41 +1,20 @@
 """Tests for the agent resource."""
 
-import asyncio
-
 import respx
 
-from nd.nomad.config import NomadConfig
-from nd.nomad.models.agent import AgentMember
-from nd.nomad.resources.agent import AgentResource
-from nd.nomad.transport import AsyncTransport
-
-_ADDR = "http://nomad.test:4646"
+from tests.builders import agent_member, to_payload
+from tests.helpers import NOMAD_TEST_ADDR, run_with_client
 
 
 def test_agent_members_decodes_server_list(httpx2_mock: respx.Router):
     """Verify agent.members decodes the server membership list with tags."""
     # Given a mocked agent/members endpoint
-    route = httpx2_mock.get(f"{_ADDR}/v1/agent/members").respond(
-        json={
-            "Members": [
-                {
-                    "Name": "mf1.global",
-                    "Addr": "10.0.0.1",
-                    "Status": "alive",
-                    "Tags": {"build": "2.0.3", "port": "4647"},
-                }
-            ]
-        },
+    route = httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/agent/members").respond(
+        json={"Members": [to_payload(agent_member("mf1.global", build="2.0.3"))]},
     )
-    resource = AgentResource(AsyncTransport(NomadConfig(address=_ADDR)))
 
     # When listing server members
-    async def run() -> list[AgentMember]:
-        result = await resource.members()
-        await resource._transport.aclose()
-        return result
-
-    members = asyncio.run(run())
+    members = run_with_client(lambda client: client.agent.members())
 
     # Then the member and its tags decode and the expected path was called
     assert [m.name for m in members] == ["mf1.global"]

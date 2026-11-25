@@ -5,8 +5,6 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from nclutils import pp
-from rich.console import Console
 
 from nd.commands._orchestration import (
     Outcome,
@@ -19,23 +17,11 @@ from nd.commands._orchestration import (
 )
 from nd.nomad import NomadError
 from nd.ui.styles import OUTCOME_GLYPH
+from tests.helpers import capture_output
 
 
 def _outcome(name: str, severity: Severity, *, detail: str = "", warnings: str = "") -> Outcome:
     return Outcome(name=name, severity=severity, label="label", detail=detail, warnings=warnings)
-
-
-def _capture(func) -> str:
-    """Run ``func`` under a recording emitter and return the captured text."""
-    console = Console(theme=pp.THEME, record=True, force_terminal=True, width=100)
-    emitter = pp.Emitter(console=console, err_console=console)
-    original = pp.get_default()
-    pp.set_default(emitter)
-    try:
-        func()
-    finally:
-        pp.set_default(original)
-    return console.export_text()
 
 
 @pytest.mark.parametrize("severity", list(Severity))
@@ -92,8 +78,11 @@ def test_report_outcomes_warns_fails_and_surfaces_warnings():
         _outcome("broken", Severity.FAIL, detail="boom", warnings="deprecated stanza"),
     ]
 
+    console = capture_output()
+
     # When reporting them
-    text = _capture(lambda: report_outcomes(outcomes, fail_verb="deploy"))
+    report_outcomes(outcomes, fail_verb="deploy")
+    text = console.export_text()
 
     # Then the clean outcome is silent, the detail-less warning falls back to its label,
     # and the failure reports with its register warning
@@ -108,8 +97,11 @@ def test_report_outcomes_warning_prefers_detail_over_label():
     # Given a timed-out outcome that carries its own detail
     outcomes = [_outcome("slow", Severity.WARN, detail="stop requested, still draining")]
 
+    console = capture_output()
+
     # When reporting it
-    text = _capture(lambda: report_outcomes(outcomes, fail_verb="stop"))
+    report_outcomes(outcomes, fail_verb="stop")
+    text = console.export_text()
 
     # Then the detail is used, not the label
     assert "slow: stop requested, still draining" in text
@@ -125,22 +117,19 @@ def test_request_all_reports_each_target_and_fails_on_any_error():
             raise NomadError(msg)
         return "deprecated stanza"
 
+    console = capture_output()
+
     # When requesting both
-    exit_code = 0
-
-    def run() -> None:
-        nonlocal exit_code
-        exit_code = asyncio.run(
-            request_all(
-                ["web", "broken"],
-                request,
-                name_of=str,
-                summary_of=lambda count: f"Registered {count} job(s)",
-                fail_verb="register",
-            )
+    exit_code = asyncio.run(
+        request_all(
+            ["web", "broken"],
+            request,
+            name_of=str,
+            summary_of=lambda count: f"Registered {count} job(s)",
+            fail_verb="register",
         )
-
-    text = _capture(run)
+    )
+    text = console.export_text()
 
     # Then the success, the failure, and the warning are each reported, and it exits 1
     assert exit_code == 1

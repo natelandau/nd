@@ -8,8 +8,7 @@ import respx
 
 from nd import __version__
 from nd.cli import app, main
-
-_ADDR = "http://nomad.test:4646"
+from tests.helpers import NOMAD_TEST_ADDR
 
 
 def test_cli_version_prints_and_exits(typer_runner):
@@ -72,11 +71,10 @@ def test_main_handles_keyboard_interrupt(mocker):
     assert exit_info.value.code == 130
 
 
-def test_main_maps_connection_error_to_clean_exit(httpx2_mock: respx.Router, monkeypatch, tmp_path):
+@pytest.mark.usefixtures("nomad_env")
+def test_main_maps_connection_error_to_clean_exit(httpx2_mock: respx.Router, monkeypatch):
     """Verify an unreachable agent exits non-zero instead of dumping a traceback."""
     # Given every endpoint failing at the transport level
-    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     for path in (
         "/v1/nodes",
         "/v1/jobs",
@@ -86,7 +84,9 @@ def test_main_maps_connection_error_to_clean_exit(httpx2_mock: respx.Router, mon
         "/v1/deployments",
         "/v1/evaluations",
     ):
-        httpx2_mock.get(f"{_ADDR}{path}").mock(side_effect=httpx2.ConnectError("unreachable"))
+        httpx2_mock.get(f"{NOMAD_TEST_ADDR}{path}").mock(
+            side_effect=httpx2.ConnectError("unreachable")
+        )
     monkeypatch.setattr(sys, "argv", ["nd", "status"])
 
     # When running main()

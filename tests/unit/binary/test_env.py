@@ -6,6 +6,7 @@ import pytest
 
 from nd.binary import NomadBinaryError, env
 from nd.nomad.config import NomadConfig
+from tests.helpers import NOMAD_TEST_ADDR
 
 
 def test_ensure_nomad_missing_raises(monkeypatch) -> None:
@@ -22,12 +23,12 @@ def test_binary_env_overlays_config_onto_environment(monkeypatch) -> None:
     """Verify binary_env overlays the resolved config onto the ambient environment."""
     # Given an ambient environment with a sentinel variable
     monkeypatch.setenv("SENTINEL_VAR", "keep-me")
-    config = NomadConfig(address="http://nomad.test:4646", token="t")  # noqa: S106
+    config = NomadConfig(address=NOMAD_TEST_ADDR, token="t")  # noqa: S106
 
     # When building the binary environment
     result = env.binary_env(config)
 
     # Then the config targets the cluster and the ambient variables are preserved
-    assert result["NOMAD_ADDR"] == "http://nomad.test:4646"
+    assert result["NOMAD_ADDR"] == NOMAD_TEST_ADDR
     assert result["NOMAD_TOKEN"] == "t"  # noqa: S105
     assert result["SENTINEL_VAR"] == "keep-me"

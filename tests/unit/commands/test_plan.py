@@ -2,34 +2,18 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from nd.jobfiles import JobCandidate, JobFile, candidates_for
-
-
-def test_candidates_for_flattens_names() -> None:
-    """Verify each job name in each file becomes its own candidate."""
-    files = [
-        JobFile(path=Path("/j/a.hcl"), job_names=["web", "worker"]),
-        JobFile(path=Path("/j/b.hcl"), job_names=["db"]),
-    ]
-    cands = candidates_for(files)
-    assert [(c.name, c.file.path.name) for c in cands] == [
-        ("web", "a.hcl"),
-        ("worker", "a.hcl"),
-        ("db", "b.hcl"),
-    ]
-    assert all(isinstance(c, JobCandidate) for c in cands)
+from nd.cli import app
+from nd.commands import plan as plan_module
 
 
-def test_plan_no_directories_exits_clean(monkeypatch, tmp_path, typer_runner) -> None:
+def test_plan_no_directories_exits_clean(monkeypatch, typer_runner) -> None:
     """Verify plan exits 0 with a message when no job files are configured."""
-    import nd.commands.plan as plan_mod
+    # Given no configured job directories and so no job files
+    monkeypatch.setattr(plan_module, "load_job_directories", list)
+    monkeypatch.setattr(plan_module, "discover_job_files", lambda dirs: [])
 
-    monkeypatch.setattr(plan_mod, "load_job_directories", list)
-    monkeypatch.setattr(plan_mod, "discover_job_files", lambda dirs: [])
-
-    from nd.cli import app
-
+    # When invoking plan
     result = typer_runner.invoke(app, ["plan"])
+
+    # Then it exits cleanly
     assert result.exit_code == 0

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from nd.jobfiles import (
+    JobCandidate,
+    JobFile,
+    candidates_for,
     discover_job_files,
     extract_job_names,
     find_spec_files,
@@ -29,14 +34,20 @@ def test_extract_job_names_ignores_interpolated() -> None:
     assert extract_job_names(text) == ["static"]
 
 
-def test_is_job_file_detects_literal_and_interpolated() -> None:
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param('job "web" {}', True, id="literal-name"),
+        pytest.param('job "${var.name}" {\n}', True, id="interpolated-name"),
+        pytest.param('type = "host"\nname = "data"', False, id="volume-spec"),
+    ],
+)
+def test_is_job_file_detects_literal_and_interpolated(*, text: str, expected: bool) -> None:
     """Verify is_job_file recognizes job blocks with literal or interpolated names."""
-    # Given job-block text and non-job text
-    # When classifying each
-    # Then a literal job block, an interpolated one, and a non-job file are classified
-    assert is_job_file('job "web" {}') is True
-    assert is_job_file('job "${var.name}" {\n}') is True
-    assert is_job_file('type = "host"\nname = "data"') is False
+    # Given job-block or non-job text
+    # When classifying it
+    # Then only a job block counts as a job file
+    assert is_job_file(text) is expected
 
 
 def test_discover_job_files_excludes_non_job_specs(tmp_path: Path) -> None:
@@ -106,3 +117,38 @@ def test_find_spec_files_skips_missing_directory(tmp_path: Path) -> None:
 
     # Then only the existing directory's file is listed
     assert files == [d / "web.hcl"]
+
+
+def test_candidates_for_flattens_names() -> None:
+    """Verify each job name in each file becomes its own candidate."""
+    # Given one file with two jobs and one with a single job
+    files = [
+        JobFile(path=Path("/j/a.hcl"), job_names=["web", "worker"]),
+        JobFile(path=Path("/j/b.hcl"), job_names=["db"]),
+    ]
+
+    # When computing candidates
+    cands = candidates_for(files)
+
+    # Then every name becomes a candidate tied to its file, in order
+    assert [(c.name, c.file.path.name) for c in cands] == [
+        ("web", "a.hcl"),
+        ("worker", "a.hcl"),
+        ("db", "b.hcl"),
+    ]
+    assert all(isinstance(c, JobCandidate) for c in cands)
+
+
+def test_candidates_for_excludes_running() -> None:
+    """Verify already-running job names are filtered out of run candidates."""
+    # Given two job files, one whose job is already running
+    files = [
+        JobFile(path=Path("/j/a.hcl"), job_names=["web", "worker"]),
+        JobFile(path=Path("/j/b.hcl"), job_names=["db"]),
+    ]
+
+    # When computing candidates excluding running names
+    cands = candidates_for(files, exclude_names={"web"})
+
+    # Then only the not-running job names are returned
+    assert sorted(c.name for c in cands) == ["db", "worker"]
