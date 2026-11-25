@@ -32,10 +32,19 @@ VerboseOption = Annotated[
 
 ForceOption = Annotated[bool, typer.Option("--force", "-f", help="Skip the confirmation prompt.")]
 
-JsonOption = Annotated[
-    bool,
-    typer.Option("--json", help="Print the result as JSON on stdout instead of a table."),
-]
+
+def json_option(help_text: str) -> OptionInfo:
+    """Declare a command's ``--json`` flag with help saying what the document holds.
+
+    Agents learn the output shape from ``--help``, so each command describes its own.
+
+    Args:
+        help_text: What the JSON document contains for this command.
+
+    Returns:
+        OptionInfo: The option, for use as ``Annotated[bool, json_option(...)]``.
+    """
+    return typer.Option("--json", help=help_text)
 
 
 def use_json_output() -> None:

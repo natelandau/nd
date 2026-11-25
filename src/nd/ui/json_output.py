@@ -20,5 +20,12 @@ def print_json(document: msgspec.Struct | Sequence[msgspec.Struct]) -> None:
     Args:
         document: The struct, or list of structs, to encode.
     """
-    sys.stdout.buffer.write(msgspec.json.encode(document) + b"\n")
-    sys.stdout.buffer.flush()
+    encoded = msgspec.json.encode(document) + b"\n"
+    # A redirected stdout (StringIO, an IDE console) can be text-only, with no byte buffer.
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is None:
+        sys.stdout.write(encoded.decode())
+        sys.stdout.flush()
+        return
+    buffer.write(encoded)
+    buffer.flush()

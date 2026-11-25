@@ -11,10 +11,10 @@ import typer
 from nclutils import pp
 
 from nd.commands._common import (
-    JsonOption,
     VerboseOption,
     command_app,
     configure_verbosity,
+    json_option,
     use_json_output,
 )
 from nd.jobfiles import discover_job_files, load_job_directories
@@ -131,7 +131,13 @@ def list_(
         ),
     ] = False,
     verbose: VerboseOption = 0,
-    json_output: JsonOption = False,  # noqa: FBT002
+    json_output: Annotated[  # noqa: FBT002
+        bool,
+        json_option(
+            "Print a JSON array of {job, status, file} on stdout instead of the table. "
+            'Status is the Nomad job status, or "not deployed".'
+        ),
+    ] = False,
 ) -> None:
     """List known job files and whether each is running, dead, or not deployed."""
     configure_verbosity(ctx, verbose)

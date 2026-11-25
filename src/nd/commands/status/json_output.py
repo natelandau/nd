@@ -226,9 +226,11 @@ def _host_json(host: HostPanel) -> HostJson:
 
 def _host_job_json(row: HostJobRow) -> HostJobJson:
     """Translate one host job row, turning the nanosecond start anchor into a UTC time."""
-    started_at = (
-        datetime.fromtimestamp(row.run_start_ns / 1e9, tz=UTC) if row.run_start_ns > 0 else None
-    )
+    started_at = None
+    if row.run_start_ns > 0:
+        # Integer math, because a float of unix nanoseconds cannot hold every microsecond.
+        seconds, nanos = divmod(row.run_start_ns, 10**9)
+        started_at = datetime.fromtimestamp(seconds, tz=UTC).replace(microsecond=nanos // 1000)
     return HostJobJson(
         id=row.job_id,
         name=row.name,

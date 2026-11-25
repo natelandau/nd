@@ -10,9 +10,9 @@ import typer
 from nclutils import pp
 
 from nd.commands._common import (
-    JsonOption,
     VerboseOption,
     configure_verbosity,
+    json_option,
     list_volumes_or_empty,
     record_step,
     use_json_output,
@@ -40,7 +40,14 @@ def status(
             "--hosts", help="Pivot the dashboard to one panel per host (jobs, status, uptime)."
         ),
     ] = False,
-    json_output: JsonOption = False,  # noqa: FBT002
+    json_output: Annotated[  # noqa: FBT002
+        bool,
+        json_option(
+            "Print a JSON object on stdout instead of the dashboard: health, cluster, servers, "
+            "nodes, jobs, allocations, volumes, deployments, problem_evaluations, and hosts "
+            "with --hosts."
+        ),
+    ] = False,
 ) -> None:
     """Show an at-a-glance overview of the Nomad cluster."""
     verbose = configure_verbosity(ctx, verbose)

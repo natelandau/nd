@@ -88,6 +88,7 @@ def test_build_status_json_omits_hosts_without_host_panels() -> None:
     ("run_start_ns", "expected"),
     [
         pytest.param(1_764_090_000 * 10**9, "2025-11-25T17:00:00Z", id="started"),
+        pytest.param(1_764_090_000_123_456_789, "2025-11-25T17:00:00.123456Z", id="sub-second"),
         pytest.param(0, None, id="no-start-time"),
     ],
 )

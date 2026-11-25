@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 
 import msgspec
@@ -37,3 +39,16 @@ def test_print_json_writes_one_unwrapped_line(
     assert out.endswith(b"\n")
     assert out.count(b"\n") == 1
     assert json.loads(out) == {"name": value}
+
+
+def test_print_json_writes_to_text_only_stdout() -> None:
+    """Verify a stdout without a byte buffer, such as a redirected StringIO, still gets the JSON."""
+    # Given stdout redirected to a text-only stream
+    stream = io.StringIO()
+
+    # When printing a document
+    with contextlib.redirect_stdout(stream):
+        print_json(_Sample(name="web"))
+
+    # Then the stream holds the JSON line
+    assert stream.getvalue() == '{"name":"web"}\n'
