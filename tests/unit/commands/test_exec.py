@@ -91,6 +91,7 @@ def test_exec_no_target_exits_with_resolver_code(
 
     # Then the command exits 1 and never calls the binary layer
     assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
     exec_command.assert_not_called()
 
 
@@ -106,6 +107,7 @@ def test_exec_missing_binary_exits_one(monkeypatch, typer_runner, exec_command: 
 
     # Then the command exits 1 without a raw traceback
     assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
 
 
 @pytest.mark.parametrize(

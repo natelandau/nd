@@ -99,6 +99,7 @@ def test_volume_register_no_name_match_exits_one(
 
     # Then it exits non-zero
     assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
 
 
 def test_volume_delete_dry_run_with_name_selects_match(
@@ -203,6 +204,7 @@ def test_volume_delete_propagates_non_nomad_errors(
     result = typer_runner.invoke(app, ["delete", "data", "--force"])
 
     # Then the error escapes the command
+    assert delete_route.called
     assert isinstance(result.exception, RuntimeError)
 
 

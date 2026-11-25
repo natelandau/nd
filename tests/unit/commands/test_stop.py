@@ -10,6 +10,7 @@ from rich.console import Console
 
 from nd.commands import stop as stop_module
 from nd.commands.stop import _build_dry_run_panel, stopping_title
+from nd.ui.prompts import PromptUnavailableError
 from tests.builders import job_stub, to_payload
 from tests.helpers import NOMAD_TEST_ADDR
 
@@ -45,6 +46,7 @@ def test_stop_app_errors_on_no_substring_match(httpx2_mock: respx.Router, typer_
 
     # Then it exits non-zero
     assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
 
 
 @pytest.mark.usefixtures("nomad_env")
@@ -62,6 +64,7 @@ def test_stop_app_no_argument_off_a_terminal_exits_non_zero(
 
     # Then it exits non-zero rather than reporting "nothing selected" as success
     assert result.exit_code == 1
+    assert isinstance(result.exception, PromptUnavailableError)
     assert not any(call.request.method == "DELETE" for call in httpx2_mock.calls)
 
 
@@ -78,6 +81,7 @@ def test_stop_app_unconfirmable_off_a_terminal_exits_non_zero(
 
     # Then the unanswerable confirmation is an error, not a silent no-op that exits 0
     assert result.exit_code == 1
+    assert isinstance(result.exception, PromptUnavailableError)
     assert not any(call.request.method == "DELETE" for call in httpx2_mock.calls)
 
 

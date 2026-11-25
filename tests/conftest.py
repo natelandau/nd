@@ -50,8 +50,9 @@ def block_network(monkeypatch: pytest.MonkeyPatch) -> None:
     """
 
     def _refuse(*args: object, **_kwargs: object) -> None:
-        msg = f"Test made a real network call with {args!r}; mock it with httpx2_mock"
-        raise RuntimeError(msg)
+        # pytest.fail raises a BaseException, which CliRunner and `except Exception` handlers
+        # cannot turn into an exit code a test might expect
+        pytest.fail(f"Test made a real network call with {args!r}; mock it with httpx2_mock")
 
     monkeypatch.setattr(socket.socket, "connect", _refuse)
     monkeypatch.setattr(socket.socket, "connect_ex", _refuse)

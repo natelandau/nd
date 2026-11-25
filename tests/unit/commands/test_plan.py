@@ -65,6 +65,7 @@ def test_plan_validation_failure_exits_non_zero_and_plans_the_rest(
 
     # Then the command fails, and the valid file is still planned
     assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
     nomad.plan.assert_called_once_with(good)
 
 
@@ -78,6 +79,7 @@ def test_plan_missing_binary_exits_non_zero(job_files: Callable[..., Path], type
 
     # Then the command reports failure instead of crashing
     assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
 
 
 def test_plan_dry_run_plans_nothing(

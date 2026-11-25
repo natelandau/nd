@@ -182,6 +182,7 @@ def test_signal_honors_a_nonzero_resolver_exit_code(
 
     # Then it exits 1 and nothing was sent
     assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
     assert not httpx2_mock.calls
 
 
@@ -200,6 +201,7 @@ def test_signal_named_job_not_running_exits_one(
 
     # Then it exits 1 and never posts a signal
     assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
     assert not [c for c in httpx2_mock.calls if c.request.method == "POST"]
 
 

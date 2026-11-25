@@ -92,6 +92,7 @@ def test_logs_no_target_exits_with_resolver_code(monkeypatch, typer_runner, stre
 
     # Then the command exits 1 and never calls the binary layer
     assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
     stream_logs.assert_not_called()
 
 
@@ -107,6 +108,7 @@ def test_logs_missing_binary_exits_one(monkeypatch, typer_runner, stream_logs: M
 
     # Then the command exits 1 without a raw traceback
     assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
 
 
 def test_logs_forwards_export_path(monkeypatch, typer_runner, stream_logs: MagicMock):

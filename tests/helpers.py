@@ -11,8 +11,7 @@ from rich.console import Console
 from nd.nomad import NomadClient, NomadConfig
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Coroutine, Sequence
-    from typing import Any
+    from collections.abc import Awaitable, Callable, Sequence
 
     from nd.ui.live_panel import LiveChild
 
@@ -39,11 +38,11 @@ def run_with_client[T](call: Callable[[NomadClient], Awaitable[T]]) -> T:
     return asyncio.run(_run())
 
 
-def async_return[T](value: T) -> Callable[..., Coroutine[Any, Any, T]]:
+def async_return[T](value: T) -> Callable[..., Awaitable[T]]:
     """Build an async stand-in that accepts any arguments and returns `value`.
 
     Returns:
-        Callable[..., Coroutine[Any, Any, T]]: The async function.
+        Callable[..., Awaitable[T]]: The async function.
     """
 
     async def _return(*_args: object, **_kwargs: object) -> T:

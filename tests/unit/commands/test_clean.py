@@ -4,6 +4,7 @@ import pytest
 import respx
 
 from nd.commands import clean as clean_module
+from nd.nomad import NomadError
 from tests.helpers import NOMAD_TEST_ADDR
 
 
@@ -34,5 +35,6 @@ def test_clean_app_exits_nonzero_on_error(httpx2_mock: respx.Router, typer_runne
     # When invoking the clean command
     result = typer_runner.invoke(clean_module.app, [])
 
-    # Then it exits non-zero
+    # Then the Nomad error ends the command, which main() turns into a non-zero exit
     assert result.exit_code != 0
+    assert isinstance(result.exception, NomadError)
