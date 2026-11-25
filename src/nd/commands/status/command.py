@@ -9,29 +9,21 @@ from typing import TYPE_CHECKING, Annotated, Any
 import typer
 from nclutils import pp
 
-from nd.commands._common import VerboseOption, configure_verbosity, record_step
+from nd.commands._common import (
+    VerboseOption,
+    configure_verbosity,
+    list_volumes_or_empty,
+    record_step,
+)
 from nd.commands.status.render import render_hosts, render_report
 from nd.commands.status.report import build_host_report, build_report
-from nd.nomad import NomadClient, NomadConfig, NomadError
+from nd.nomad import NomadClient, NomadConfig
 
 if TYPE_CHECKING:
     from nd.commands.status.report import HostPanel, StatusReport
 
 
 app = typer.Typer()
-
-
-async def _safe_volumes(client: NomadClient) -> list:
-    """Return host volumes, degrading to an empty list if the endpoint is unavailable.
-
-    Older Nomad versions and tokens lacking volume read access make the volumes
-    endpoint fail; the dashboard should still render the rest of the cluster state.
-    """
-    try:
-        return await client.volumes.list()
-    except NomadError as exc:
-        pp.debug(f"Skipping volumes in status: {exc}")
-        return []
 
 
 @app.callback(invoke_without_command=True)
@@ -101,7 +93,7 @@ async def _collect(*, verbose: int, hosts: bool = False) -> tuple[StatusReport, 
                 fetch("/status/leader", client.status.leader()),
                 fetch("/deployments", client.deployments.list()),
                 fetch("/evaluations", client.evaluations.list()),
-                fetch("/volumes", _safe_volumes(client)),
+                fetch("/volumes", list_volumes_or_empty(client)),
             )
     report = build_report(
         nodes=nodes,

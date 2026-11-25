@@ -54,10 +54,10 @@ Discovered from directories in `$XDG_CONFIG_HOME/nd/config.toml`. Both kinds sha
 
 Match the existing commands: optional `NAME` substring argument and `--dry-run / -n` where they apply. Reuse:
 
-- `commands/_common.py`: `command_app`, `VerboseOption`, `ForceOption`, `dry_run_option`, `configure_verbosity`, `record_step`, `run_alloc_action`.
+- `commands/_common.py`: `command_app`, `VerboseOption`, `ForceOption`, `dry_run_option`, `configure_verbosity`, `record_step`, `run_alloc_action`, `list_volumes_or_empty` (host volumes; empty when the endpoint fails).
 - `commands/_orchestration.py`: `Outcome`/`Severity` for multi-target results, `run_outcome_rows` (live rows, report, exit code), `request_all` (`--detach` fan-out), `confirm_jobs`.
 - `commands/_lifecycle.py`: `watch_deploy`, `stop_and_wait`, `poll_until` (deadline poll loop), `task_lifecycle`.
-- `ui/`: styles, panels, prompts (`confirm`, `select_one`, `select_many`), durations, `text.plural`, `live_panel.run_rows` (concurrent per-target rows).
+- `ui/`: styles, panels, prompts (`confirm`, `select_one`, `select_many`), durations, `text.plural`, `live_panel.run_rows` (concurrent per-target rows), `links.WebUi` and `links.file_link` (clickable job, node, and file names).
 - `targets/`: `select_targets` (substring match, multi-select, exits on no match), `job_file_label`; `alloc_target.py` for resolving one job/alloc/task.
 - `nodes.py`: `node_names_by_id`, `node_label` (name, or short ID when unknown).
 

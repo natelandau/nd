@@ -11,11 +11,22 @@ from typing import TYPE_CHECKING
 
 import msgspec
 
+from nd.commands.doctor.findings import DoctorSnapshot
 from nd.nomad.models.agent import AgentMember
 from nd.nomad.models.allocation import AllocListStub, TaskState
 from nd.nomad.models.deployment import Deployment, TaskGroupDeploymentState
 from nd.nomad.models.evaluation import EvalListStub
-from nd.nomad.models.job import JobListStub, JobRegisterResponse
+from nd.nomad.models.job import (
+    JobListStub,
+    JobRegisterResponse,
+    JobSpec,
+    ServiceSpec,
+    TaskGroupSpec,
+    TaskLifecycleSpec,
+    TaskResourcesSpec,
+    TaskSpec,
+    VolumeRequestSpec,
+)
 from nd.nomad.models.node import Node, NodeListStub
 from nd.nomad.models.volume import HostVolumeListStub
 from nd.volumefiles import VolumeSpec
@@ -42,6 +53,7 @@ def job_stub(
     *,
     status: str = "running",
     job_type: str = "service",
+    parent_id: str = "",
 ) -> JobListStub:
     """Build a job list entry whose ID equals its name.
 
@@ -54,18 +66,112 @@ def job_stub(
         type=job_type,
         status=status,
         priority=50,
+        parent_id_raw=parent_id,
         create_index=1,
         modify_index=2,
     )
 
 
-def task_state(state: str = "running", *, started_at: str = "") -> TaskState:
+def task_state(
+    state: str = "running", *, started_at: str = "", restarts: int = 0, last_restart: str = ""
+) -> TaskState:
     """Build one task's state within an allocation.
 
     Returns:
         TaskState: The task state.
     """
-    return TaskState(state=state, failed=False, restarts=0, started_at_raw=started_at)
+    return TaskState(
+        state=state,
+        failed=False,
+        restarts=restarts,
+        started_at_raw=started_at,
+        last_restart_raw=last_restart,
+    )
+
+
+def task_spec(
+    name: str = "app",
+    *,
+    image: str | None = "nginx:1.27",
+    cpu: int = 500,
+    memory_mb: int = 512,
+    services: list[ServiceSpec] | None = None,
+    lifecycle: TaskLifecycleSpec | None = None,
+) -> TaskSpec:
+    """Build a task; pass `image=None` for a task whose config has no image.
+
+    Returns:
+        TaskSpec: The task.
+    """
+    return TaskSpec(
+        name=name,
+        config_raw={} if image is None else {"image": image},
+        resources=TaskResourcesSpec(cpu=cpu, memory_mb=memory_mb),
+        lifecycle=lifecycle,
+        services_raw=services,
+    )
+
+
+def task_group_spec(
+    name: str = "web",
+    *,
+    tasks: list[TaskSpec] | None = None,
+    services: list[ServiceSpec] | None = None,
+    volumes: dict[str, VolumeRequestSpec] | None = None,
+) -> TaskGroupSpec:
+    """Build a task group; with no tasks given it holds one default `task_spec()`.
+
+    Returns:
+        TaskGroupSpec: The task group.
+    """
+    return TaskGroupSpec(
+        name=name,
+        tasks_raw=[task_spec()] if tasks is None else tasks,
+        services_raw=services,
+        volumes_raw=volumes,
+    )
+
+
+def volume_request(
+    source: str = "data", *, request_type: str = "host", per_alloc: bool = False
+) -> VolumeRequestSpec:
+    """Build a task group's request for the named volume.
+
+    Returns:
+        VolumeRequestSpec: The volume request.
+    """
+    return VolumeRequestSpec(type=request_type, source=source, per_alloc=per_alloc)
+
+
+def job_spec(
+    name: str = "web",
+    *,
+    status: str = "running",
+    groups: list[TaskGroupSpec] | None = None,
+    tasks: list[TaskSpec] | None = None,
+    volumes: dict[str, VolumeRequestSpec] | None = None,
+) -> JobSpec:
+    """Build a full job spec whose ID equals its name.
+
+    With no groups given it holds one `task_group_spec()` built from `tasks` and `volumes`.
+
+    Returns:
+        JobSpec: The job spec.
+
+    Raises:
+        ValueError: If `groups` is given together with `tasks` or `volumes`.
+    """
+    if groups is not None and (tasks is not None or volumes is not None):
+        msg = f"Expected groups, or tasks and volumes, not both (groups={groups!r})"
+        raise ValueError(msg)
+    return JobSpec(
+        id=name,
+        name=name,
+        status=status,
+        task_groups_raw=[task_group_spec(tasks=tasks, volumes=volumes)]
+        if groups is None
+        else groups,
+    )
 
 
 def alloc_stub(
@@ -255,4 +361,40 @@ def volume_spec(name: str = "data", *, relative_path: str | None = None) -> Volu
         name=name,
         capabilities=[{"access_mode": "single-node-writer", "attachment_mode": "file-system"}],
         relative_path=name if relative_path is None else relative_path,
+    )
+
+
+def doctor_snapshot(
+    *,
+    jobs: list[JobListStub] | None = None,
+    job_specs: list[JobSpec] | None = None,
+    allocs: list[AllocListStub] | None = None,
+    nodes: list[NodeListStub] | None = None,
+    members: list[AgentMember] | None = None,
+    evals: list[EvalListStub] | None = None,
+    volumes: list[HostVolumeListStub] | None = None,
+    job_file_paths: dict[str, Path] | None = None,
+    job_directories_configured: bool = True,
+    unnamed_job_files: list[Path] | None = None,
+    volume_spec_names: frozenset[str] = frozenset(),
+    now_ns: int = 0,
+) -> DoctorSnapshot:
+    """Build a cluster snapshot for nd doctor checks; every listing defaults to empty.
+
+    Returns:
+        DoctorSnapshot: The snapshot.
+    """
+    return DoctorSnapshot(
+        jobs=jobs or [],
+        job_specs=job_specs or [],
+        allocs=allocs or [],
+        nodes=nodes or [],
+        members=members or [],
+        evals=evals or [],
+        volumes=volumes or [],
+        job_file_paths=job_file_paths or {},
+        job_directories_configured=job_directories_configured,
+        unnamed_job_files=unnamed_job_files or [],
+        volume_spec_names=volume_spec_names,
+        now_ns=now_ns,
     )

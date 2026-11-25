@@ -50,3 +50,14 @@ DEFAULT_EXEC_SHELL = "/bin/sh"
 # minimal images that lack it. The choice is probed inside the container (via
 # `sh -c`) so it reflects what the container actually ships, not the local host.
 EXEC_SHELL_PROBE = "command -v bash >/dev/null 2>&1 && exec bash || exec sh"
+
+# --- Doctor checks ---------------------------------------------------------------------
+# A task restarting at least this many times, with its last restart inside the window,
+# is in a restart loop. Nomad counts restarts over an allocation's whole life, so the
+# window keeps a long-lived allocation that restarted months ago from staying flagged.
+DOCTOR_RESTART_THRESHOLD = 5
+DOCTOR_RESTART_WINDOW_SECONDS = 86_400
+# Resources Nomad fills in at registration when a task sets none. The API cannot tell
+# them from the same values set on purpose.
+NOMAD_DEFAULT_CPU_MHZ = 100
+NOMAD_DEFAULT_MEMORY_MB = 300

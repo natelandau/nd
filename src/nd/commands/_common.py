@@ -11,6 +11,7 @@ from nclutils import pp
 from nclutils.pp import Verbosity
 
 from nd.binary import NomadBinary, NomadBinaryError
+from nd.nomad import NomadError
 from nd.targets import resolve_target
 
 if TYPE_CHECKING:
@@ -19,7 +20,9 @@ if TYPE_CHECKING:
     from typer.core import TyperGroup
     from typer.models import OptionInfo
 
+    from nd.nomad import NomadClient
     from nd.nomad.config import NomadConfig
+    from nd.nomad.models.volume import HostVolumeListStub
 
 # Every subcommand accepts the same -v/--verbose count option; declare it once.
 VerboseOption = Annotated[
@@ -136,3 +139,16 @@ def run_alloc_action(
     # A child killed by a signal reports a negative code; sys.exit truncates that to a
     # meaningless status (SIGPIPE -> 243), so map it to the shell's 128 + signal (141).
     raise typer.Exit(128 - code if code < 0 else code)
+
+
+async def list_volumes_or_empty(client: NomadClient) -> list[HostVolumeListStub]:
+    """Return host volumes, or an empty list when the volumes endpoint is unavailable.
+
+    Older Nomad versions and tokens without volume read access make the endpoint fail.
+    A cluster overview still shows everything else, so the failure only drops volumes.
+    """
+    try:
+        return await client.volumes.list()
+    except NomadError as exc:
+        pp.debug(f"Skipping volumes: {exc}")
+        return []

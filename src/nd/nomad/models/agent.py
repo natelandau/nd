@@ -15,6 +15,11 @@ class AgentMember(NomadModel, frozen=True, kw_only=True):
     status: str
     tags: dict[str, str] = msgspec.field(default_factory=dict)
 
+    @property
+    def short_name(self) -> str:
+        """The server's host name, without the ``.region`` suffix serf appends."""
+        return self.name.split(".")[0]
+
 
 class AgentMembers(NomadModel, frozen=True, kw_only=True):
     """Server membership as returned by ``GET /v1/agent/members``."""

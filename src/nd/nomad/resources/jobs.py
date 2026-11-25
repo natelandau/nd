@@ -9,7 +9,12 @@ if TYPE_CHECKING:
 
 from nd.nomad.models.allocation import AllocListStub
 from nd.nomad.models.deployment import Deployment
-from nd.nomad.models.job import JobDeregisterResponse, JobListStub, JobRegisterResponse
+from nd.nomad.models.job import (
+    JobDeregisterResponse,
+    JobListStub,
+    JobRegisterResponse,
+    JobSpec,
+)
 from nd.nomad.resources.base import BaseResource
 
 
@@ -19,6 +24,17 @@ class JobsResource(BaseResource):
     async def list(self) -> builtins.list[JobListStub]:
         """List all jobs (``GET /v1/jobs``), following pagination."""
         return await self._paginate_list(path="/jobs", item_type=JobListStub)
+
+    async def get(self, job_id: str, *, namespace: str | None = None) -> JobSpec:
+        """Fetch one job's full spec (``GET /v1/job/:job_id``).
+
+        Use this when a check needs what ``list`` leaves out, such as task images,
+        resources, services, and volume requests. Pass the job's own ``namespace`` when
+        it came from a listing, since a wildcard configured namespace finds no job here.
+        """
+        params = {"namespace": namespace} if namespace else None
+        response = await self._transport.request(method="GET", path=f"/job/{job_id}", params=params)
+        return self._decode(response=response, type_=JobSpec)
 
     async def stop(
         self, job_id: str, *, purge: bool = False, no_shutdown_delay: bool = False

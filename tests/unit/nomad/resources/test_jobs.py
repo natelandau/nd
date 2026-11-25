@@ -3,7 +3,7 @@
 import pytest
 import respx
 
-from tests.builders import alloc_stub, deployment, job_stub, to_payload
+from tests.builders import alloc_stub, deployment, job_spec, job_stub, to_payload
 from tests.helpers import NOMAD_TEST_ADDR, run_with_client
 
 
@@ -111,3 +111,33 @@ def test_jobs_deployments_lists_for_job(httpx2_mock: respx.Router):
     # Then the deployment decodes and the expected path was called
     assert [d.id for d in deps] == ["dep-web"]
     assert route.calls.last.request.url.path == "/v1/job/web/deployments"
+
+
+def test_get_decodes_job_spec(httpx2_mock: respx.Router):
+    """Verify jobs.get fetches one job and decodes its full spec."""
+    # Given a mocked job endpoint
+    route = httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web").respond(
+        json=to_payload(job_spec("web"))
+    )
+
+    # When fetching the job
+    spec = run_with_client(lambda client: client.jobs.get("web"))
+
+    # Then the spec is decoded from the job's own path
+    assert spec.name == "web"
+    assert spec.task_groups[0].tasks[0].config["image"] == "nginx:1.27"
+    assert route.calls.last.request.url.path == "/v1/job/web"
+
+
+def test_get_queries_the_job_namespace(httpx2_mock: respx.Router):
+    """Verify jobs.get looks the job up in the namespace it was listed from."""
+    # Given a mocked job endpoint
+    route = httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web").respond(
+        json=to_payload(job_spec("web"))
+    )
+
+    # When fetching the job from a named namespace
+    run_with_client(lambda client: client.jobs.get("web", namespace="media"))
+
+    # Then the request names that namespace
+    assert route.calls.last.request.url.params["namespace"] == "media"
