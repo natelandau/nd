@@ -1,39 +1,20 @@
 """Tests for the deployments resource."""
 
-import asyncio
-
 import respx
 
-from nd.nomad.config import NomadConfig
-from nd.nomad.models.deployment import Deployment
-from nd.nomad.resources.deployments import DeploymentsResource
-from nd.nomad.transport import AsyncTransport
-
-_ADDR = "http://nomad.test:4646"
-_STUB = {
-    "ID": "dep-1",
-    "JobID": "web",
-    "Namespace": "default",
-    "Status": "running",
-    "JobVersion": 3,
-    "CreateIndex": 1,
-    "ModifyIndex": 2,
-}
+from tests.builders import deployment, to_payload
+from tests.helpers import NOMAD_TEST_ADDR, run_with_client
 
 
 def test_deployments_list_decodes_stubs(httpx2_mock: respx.Router):
     """Verify deployments.list decodes the deployment listing into deployments."""
     # Given a mocked deployments endpoint
-    route = httpx2_mock.get(f"{_ADDR}/v1/deployments").respond(json=[_STUB])
-    resource = DeploymentsResource(AsyncTransport(NomadConfig(address=_ADDR)))
+    route = httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/deployments").respond(
+        json=[to_payload(deployment("web", job_version=3))]
+    )
 
     # When listing deployments
-    async def run() -> list[Deployment]:
-        result = await resource.list()
-        await resource._transport.aclose()
-        return result
-
-    deployments = asyncio.run(run())
+    deployments = run_with_client(lambda client: client.deployments.list())
 
     # Then the stub decodes and the expected path was called
     assert [d.job_id for d in deployments] == ["web"]

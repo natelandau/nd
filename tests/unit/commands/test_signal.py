@@ -3,18 +3,16 @@
 import json
 import re
 
-import httpx
 import pytest
 import respx
 import typer
-from nclutils import pp
-from rich.console import Console
 
 from nd.cli import app
+from nd.commands import signal as signal_mod
 from nd.commands.signal import _normalize_signal
 from nd.targets import ResolvedTarget
-
-_ADDR = "http://nomad.test:4646"
+from tests.builders import job_stub, to_payload
+from tests.helpers import NOMAD_TEST_ADDR, capture_output
 
 
 def _patch_resolver(
@@ -28,8 +26,6 @@ def _patch_resolver(
     the fake populates with each call's arguments so a test can assert on it without
     reading shared module state.
     """
-    from nd.commands import signal as signal_mod
-
     calls: dict[str, object] = {}
 
     async def _fake_resolve(
@@ -40,12 +36,6 @@ def _patch_resolver(
 
     monkeypatch.setattr(signal_mod, "resolve_with_client", _fake_resolve)
     return calls
-
-
-def _isolate_config(monkeypatch, tmp_path) -> None:
-    """Point NomadConfig.resolve() at the mock address, not a real ~/.config/nd."""
-    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
 
 @pytest.mark.parametrize(
@@ -81,14 +71,16 @@ def test_normalize_signal_rejects_unknown_names(given):
         _normalize_signal(given)
 
 
+@pytest.mark.usefixtures("nomad_env")
 def test_signal_sends_the_signal_to_the_resolved_task(
-    httpx2_mock: respx.Router, monkeypatch, tmp_path, typer_runner
+    httpx2_mock: respx.Router, monkeypatch, typer_runner
 ):
     """Verify the resolved allocation and task receive the requested signal."""
-    # Given an isolated config, a resolved target, and a mocked signal endpoint
-    _isolate_config(monkeypatch, tmp_path)
+    # Given a resolved target and a mocked signal endpoint
     _patch_resolver(monkeypatch, target=ResolvedTarget("backup", "alloc-1", "ezbak"))
-    route = httpx2_mock.post(f"{_ADDR}/v1/client/allocation/alloc-1/signal").respond(json={})
+    route = httpx2_mock.post(f"{NOMAD_TEST_ADDR}/v1/client/allocation/alloc-1/signal").respond(
+        json={}
+    )
 
     # When signaling the job by name
     result = typer_runner.invoke(app, ["signal", "backup", "-s", "SIGUSR1"])
@@ -98,14 +90,16 @@ def test_signal_sends_the_signal_to_the_resolved_task(
     assert json.loads(route.calls.last.request.content) == {"Signal": "SIGUSR1", "Task": "ezbak"}
 
 
+@pytest.mark.usefixtures("nomad_env")
 def test_signal_normalizes_the_signal_before_sending(
-    httpx2_mock: respx.Router, monkeypatch, tmp_path, typer_runner
+    httpx2_mock: respx.Router, monkeypatch, typer_runner
 ):
     """Verify a lowercase unprefixed signal reaches Nomad in canonical form."""
-    # Given an isolated config, a resolved target, and a mocked signal endpoint
-    _isolate_config(monkeypatch, tmp_path)
+    # Given a resolved target and a mocked signal endpoint
     _patch_resolver(monkeypatch, target=ResolvedTarget("backup", "alloc-1", "ezbak"))
-    route = httpx2_mock.post(f"{_ADDR}/v1/client/allocation/alloc-1/signal").respond(json={})
+    route = httpx2_mock.post(f"{NOMAD_TEST_ADDR}/v1/client/allocation/alloc-1/signal").respond(
+        json={}
+    )
 
     # When passing the signal as "usr1"
     result = typer_runner.invoke(app, ["signal", "backup", "-s", "usr1"])
@@ -115,14 +109,12 @@ def test_signal_normalizes_the_signal_before_sending(
     assert json.loads(route.calls.last.request.content)["Signal"] == "SIGUSR1"
 
 
-def test_signal_resolves_only_running_targets(
-    httpx2_mock: respx.Router, monkeypatch, tmp_path, typer_runner
-):
+@pytest.mark.usefixtures("nomad_env")
+def test_signal_resolves_only_running_targets(httpx2_mock: respx.Router, monkeypatch, typer_runner):
     """Verify the picker is restricted to running jobs, allocations, and tasks."""
-    # Given an isolated config, a resolved target, and a mocked signal endpoint
-    _isolate_config(monkeypatch, tmp_path)
+    # Given a resolved target and a mocked signal endpoint
     calls = _patch_resolver(monkeypatch, target=ResolvedTarget("backup", "alloc-1", "ezbak"))
-    httpx2_mock.post(f"{_ADDR}/v1/client/allocation/alloc-1/signal").respond(json={})
+    httpx2_mock.post(f"{NOMAD_TEST_ADDR}/v1/client/allocation/alloc-1/signal").respond(json={})
 
     # When signaling with an explicit task
     result = typer_runner.invoke(app, ["signal", "backup", "-s", "SIGUSR1", "-t", "ezbak"])
@@ -132,10 +124,10 @@ def test_signal_resolves_only_running_targets(
     assert calls == {"job_arg": "backup", "task_arg": "ezbak", "running_only": True}
 
 
-def test_signal_requires_the_signal_option(monkeypatch, tmp_path, typer_runner):
+@pytest.mark.usefixtures("nomad_env")
+def test_signal_requires_the_signal_option(typer_runner):
     """Verify omitting -s is a usage error rather than a defaulted signal."""
-    # Given an isolated config
-    _isolate_config(monkeypatch, tmp_path)
+    # Given a configured cluster address
 
     # When invoking with no signal
     result = typer_runner.invoke(app, ["signal", "backup"])
@@ -144,12 +136,12 @@ def test_signal_requires_the_signal_option(monkeypatch, tmp_path, typer_runner):
     assert result.exit_code == 2
 
 
+@pytest.mark.usefixtures("nomad_env")
 def test_signal_rejects_an_unknown_signal_before_any_request(
-    httpx2_mock: respx.Router, monkeypatch, tmp_path, typer_runner
+    httpx2_mock: respx.Router, monkeypatch, typer_runner
 ):
     """Verify a misspelled signal fails locally without contacting Nomad."""
-    # Given an isolated config and a resolved target
-    _isolate_config(monkeypatch, tmp_path)
+    # Given a resolved target
     _patch_resolver(monkeypatch, target=ResolvedTarget("backup", "alloc-1", "ezbak"))
 
     # When passing a signal that does not exist
@@ -160,12 +152,12 @@ def test_signal_rejects_an_unknown_signal_before_any_request(
     assert not httpx2_mock.calls
 
 
+@pytest.mark.usefixtures("nomad_env")
 def test_signal_dry_run_resolves_but_sends_nothing(
-    httpx2_mock: respx.Router, monkeypatch, tmp_path, typer_runner
+    httpx2_mock: respx.Router, monkeypatch, typer_runner
 ):
     """Verify --dry-run resolves the target, then reports it without signaling it."""
-    # Given an isolated config and a resolved target
-    _isolate_config(monkeypatch, tmp_path)
+    # Given a resolved target
     calls = _patch_resolver(monkeypatch, target=ResolvedTarget("backup", "alloc-1", "ezbak"))
 
     # When running with --dry-run
@@ -177,12 +169,12 @@ def test_signal_dry_run_resolves_but_sends_nothing(
     assert not httpx2_mock.calls
 
 
+@pytest.mark.usefixtures("nomad_env")
 def test_signal_honors_a_nonzero_resolver_exit_code(
-    httpx2_mock: respx.Router, monkeypatch, tmp_path, typer_runner
+    httpx2_mock: respx.Router, monkeypatch, typer_runner
 ):
     """Verify a non-zero code from the resolver ends the command without signaling."""
-    # Given an isolated config and a resolver reporting a selection failure
-    _isolate_config(monkeypatch, tmp_path)
+    # Given a resolver reporting a selection failure
     _patch_resolver(monkeypatch, target=None, exit_code=1)
 
     # When signaling that name
@@ -190,30 +182,18 @@ def test_signal_honors_a_nonzero_resolver_exit_code(
 
     # Then it exits 1 and nothing was sent
     assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
     assert not httpx2_mock.calls
 
 
+@pytest.mark.usefixtures("nomad_env")
 def test_signal_named_job_not_running_exits_one(
-    httpx2_mock: respx.Router, monkeypatch, tmp_path, typer_runner
+    httpx2_mock: respx.Router, monkeypatch, typer_runner
 ):
     """Verify naming a job that is not running fails loudly rather than exiting zero."""
-    # Given an isolated config and a cluster whose only job, matching the name, is dead
-    _isolate_config(monkeypatch, tmp_path)
-    httpx2_mock.get(f"{_ADDR}/v1/jobs").mock(
-        return_value=httpx.Response(
-            200,
-            json=[
-                {
-                    "ID": "ezbak",
-                    "Name": "ezbak",
-                    "Type": "batch",
-                    "Status": "dead",
-                    "Priority": 50,
-                    "CreateIndex": 1,
-                    "ModifyIndex": 2,
-                }
-            ],
-        )
+    # Given a cluster whose only job, matching the name, is dead
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/jobs").respond(
+        json=[to_payload(job_stub("ezbak", status="dead", job_type="batch"))]
     )
 
     # When signaling it unattended
@@ -221,15 +201,16 @@ def test_signal_named_job_not_running_exits_one(
 
     # Then it exits 1 and never posts a signal
     assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
     assert not [c for c in httpx2_mock.calls if c.request.method == "POST"]
 
 
+@pytest.mark.usefixtures("nomad_env")
 def test_signal_cancelled_selection_exits_zero(
-    httpx2_mock: respx.Router, monkeypatch, tmp_path, typer_runner
+    httpx2_mock: respx.Router, monkeypatch, typer_runner
 ):
     """Verify cancelling the picker exits zero without signaling."""
-    # Given an isolated config and a resolver reporting nothing selected
-    _isolate_config(monkeypatch, tmp_path)
+    # Given a resolver reporting nothing selected
     _patch_resolver(monkeypatch, target=None)
 
     # When the user cancels
@@ -240,24 +221,18 @@ def test_signal_cancelled_selection_exits_zero(
     assert not httpx2_mock.calls
 
 
+@pytest.mark.usefixtures("nomad_env")
 def test_signal_success_message_claims_delivery_only(
-    httpx2_mock: respx.Router, monkeypatch, tmp_path, typer_runner
+    httpx2_mock: respx.Router, monkeypatch, typer_runner
 ):
     """Verify the success line reports delivery, never that the signal acted on the task."""
-    # Given an isolated config, a resolved target, and a mocked signal endpoint
-    _isolate_config(monkeypatch, tmp_path)
+    # Given a resolved target and a mocked signal endpoint
     _patch_resolver(monkeypatch, target=ResolvedTarget("backup", "alloc-1", "ezbak"))
-    httpx2_mock.post(f"{_ADDR}/v1/client/allocation/alloc-1/signal").respond(json={})
-    capture = Console(theme=pp.THEME, record=True, force_terminal=True, width=100)
-    emitter = pp.Emitter(console=capture, err_console=capture)
-    original = pp.get_default()
-    pp.set_default(emitter)
+    httpx2_mock.post(f"{NOMAD_TEST_ADDR}/v1/client/allocation/alloc-1/signal").respond(json={})
+    capture = capture_output()
 
     # When signaling the resolved task
-    try:
-        result = typer_runner.invoke(app, ["signal", "backup", "-s", "SIGUSR1"])
-    finally:
-        pp.set_default(original)
+    result = typer_runner.invoke(app, ["signal", "backup", "-s", "SIGUSR1"])
 
     # Then the success line says the signal was sent, and never claims it acted on the task
     text = capture.export_text()

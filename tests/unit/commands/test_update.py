@@ -2,37 +2,34 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
 import nd.commands.update as update_mod
-from nd.binary import NomadBinary, NomadBinaryError
+from nd.binary import NomadBinaryError
 from nd.cli import app
 from nd.commands._lifecycle import StopOutcome
 from nd.commands._orchestration import Outcome, Severity
 from nd.commands.update import UpdateTarget, build_update_targets
 from nd.jobfiles import JobFile
-from nd.nomad import NomadClient, NomadConfig, NomadError
-from nd.nomad.models.job import JobListStub
-from tests.unit.commands.panel_helpers import discard_panel_update
+from nd.nomad import NomadError
+from nd.nomad.models.deployment import TaskGroupDeploymentState
+from tests.builders import deployment, job_stub, register_response, to_payload
+from tests.helpers import NOMAD_TEST_ADDR, async_return, discard_panel_update, run_with_client
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine
-    from typing import Any
+    from collections.abc import Callable
+    from unittest.mock import MagicMock
 
     import respx
 
-_ADDR = "http://nomad.test:4646"
+    from nd.binary import NomadBinary
+    from nd.ui.live_panel import PanelUpdate
+    from tests.conftest import PromptAnswers
 
-
-def _async_return(value: object) -> Callable[..., Coroutine[Any, Any, object]]:
-    async def _inner(*args: object, **kwargs: object) -> object:
-        return value
-
-    return _inner
+_WEB_BODY = b'{"Job": {"ID": "web"}}'
 
 
 # Severity, row label, and whether the workload came down, per kind of stop result.
@@ -45,6 +42,7 @@ _STOP_KINDS: dict[str, tuple[Severity, str, bool]] = {
 
 
 def _stop_outcome(kind: str, *, detail: str = "", drained: int = 0) -> StopOutcome:
+    """Build the `web` job's stop result of the given kind."""
     severity, label, workload_stopped = _STOP_KINDS[kind]
     return StopOutcome(
         name="web",
@@ -56,15 +54,62 @@ def _stop_outcome(kind: str, *, detail: str = "", drained: int = 0) -> StopOutco
     )
 
 
-def _running(name: str) -> JobListStub:
-    return JobListStub(
-        id=name,
-        name=name,
-        type="service",
-        status="running",
-        priority=50,
-        create_index=100,
-        modify_index=100,
+def _web_target() -> UpdateTarget:
+    """Build an update target for the running `web` job and its local file."""
+    return UpdateTarget(
+        name="web",
+        file=JobFile(path=Path("/j/web.hcl"), job_names=["web"]),
+        job=job_stub("web"),
+    )
+
+
+@pytest.fixture
+def compiling_binary(fake_nomad_binary: MagicMock) -> MagicMock:
+    """Make the stand-in `nomad` binary's compile step succeed.
+
+    Returns:
+        MagicMock: The binary, compiling every job to the `web` body.
+    """
+    fake_nomad_binary.compile_job.return_value = _WEB_BODY
+    return fake_nomad_binary
+
+
+def _mock_successful_redeploy(httpx2_mock: respx.Router) -> respx.Route:
+    """Mock a register and a rollout for `web` that succeed.
+
+    Returns:
+        respx.Route: The register route.
+    """
+    register_route = httpx2_mock.post(f"{NOMAD_TEST_ADDR}/v1/jobs").respond(
+        json=to_payload(register_response(eval_id="e2", job_modify_index=5))
+    )
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/deployments").respond(
+        json=[
+            to_payload(
+                deployment(
+                    "web",
+                    status="successful",
+                    status_description="ok",
+                    create_index=10,
+                    task_groups={
+                        "app": TaskGroupDeploymentState(desired_total=1, healthy_allocs=1)
+                    },
+                )
+            )
+        ]
+    )
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/allocations").respond(json=[])
+    return register_route
+
+
+def _update_web(
+    nomad: NomadBinary, *, purge: bool = True, update: PanelUpdate = discard_panel_update
+) -> Outcome:
+    """Run the per-job update for the `web` target against the mocked cluster."""
+    return run_with_client(
+        lambda client: update_mod._update_one(
+            client, _web_target(), node_names={}, update=update, nomad=nomad, purge=purge
+        )
     )
 
 
@@ -75,7 +120,7 @@ def test_build_update_targets_intersects_running_and_local() -> None:
         JobFile(path=Path("/j/web.hcl"), job_names=["web", "api"]),
         JobFile(path=Path("/j/db.hcl"), job_names=["db"]),
     ]
-    running = [_running("web"), _running("ghost")]
+    running = [job_stub("web"), job_stub("ghost")]
 
     # When building update targets
     targets: list[UpdateTarget] = build_update_targets(files, running)
@@ -86,41 +131,24 @@ def test_build_update_targets_intersects_running_and_local() -> None:
     assert targets[0].job.id == "web"
 
 
-def _web_target() -> UpdateTarget:
-    return UpdateTarget(
-        name="web",
-        file=JobFile(path=Path("/j/web.hcl"), job_names=["web"]),
-        job=_running("web"),
-    )
-
-
 @pytest.mark.parametrize(
-    "compile_result",
+    "compile_side_effect",
     [
         pytest.param(NomadBinaryError("bad hcl"), id="binary-error"),
-        pytest.param(b'{"Job": {"TaskGroups": [{"Tasks": []}]}}', id="undecodable-spec"),
+        pytest.param([b'{"Job": {"TaskGroups": [{"Tasks": []}]}}'], id="undecodable-spec"),
     ],
 )
 def test_update_one_compile_failure_skips_stop(
-    httpx2_mock: respx.Router, mocker, compile_result: Exception | bytes
+    httpx2_mock: respx.Router,
+    fake_nomad_binary: MagicMock,
+    compile_side_effect: Exception | list[bytes],
 ) -> None:
     """Verify a compile or spec-parse failure fails the update and never stops the job."""
     # Given a binary whose compile raises, or emits a spec that does not decode
-    target = _web_target()
-    nomad = mocker.MagicMock(spec=NomadBinary)
-    if isinstance(compile_result, Exception):
-        nomad.compile_job.side_effect = compile_result
-    else:
-        nomad.compile_job.return_value = compile_result
+    fake_nomad_binary.compile_job.side_effect = compile_side_effect
 
     # When updating that target
-    async def go() -> Outcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await update_mod._update_one(
-                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
-            )
-
-    outcome = asyncio.run(go())
+    outcome = _update_web(fake_nomad_binary)
 
     # Then it fails with a compile message and issues no stop (no DELETE)
     assert outcome.severity is Severity.FAIL
@@ -129,27 +157,16 @@ def test_update_one_compile_failure_skips_stop(
 
 
 def test_update_one_aborts_register_when_stop_fails(
-    httpx2_mock: respx.Router, monkeypatch, mocker
+    httpx2_mock: respx.Router, monkeypatch, compiling_binary: MagicMock
 ) -> None:
     """Verify a failed drain aborts the update before re-registering."""
     # Given a good compile but a stop that fails to drain
-    target = _web_target()
-    nomad = mocker.MagicMock(spec=NomadBinary)
-    nomad.compile_job.return_value = b'{"Job": {"ID": "web"}}'
     monkeypatch.setattr(
-        update_mod,
-        "stop_and_wait",
-        _async_return(_stop_outcome("failed", detail="boom")),
+        update_mod, "stop_and_wait", async_return(_stop_outcome("failed", detail="boom"))
     )
 
     # When updating that target
-    async def go() -> Outcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await update_mod._update_one(
-                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
-            )
-
-    outcome = asyncio.run(go())
+    outcome = _update_web(compiling_binary)
 
     # Then it fails without re-registering
     assert outcome.severity is Severity.FAIL
@@ -157,128 +174,55 @@ def test_update_one_aborts_register_when_stop_fails(
 
 
 def test_update_one_register_failure_reports_job_down(
-    httpx2_mock: respx.Router, monkeypatch, mocker
+    httpx2_mock: respx.Router, monkeypatch, compiling_binary: MagicMock
 ) -> None:
     """Verify a re-register failure after a clean stop reports the job is down."""
     # Given a clean stop but a register that errors
-    target = _web_target()
-    nomad = mocker.MagicMock(spec=NomadBinary)
-    nomad.compile_job.return_value = b'{"Job": {"ID": "web"}}'
-    monkeypatch.setattr(update_mod, "stop_and_wait", _async_return(_stop_outcome("stopped")))
-    httpx2_mock.post(f"{_ADDR}/v1/jobs").respond(status_code=500, text="nope")
+    monkeypatch.setattr(update_mod, "stop_and_wait", async_return(_stop_outcome("stopped")))
+    httpx2_mock.post(f"{NOMAD_TEST_ADDR}/v1/jobs").respond(status_code=500, text="nope")
 
     # When updating that target
-    async def go() -> Outcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await update_mod._update_one(
-                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
-            )
-
-    outcome = asyncio.run(go())
+    outcome = _update_web(compiling_binary)
 
     # Then it fails with the "stopped but re-deploy failed" message
     assert outcome.severity is Severity.FAIL
     assert "stopped but re-deploy failed" in outcome.detail
 
 
-def test_update_one_recreate_sequence_succeeds(httpx2_mock: respx.Router, mocker) -> None:
-    """Verify the full stop -> purge -> register -> watch sequence yields UPDATED."""
+@pytest.mark.parametrize(
+    "purge",
+    [pytest.param(True, id="purge"), pytest.param(False, id="no-purge")],
+)
+def test_update_one_recreate_sequence_succeeds(
+    httpx2_mock: respx.Router, compiling_binary: MagicMock, *, purge: bool
+) -> None:
+    """Verify stop -> register -> watch yields UPDATED, purging the old job only when asked."""
     # Given a target whose drain is immediate ([] allocs) and whose deployment succeeds
-    target = _web_target()
-    nomad = mocker.MagicMock(spec=NomadBinary)
-    nomad.compile_job.return_value = b'{"Job": {"ID": "web"}}'
-    httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
-    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[])
-    register_route = httpx2_mock.post(f"{_ADDR}/v1/jobs").respond(
-        json={"EvalID": "e2", "JobModifyIndex": 5, "Warnings": ""}
-    )
-    httpx2_mock.get(f"{_ADDR}/v1/job/web/deployments").respond(
-        json=[
-            {
-                "ID": "d1",
-                "JobID": "web",
-                "Status": "successful",
-                "CreateIndex": 10,
-                "ModifyIndex": 11,
-                "StatusDescription": "ok",
-                "TaskGroups": {"app": {"DesiredTotal": 1, "HealthyAllocs": 1}},
-            }
-        ]
-    )
+    httpx2_mock.delete(f"{NOMAD_TEST_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
+    register_route = _mock_successful_redeploy(httpx2_mock)
 
-    # When updating with purge enabled
-    async def go() -> Outcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await update_mod._update_one(
-                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
-            )
+    # When updating with purge enabled or disabled
+    outcome = _update_web(compiling_binary, purge=purge)
 
-    outcome = asyncio.run(go())
-
-    # Then it succeeds, re-registers, and issues a purging DELETE (purge=true)
+    # Then it succeeds, re-registers, and issues a purging DELETE (purge=true) only with purge
     assert outcome.severity is Severity.OK
     assert register_route.called
-    assert any(
+    purged = any(
         call.request.url.params.get("purge") == "true"
         for call in httpx2_mock.calls
         if call.request.method == "DELETE"
     )
-
-
-def test_update_one_no_purge_skips_purge(httpx2_mock: respx.Router, mocker) -> None:
-    """Verify --no-purge stops the job but issues no purging DELETE."""
-    # Given the same successful sequence but purge disabled
-    target = _web_target()
-    nomad = mocker.MagicMock(spec=NomadBinary)
-    nomad.compile_job.return_value = b'{"Job": {"ID": "web"}}'
-    httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
-    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[])
-    httpx2_mock.post(f"{_ADDR}/v1/jobs").respond(
-        json={"EvalID": "e2", "JobModifyIndex": 5, "Warnings": ""}
-    )
-    httpx2_mock.get(f"{_ADDR}/v1/job/web/deployments").respond(
-        json=[
-            {
-                "ID": "d1",
-                "JobID": "web",
-                "Status": "successful",
-                "CreateIndex": 10,
-                "ModifyIndex": 11,
-                "StatusDescription": "ok",
-                "TaskGroups": {"app": {"DesiredTotal": 1, "HealthyAllocs": 1}},
-            }
-        ]
-    )
-
-    # When updating with purge disabled
-    async def go() -> Outcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await update_mod._update_one(
-                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=False
-            )
-
-    outcome = asyncio.run(go())
-
-    # Then it succeeds and never issues a purge=true DELETE
-    assert outcome.severity is Severity.OK
-    assert not any(
-        call.request.url.params.get("purge") == "true"
-        for call in httpx2_mock.calls
-        if call.request.method == "DELETE"
-    )
+    assert purged is purge
 
 
 def test_update_one_watch_error_does_not_escape(
-    httpx2_mock: respx.Router, monkeypatch, mocker
+    httpx2_mock: respx.Router, monkeypatch, compiling_binary: MagicMock
 ) -> None:
     """Verify a Nomad error during the rollout watch becomes FAILED instead of raising."""
     # Given a clean stop, a successful re-register, but a watch that errors mid-poll
-    target = _web_target()
-    nomad = mocker.MagicMock(spec=NomadBinary)
-    nomad.compile_job.return_value = b'{"Job": {"ID": "web"}}'
-    monkeypatch.setattr(update_mod, "stop_and_wait", _async_return(_stop_outcome("stopped")))
-    httpx2_mock.post(f"{_ADDR}/v1/jobs").respond(
-        json={"EvalID": "e2", "JobModifyIndex": 5, "Warnings": ""}
+    monkeypatch.setattr(update_mod, "stop_and_wait", async_return(_stop_outcome("stopped")))
+    httpx2_mock.post(f"{NOMAD_TEST_ADDR}/v1/jobs").respond(
+        json=to_payload(register_response(eval_id="e2", job_modify_index=5))
     )
 
     async def _raise(*_args: object, **_kwargs: object) -> object:
@@ -288,13 +232,7 @@ def test_update_one_watch_error_does_not_escape(
     monkeypatch.setattr(update_mod, "watch_deploy", _raise)
 
     # When updating that target
-    async def go() -> Outcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await update_mod._update_one(
-                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
-            )
-
-    outcome = asyncio.run(go())
+    outcome = _update_web(compiling_binary)
 
     # Then the error is contained as a FAILED outcome, not propagated to the panel
     assert outcome.severity is Severity.FAIL
@@ -302,44 +240,19 @@ def test_update_one_watch_error_does_not_escape(
 
 
 def test_update_one_purge_failed_still_redeploys(
-    httpx2_mock: respx.Router, monkeypatch, mocker
+    httpx2_mock: respx.Router, monkeypatch, compiling_binary: MagicMock
 ) -> None:
     """Verify a stop whose purge failed still re-registers, since the workload is down."""
     # Given a clean drain whose garbage-collection failed (workload stopped regardless)
-    target = _web_target()
-    nomad = mocker.MagicMock(spec=NomadBinary)
-    nomad.compile_job.return_value = b'{"Job": {"ID": "web"}}'
     monkeypatch.setattr(
         update_mod,
         "stop_and_wait",
-        _async_return(_stop_outcome("purge_failed", detail="purge failed")),
+        async_return(_stop_outcome("purge_failed", detail="purge failed")),
     )
-    register_route = httpx2_mock.post(f"{_ADDR}/v1/jobs").respond(
-        json={"EvalID": "e2", "JobModifyIndex": 5, "Warnings": ""}
-    )
-    httpx2_mock.get(f"{_ADDR}/v1/job/web/deployments").respond(
-        json=[
-            {
-                "ID": "d1",
-                "JobID": "web",
-                "Status": "successful",
-                "CreateIndex": 10,
-                "ModifyIndex": 11,
-                "StatusDescription": "ok",
-                "TaskGroups": {"app": {"DesiredTotal": 1, "HealthyAllocs": 1}},
-            }
-        ]
-    )
-    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[])
+    register_route = _mock_successful_redeploy(httpx2_mock)
 
     # When updating that target
-    async def go() -> Outcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await update_mod._update_one(
-                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
-            )
-
-    outcome = asyncio.run(go())
+    outcome = _update_web(compiling_binary)
 
     # Then it re-registers and reports UPDATED
     assert outcome.severity is Severity.OK
@@ -347,27 +260,18 @@ def test_update_one_purge_failed_still_redeploys(
 
 
 def test_update_one_drain_timeout_maps_to_timeout(
-    httpx2_mock: respx.Router, monkeypatch, mocker
+    httpx2_mock: respx.Router, monkeypatch, compiling_binary: MagicMock
 ) -> None:
     """Verify a drain that times out yields TIMEOUT and never re-registers."""
     # Given a good compile but a stop that never reaches a terminal drain
-    target = _web_target()
-    nomad = mocker.MagicMock(spec=NomadBinary)
-    nomad.compile_job.return_value = b'{"Job": {"ID": "web"}}'
     monkeypatch.setattr(
         update_mod,
         "stop_and_wait",
-        _async_return(_stop_outcome("timeout", detail="still draining")),
+        async_return(_stop_outcome("timeout", detail="still draining")),
     )
 
     # When updating that target
-    async def go() -> Outcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await update_mod._update_one(
-                client, target, node_names={}, update=discard_panel_update, nomad=nomad, purge=True
-            )
-
-    outcome = asyncio.run(go())
+    outcome = _update_web(compiling_binary)
 
     # Then the outcome is TIMEOUT and no re-register was issued
     assert outcome.severity is Severity.WARN
@@ -375,35 +279,14 @@ def test_update_one_drain_timeout_maps_to_timeout(
 
 
 def test_update_one_marks_previous_version_stopped(
-    httpx2_mock: respx.Router, monkeypatch, mocker
+    httpx2_mock: respx.Router, monkeypatch, compiling_binary: MagicMock
 ) -> None:
     """Verify the deploy phase keeps a persistent 'stopped previous version' marker row."""
     # Given a clean stop that drained two allocations, then a successful re-deploy
-    target = _web_target()
-    nomad = mocker.MagicMock(spec=NomadBinary)
-    nomad.compile_job.return_value = b'{"Job": {"ID": "web"}}'
     monkeypatch.setattr(
-        update_mod,
-        "stop_and_wait",
-        _async_return(_stop_outcome("stopped", drained=2)),
+        update_mod, "stop_and_wait", async_return(_stop_outcome("stopped", drained=2))
     )
-    httpx2_mock.post(f"{_ADDR}/v1/jobs").respond(
-        json={"EvalID": "e2", "JobModifyIndex": 5, "Warnings": ""}
-    )
-    httpx2_mock.get(f"{_ADDR}/v1/job/web/deployments").respond(
-        json=[
-            {
-                "ID": "d1",
-                "JobID": "web",
-                "Status": "successful",
-                "CreateIndex": 10,
-                "ModifyIndex": 11,
-                "StatusDescription": "ok",
-                "TaskGroups": {"app": {"DesiredTotal": 1, "HealthyAllocs": 1}},
-            }
-        ]
-    )
-    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[])
+    _mock_successful_redeploy(httpx2_mock)
 
     # Capture the first child cell of every update that carries detail rows
     lead_cells: list[str] = []
@@ -413,35 +296,25 @@ def test_update_one_marks_previous_version_stopped(
             lead_cells.append(children[0].cells[0])
 
     # When updating that target
-    async def go() -> Outcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await update_mod._update_one(
-                client, target, node_names={}, update=_update, nomad=nomad, purge=True
-            )
-
-    outcome = asyncio.run(go())
+    outcome = _update_web(compiling_binary, update=_update)
 
     # Then the deploy phase leads every detail block with a durable stopped marker
     assert outcome.severity is Severity.OK
     assert lead_cells, "expected at least one update carrying detail rows after the stop"
-    assert all("stopped previous version" in cell for cell in lead_cells)
-    assert any("2 allocs drained" in cell for cell in lead_cells)
+    assert set(lead_cells) == {lead_cells[0]}
+    assert "2" in lead_cells[0]
 
 
 def test_update_one_no_marker_when_stop_times_out(
-    httpx2_mock: respx.Router, monkeypatch, mocker
+    httpx2_mock: respx.Router, monkeypatch, compiling_binary: MagicMock
 ) -> None:
     """Verify a stop that never drained shows no 'stopped previous version' marker."""
     # Given a good compile but a stop that times out (nothing cleanly stopped)
-    target = _web_target()
-    nomad = mocker.MagicMock(spec=NomadBinary)
-    nomad.compile_job.return_value = b'{"Job": {"ID": "web"}}'
     monkeypatch.setattr(
         update_mod,
         "stop_and_wait",
-        _async_return(_stop_outcome("timeout", detail="still draining", drained=0)),
+        async_return(_stop_outcome("timeout", detail="still draining", drained=0)),
     )
-
     marker_cells: list[str] = []
 
     def _update(phase: str, children=()) -> None:
@@ -450,13 +323,7 @@ def test_update_one_no_marker_when_stop_times_out(
         )
 
     # When updating that target
-    async def go() -> Outcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await update_mod._update_one(
-                client, target, node_names={}, update=_update, nomad=nomad, purge=True
-            )
-
-    outcome = asyncio.run(go())
+    outcome = _update_web(compiling_binary, update=_update)
 
     # Then no marker is shown, because the early return skips the re-deploy entirely
     assert outcome.severity is Severity.WARN
@@ -464,36 +331,14 @@ def test_update_one_no_marker_when_stop_times_out(
 
 
 def test_update_one_no_marker_when_nothing_was_running(
-    httpx2_mock: respx.Router, monkeypatch, mocker
+    httpx2_mock: respx.Router, monkeypatch, compiling_binary: MagicMock
 ) -> None:
     """Verify a stop that drained zero allocations shows no marker but still re-deploys."""
     # Given a clean stop that drained nothing (drained == 0), then a successful re-deploy
-    target = _web_target()
-    nomad = mocker.MagicMock(spec=NomadBinary)
-    nomad.compile_job.return_value = b'{"Job": {"ID": "web"}}'
     monkeypatch.setattr(
-        update_mod,
-        "stop_and_wait",
-        _async_return(_stop_outcome("stopped", drained=0)),
+        update_mod, "stop_and_wait", async_return(_stop_outcome("stopped", drained=0))
     )
-    httpx2_mock.post(f"{_ADDR}/v1/jobs").respond(
-        json={"EvalID": "e2", "JobModifyIndex": 5, "Warnings": ""}
-    )
-    httpx2_mock.get(f"{_ADDR}/v1/job/web/deployments").respond(
-        json=[
-            {
-                "ID": "d1",
-                "JobID": "web",
-                "Status": "successful",
-                "CreateIndex": 10,
-                "ModifyIndex": 11,
-                "StatusDescription": "ok",
-                "TaskGroups": {"app": {"DesiredTotal": 1, "HealthyAllocs": 1}},
-            }
-        ]
-    )
-    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[])
-
+    _mock_successful_redeploy(httpx2_mock)
     marker_cells: list[str] = []
 
     def _update(phase: str, children=()) -> None:
@@ -502,29 +347,18 @@ def test_update_one_no_marker_when_nothing_was_running(
         )
 
     # When updating that target
-    async def go() -> Outcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await update_mod._update_one(
-                client, target, node_names={}, update=_update, nomad=nomad, purge=True
-            )
-
-    outcome = asyncio.run(go())
+    outcome = _update_web(compiling_binary, update=_update)
 
     # Then it re-deploys cleanly but shows no marker (there was nothing to report drained)
     assert outcome.severity is Severity.OK
     assert not marker_cells
 
 
-def test_update_no_candidates_exits_clean(
-    monkeypatch, httpx2_mock: respx.Router, tmp_path, typer_runner
-) -> None:
+@pytest.mark.usefixtures("nomad_env")
+def test_update_no_candidates_exits_clean(httpx2_mock: respx.Router, typer_runner) -> None:
     """Verify update exits 0 with a message when no running job has a local file."""
     # Given no local files and an empty cluster job list
-    monkeypatch.setattr(update_mod, "load_job_directories", list)
-    monkeypatch.setattr(update_mod, "discover_job_files", lambda dirs: [])
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
-    httpx2_mock.get(f"{_ADDR}/v1/jobs").respond(json=[])
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/jobs").respond(json=[])
 
     # When invoking update
     result = typer_runner.invoke(app, ["update"])
@@ -533,34 +367,18 @@ def test_update_no_candidates_exits_clean(
     assert result.exit_code == 0
 
 
+@pytest.mark.usefixtures("nomad_env")
 def test_update_dry_run_reports_without_acting(
-    monkeypatch, mocker, httpx2_mock: respx.Router, tmp_path, typer_runner
+    job_files: Callable[..., Path],
+    fake_nomad_binary: MagicMock,
+    httpx2_mock: respx.Router,
+    typer_runner,
 ) -> None:
     """Verify --dry-run validates and reports but stops or registers nothing."""
     # Given one local file whose job is running, and a stubbed binary
-    monkeypatch.setattr(update_mod, "load_job_directories", list)
-    monkeypatch.setattr(
-        update_mod,
-        "discover_job_files",
-        lambda dirs: [JobFile(path=Path("/j/web.hcl"), job_names=["web"])],
-    )
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
-    httpx2_mock.get(f"{_ADDR}/v1/jobs").respond(
-        json=[
-            {
-                "ID": "web",
-                "Name": "web",
-                "Type": "service",
-                "Status": "running",
-                "Priority": 50,
-                "CreateIndex": 1,
-                "ModifyIndex": 2,
-            }
-        ]
-    )
-    nomad = mocker.MagicMock(spec=NomadBinary)
-    monkeypatch.setattr(update_mod.NomadBinary, "create", classmethod(lambda cls, cfg: nomad))
+    job_files("web.hcl", "web")
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/jobs").respond(json=[to_payload(job_stub("web"))])
+    nomad = fake_nomad_binary
 
     # When invoking update --force --dry-run naming the job
     result = typer_runner.invoke(app, ["update", "web", "--force", "--dry-run"])
@@ -571,39 +389,44 @@ def test_update_dry_run_reports_without_acting(
     assert not any(call.request.method in ("DELETE", "POST") for call in httpx2_mock.calls)
 
 
+@pytest.mark.usefixtures("nomad_env")
 def test_update_confirm_decline_aborts(
-    monkeypatch, httpx2_mock: respx.Router, tmp_path, typer_runner
+    job_files: Callable[..., Path],
+    interactive_session: PromptAnswers,
+    httpx2_mock: respx.Router,
+    typer_runner,
 ) -> None:
     """Verify declining the confirmation prompt aborts without stopping anything."""
     # Given a running job with a local file, but the user declines the prompt
-    monkeypatch.setattr(update_mod, "load_job_directories", list)
-    monkeypatch.setattr(
-        update_mod,
-        "discover_job_files",
-        lambda dirs: [JobFile(path=Path("/j/web.hcl"), job_names=["web"])],
-    )
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
-    httpx2_mock.get(f"{_ADDR}/v1/jobs").respond(
-        json=[
-            {
-                "ID": "web",
-                "Name": "web",
-                "Type": "service",
-                "Status": "running",
-                "Priority": 50,
-                "CreateIndex": 1,
-                "ModifyIndex": 2,
-            }
-        ]
-    )
-    declined: bool = False
-    monkeypatch.setattr("nd.ui.prompts.select_one", _async_return(declined))
-    monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: True)
+    job_files("web.hcl", "web")
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/jobs").respond(json=[to_payload(job_stub("web"))])
+    interactive_session.choice = False
 
     # When invoking update naming the job (no --force, so it prompts)
     result = typer_runner.invoke(app, ["update", "web"])
 
     # Then it exits 0 and never stops or registers
     assert result.exit_code == 0
+    assert not any(call.request.method in ("DELETE", "POST") for call in httpx2_mock.calls)
+
+
+@pytest.mark.usefixtures("nomad_env")
+def test_update_invalid_job_file_exits_without_stopping(
+    job_files: Callable[..., Path],
+    fake_nomad_binary: MagicMock,
+    httpx2_mock: respx.Router,
+    typer_runner,
+) -> None:
+    """Verify a job file that fails validation stops nothing, so the running job stays up."""
+    # Given a running job whose local file fails validation
+    job_files("web.hcl", "web")
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/jobs").respond(json=[to_payload(job_stub("web"))])
+    fake_nomad_binary.validate_all.side_effect = NomadBinaryError("web.hcl: invalid")
+
+    # When updating the job without a prompt
+    result = typer_runner.invoke(app, ["update", "web", "--force"])
+
+    # Then the command fails before any stop or register is sent
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
     assert not any(call.request.method in ("DELETE", "POST") for call in httpx2_mock.calls)

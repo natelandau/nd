@@ -3,39 +3,47 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from nd.commands.list import ListRow, build_rows
+import msgspec
+import pytest
+
+from nd.cli import app
+from nd.commands.list import build_rows
 from nd.jobfiles import JobFile
-from nd.nomad.models.job import JobListStub
+from tests.builders import job_stub, to_payload
+from tests.helpers import NOMAD_TEST_ADDR, capture_output
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    import respx
 
 
-def _job(name: str, status: str, job_id: str = "") -> JobListStub:
-    return JobListStub(
-        id=job_id or name,
-        name=name,
-        type="service",
-        status=status,
-        priority=50,
-        create_index=1,
-        modify_index=1,
-    )
-
-
-def test_build_rows_classifies_cluster_state() -> None:
-    """Verify each job file is classified running / dead / not deployed."""
-    # Given two files and a cluster where one job runs and one is dead
+@pytest.mark.parametrize(
+    ("hide_running", "expected"),
+    [
+        pytest.param(False, {"web": "running", "db": "dead", "new": "not deployed"}, id="all"),
+        pytest.param(True, {"db": "dead", "new": "not deployed"}, id="hide-running"),
+    ],
+)
+def test_build_rows_classifies_cluster_state(
+    *, hide_running: bool, expected: dict[str, str]
+) -> None:
+    """Verify files are classified by cluster state and hide_running drops only running jobs."""
+    # Given files where one job runs, one is dead, and one is not deployed
     files = [
         JobFile(path=Path("/j/web.hcl"), job_names=["web"]),
         JobFile(path=Path("/j/db.hcl"), job_names=["db"]),
         JobFile(path=Path("/j/new.hcl"), job_names=["new"]),
     ]
-    jobs = [_job("web", "running"), _job("db", "dead")]
-    # When
-    rows = build_rows(files, jobs)
-    # Then
-    by_name = {r.job_name: r.cluster_status for r in rows}
-    assert by_name == {"web": "running", "db": "dead", "new": "not deployed"}
-    assert all(isinstance(r, ListRow) for r in rows)
+    jobs = [job_stub("web", status="running"), job_stub("db", status="dead")]
+
+    # When building rows
+    rows = build_rows(files, jobs, hide_running=hide_running)
+
+    # Then each remaining row carries its cluster status
+    assert {r.job_name: r.cluster_status for r in rows} == expected
 
 
 def test_build_rows_sets_link_id_for_deployed_jobs() -> None:
@@ -45,38 +53,48 @@ def test_build_rows_sets_link_id_for_deployed_jobs() -> None:
         JobFile(path=Path("/j/web.hcl"), job_names=["web"]),
         JobFile(path=Path("/j/new.hcl"), job_names=["new"]),
     ]
-    jobs = [_job("web", "running", job_id="web-prod")]
-    # When
+    jobs = [msgspec.structs.replace(job_stub("web"), id="web-prod")]
+
+    # When building rows
     rows = build_rows(files, jobs)
+
     # Then the deployed row links by Nomad ID; the not-deployed row has no link
-    by_link = {r.job_name: r.link_id for r in rows}
-    assert by_link == {"web": "web-prod", "new": None}
-
-
-def test_build_rows_hides_running_jobs_when_requested() -> None:
-    """Verify hide_running drops only running jobs, keeping dead and not-deployed files."""
-    # Given files where one job runs, one is dead, and one is not deployed
-    files = [
-        JobFile(path=Path("/j/web.hcl"), job_names=["web"]),
-        JobFile(path=Path("/j/db.hcl"), job_names=["db"]),
-        JobFile(path=Path("/j/new.hcl"), job_names=["new"]),
-    ]
-    jobs = [_job("web", "running"), _job("db", "dead")]
-    # When building rows with running jobs hidden
-    rows = build_rows(files, jobs, hide_running=True)
-    # Then the running job is gone but dead and not-deployed remain
-    by_name = {r.job_name: r.cluster_status for r in rows}
-    assert by_name == {"db": "dead", "new": "not deployed"}
+    assert {r.job_name: r.link_id for r in rows} == {"web": "web-prod", "new": None}
 
 
 def test_build_rows_surfaces_unresolved_job_name() -> None:
     """Verify a job file with no resolved name is surfaced as a '?' row, not dropped."""
     # Given a job file whose name could not be parsed (e.g. interpolated)
     files = [JobFile(path=Path("/j/tpl.hcl"), job_names=[])]
+
     # When building rows against an empty cluster
     rows = build_rows(files, [])
+
     # Then the file still appears, named '?', classified not deployed with no link
     assert len(rows) == 1
     assert rows[0].job_name == "?"
     assert rows[0].cluster_status == "not deployed"
     assert rows[0].link_id is None
+
+
+@pytest.mark.usefixtures("nomad_env")
+def test_list_command_shows_each_job_file_with_cluster_status(
+    job_files: Callable[..., Path], httpx2_mock: respx.Router, typer_runner
+) -> None:
+    """Verify `nd list` reads the configured job files and shows each one's cluster status."""
+    # Given two job files, of which only `web` is deployed
+    job_files("web.hcl", "web")
+    job_files("new.hcl", "new")
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/jobs").respond(json=[to_payload(job_stub("web"))])
+    console = capture_output(width=200)
+
+    # When listing job files
+    result = typer_runner.invoke(app, ["list"])
+
+    # Then both files appear with their status
+    assert result.exit_code == 0
+    text = console.export_text()
+    assert "web.hcl" in text
+    assert "running" in text
+    assert "new.hcl" in text
+    assert "not deployed" in text

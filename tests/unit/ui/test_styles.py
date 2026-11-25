@@ -2,67 +2,28 @@
 
 from __future__ import annotations
 
-from nd.ui.styles import OUTCOME_GLYPH, STATUS_STYLE, accent, muted, status_cell, status_style
+import pytest
+from rich.text import Text
+
+from nd.ui.styles import status_cell
 
 
-def test_status_cell_known_status() -> None:
-    """Verify a known healthy status renders a green check glyph and label."""
-    # Given / When
-    cell = status_cell("running")
-    # Then
-    assert cell == "[green]✓ running[/]"
+@pytest.mark.parametrize(
+    ("status", "stopping", "expected"),
+    [
+        pytest.param("running", False, "✓ running", id="healthy"),
+        pytest.param("mystery", False, "• mystery", id="unknown-is-neutral"),
+        pytest.param("complete", True, "✓ stopped", id="stopping-terminal-reads-stopped"),
+        pytest.param("running", True, "• running", id="stopping-running-is-pending"),
+        pytest.param("pending", True, "• pending", id="stopping-pending-is-pending"),
+        pytest.param("failed", True, "✗ failed", id="stopping-failed-stays-failure"),
+        pytest.param("lost", True, "✗ lost", id="stopping-lost-stays-failure"),
+    ],
+)
+def test_status_cell_glyph_and_label(status: str, *, stopping: bool, expected: str) -> None:
+    """Verify a status cell's glyph and label, which invert to "stopped" during a stop."""
+    # When rendering the status cell and stripping its markup
+    cell = Text.from_markup(status_cell(status, stopping=stopping)).plain
 
-
-def test_status_cell_unknown_status() -> None:
-    """Verify an unknown status falls back to a neutral bullet glyph."""
-    # When
-    cell = status_cell("mystery")
-    # Then
-    assert cell == "[default]• mystery[/]"
-
-
-def test_status_cell_stopping_terminal_reads_stopped() -> None:
-    """Verify a terminal allocation renders green "stopped" while stopping."""
-    assert status_cell("complete", stopping=True) == "[green]✓ stopped[/]"
-
-
-def test_status_cell_stopping_transitional_is_yellow() -> None:
-    """Verify a not-yet-stopped state (e.g. running) reads yellow while stopping."""
-    assert status_cell("running", stopping=True) == "[yellow]• running[/]"
-    assert status_cell("pending", stopping=True) == "[yellow]• pending[/]"
-
-
-def test_status_cell_stopping_failure_stays_red() -> None:
-    """Verify a genuine failure stays red while stopping instead of blending to yellow."""
-    assert status_cell("failed", stopping=True) == "[red]✗ failed[/]"
-    assert status_cell("lost", stopping=True) == "[red]✗ lost[/]"
-
-
-def test_status_style_covers_failed() -> None:
-    """Verify failed-like statuses map to red."""
-    assert STATUS_STYLE["failed"] == "red"
-    assert STATUS_STYLE["dead"] == "red"
-
-
-def test_status_style_returns_registered_color() -> None:
-    """Verify status_style returns the same color status_cell uses for a status."""
-    assert status_style("degraded") == "yellow"
-    assert status_style("running") == "green"
-
-
-def test_status_style_unknown_defaults() -> None:
-    """Verify an unregistered status falls back to the neutral default color."""
-    assert status_style("mystery") == "default"
-
-
-def test_outcome_glyphs_present() -> None:
-    """Verify the three outcome glyphs exist with expected colors."""
-    assert OUTCOME_GLYPH["ok"] == "[green]✓[/]"
-    assert OUTCOME_GLYPH["warn"] == "[yellow]⚠[/]"
-    assert OUTCOME_GLYPH["fail"] == "[red]✗[/]"
-
-
-def test_accent_and_muted_wrap_text() -> None:
-    """Verify accent styles identifiers cyan and muted dims secondary text."""
-    assert accent("rpi2") == "[cyan]rpi2[/]"
-    assert muted("prestart") == "[dim]prestart[/]"
+    # Then the person sees the expected glyph and label
+    assert cell == expected

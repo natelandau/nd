@@ -1,21 +1,21 @@
 """Tests for the clean command."""
 
+import pytest
 import respx
 
 from nd.commands import clean as clean_module
+from nd.nomad import NomadError
+from tests.helpers import NOMAD_TEST_ADDR
 
-_ADDR = "http://nomad.test:4646"
 
-
-def test_clean_app_runs_gc_and_reconcile(
-    httpx2_mock: respx.Router, monkeypatch, tmp_path, typer_runner
-):
+@pytest.mark.usefixtures("nomad_env")
+def test_clean_app_runs_gc_and_reconcile(httpx2_mock: respx.Router, typer_runner):
     """Verify clean forces GC and reconciles summaries, exiting zero."""
-    # Given an isolated config and both housekeeping endpoints mocked
-    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    gc = httpx2_mock.put(f"{_ADDR}/v1/system/gc").respond(status_code=200)
-    reconcile = httpx2_mock.put(f"{_ADDR}/v1/system/reconcile/summaries").respond(status_code=200)
+    # Given both housekeeping endpoints mocked
+    gc = httpx2_mock.put(f"{NOMAD_TEST_ADDR}/v1/system/gc").respond(status_code=200)
+    reconcile = httpx2_mock.put(f"{NOMAD_TEST_ADDR}/v1/system/reconcile/summaries").respond(
+        status_code=200
+    )
 
     # When invoking the clean command
     result = typer_runner.invoke(clean_module.app, [])
@@ -26,17 +26,15 @@ def test_clean_app_runs_gc_and_reconcile(
     assert reconcile.called
 
 
-def test_clean_app_exits_nonzero_on_error(
-    httpx2_mock: respx.Router, monkeypatch, tmp_path, typer_runner
-):
+@pytest.mark.usefixtures("nomad_env")
+def test_clean_app_exits_nonzero_on_error(httpx2_mock: respx.Router, typer_runner):
     """Verify a Nomad failure during clean exits non-zero."""
-    # Given an isolated config where the GC endpoint fails
-    monkeypatch.setenv("NOMAD_ADDR", _ADDR)
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    httpx2_mock.put(f"{_ADDR}/v1/system/gc").respond(status_code=500, text="boom")
+    # Given a GC endpoint that fails
+    httpx2_mock.put(f"{NOMAD_TEST_ADDR}/v1/system/gc").respond(status_code=500, text="boom")
 
     # When invoking the clean command
     result = typer_runner.invoke(clean_module.app, [])
 
-    # Then it exits non-zero
+    # Then the Nomad error ends the command, which main() turns into a non-zero exit
     assert result.exit_code != 0
+    assert isinstance(result.exception, NomadError)

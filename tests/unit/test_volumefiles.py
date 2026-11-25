@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from nd.volumefiles import (
     discover_volume_files,
     load_volume_directories,
@@ -37,56 +39,49 @@ def test_parse_volume_spec_reads_host_volume(tmp_path: Path) -> None:
     ]
 
 
-def test_parse_volume_spec_skips_non_host(tmp_path: Path) -> None:
-    """Verify a non-host spec (e.g. a job file) parses to None."""
-    # Given a job file in the same directory
-    f = tmp_path / "web.hcl"
-    f.write_text('job "web" {}', encoding="utf-8")
-    # When parsing
-    spec = parse_volume_spec(f)
-    # Then it is not a host volume
-    assert spec is None
-
-
-def test_parse_volume_spec_defaults_capabilities(tmp_path: Path) -> None:
-    """Verify a host volume without a capability block gets the default capability."""
-    # Given a host spec lacking a capability block
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param('job "web" {}', id="job-file"),
+        pytest.param('name = "${var.name}"\ntype = "host"', id="interpolated-name"),
+        pytest.param('name = "data"\ntype = "host"\njob "web" {}', id="job-with-host-attributes"),
+    ],
+)
+def test_parse_volume_spec_returns_none_for_unusable_spec(tmp_path: Path, text: str) -> None:
+    """Verify a non-host spec, an interpolated name, or any job block parses to None."""
+    # Given a spec file that is not a usable host volume
     f = tmp_path / "data.hcl"
-    f.write_text('name = "data"\ntype = "host"', encoding="utf-8")
+    f.write_text(text, encoding="utf-8")
+
+    # When parsing
+    # Then it is not returned as a host volume
+    assert parse_volume_spec(f) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param('name = "data"\ntype = "host"', id="no-capability"),
+        pytest.param(
+            'name = "data"\ntype = "host"\ncapability {\n  access_mode = "single-node-writer"\n}',
+            id="incomplete-capability",
+        ),
+    ],
+)
+def test_parse_volume_spec_defaults_capabilities(tmp_path: Path, text: str) -> None:
+    """Verify a host volume with no complete capability block gets the default capability."""
+    # Given a host spec lacking a complete capability block
+    f = tmp_path / "data.hcl"
+    f.write_text(text, encoding="utf-8")
+
     # When parsing
     spec = parse_volume_spec(f)
+
     # Then the default multi-node-multi-writer/file-system capability is applied
     assert spec is not None
     assert spec.capabilities == [
         {"access_mode": "multi-node-multi-writer", "attachment_mode": "file-system"}
     ]
-
-
-def test_parse_volume_spec_ignores_incomplete_capability(tmp_path: Path) -> None:
-    """Verify a capability block lacking access_mode or attachment_mode is ignored."""
-    # Given a host spec with an incomplete capability block (only access_mode)
-    f = tmp_path / "data.hcl"
-    f.write_text(
-        'name = "data"\ntype = "host"\ncapability {\n  access_mode = "single-node-writer"\n}',
-        encoding="utf-8",
-    )
-    # When parsing
-    spec = parse_volume_spec(f)
-    # Then the incomplete capability is skipped and default is applied
-    assert spec is not None
-    assert spec.capabilities == [
-        {"access_mode": "multi-node-multi-writer", "attachment_mode": "file-system"}
-    ]
-
-
-def test_parse_volume_spec_skips_interpolated_name(tmp_path: Path) -> None:
-    """Verify a host spec with an interpolated name is not returned as a usable spec."""
-    # Given a host volume spec with an HCL-interpolated name
-    f = tmp_path / "data.hcl"
-    f.write_text('name = "${var.name}"\ntype = "host"', encoding="utf-8")
-    # When parsing
-    # Then the interpolated name is skipped and None is returned
-    assert parse_volume_spec(f) is None
 
 
 def test_discover_volume_files_keeps_only_host_specs(tmp_path: Path) -> None:
@@ -114,14 +109,3 @@ def test_load_volume_directories_reads_table(tmp_path: Path) -> None:
     # Then ~ expands and order is preserved
     assert dirs[0] == Path.home() / "vols"
     assert dirs[1] == Path("/srv/vols")
-
-
-def test_parse_volume_spec_skips_job_files(tmp_path: Path) -> None:
-    """Verify a file containing a job block is never read as a volume spec."""
-    # Given a job file that also carries host-volume top-level attributes
-    f = tmp_path / "web.hcl"
-    f.write_text('name = "data"\ntype = "host"\njob "web" {}', encoding="utf-8")
-
-    # When parsing it as a volume spec
-    # Then it is treated as a job file and skipped
-    assert parse_volume_spec(f) is None

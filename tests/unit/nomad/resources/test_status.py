@@ -1,29 +1,17 @@
 """Tests for the status resource."""
 
-import asyncio
-
 import respx
 
-from nd.nomad.config import NomadConfig
-from nd.nomad.resources.status import StatusResource
-from nd.nomad.transport import AsyncTransport
-
-_ADDR = "http://nomad.test:4646"
+from tests.helpers import NOMAD_TEST_ADDR, run_with_client
 
 
 def test_status_leader_decodes_string(httpx2_mock: respx.Router):
     """Verify status.leader decodes the leader RPC address string."""
     # Given a mocked status/leader endpoint returning a JSON string
-    route = httpx2_mock.get(f"{_ADDR}/v1/status/leader").respond(json="10.0.0.1:4647")
-    resource = StatusResource(AsyncTransport(NomadConfig(address=_ADDR)))
+    route = httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/status/leader").respond(json="10.0.0.1:4647")
 
     # When reading the leader
-    async def run() -> str:
-        result = await resource.leader()
-        await resource._transport.aclose()
-        return result
-
-    leader = asyncio.run(run())
+    leader = run_with_client(lambda client: client.status.leader())
 
     # Then the address decodes and the expected path was called
     assert leader == "10.0.0.1:4647"

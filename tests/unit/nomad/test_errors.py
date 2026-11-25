@@ -1,5 +1,7 @@
 """Tests for the Nomad client exception hierarchy."""
 
+import pytest
+
 from nd.nomad.errors import (
     NomadAuthError,
     NomadBadRequestError,
@@ -19,24 +21,34 @@ def test_http_error_carries_context():
     err = NomadHTTPError("boom", status_code=500, method="GET", path="/v1/nodes", body="oops")
 
     # When inspecting its attributes
-    # Then each piece of context is preserved and it is a NomadError
+    # Then each piece of context is preserved
     assert err.status_code == 500
     assert err.method == "GET"
     assert err.path == "/v1/nodes"
     assert err.body == "oops"
-    assert isinstance(err, NomadError)
 
 
-def test_http_subclasses_inherit_from_http_error():
-    """Verify every status-specific error subclasses NomadHTTPError."""
-    # Given the four status-specific HTTP error classes
-    subclasses = (NomadBadRequestError, NomadAuthError, NomadNotFoundError, NomadServerError)
-
-    # When instantiating each
-    # Then all are NomadHTTPError instances
-    for cls in subclasses:
-        err = cls("x", status_code=400, method="GET", path="/p", body="")
-        assert isinstance(err, NomadHTTPError)
+@pytest.mark.parametrize(
+    ("error_class", "parent_class"),
+    [
+        (NomadBadRequestError, NomadHTTPError),
+        (NomadAuthError, NomadHTTPError),
+        (NomadNotFoundError, NomadHTTPError),
+        (NomadServerError, NomadHTTPError),
+        (NomadHTTPError, NomadError),
+        (NomadDecodeError, NomadError),
+        (NomadConfigError, NomadError),
+        (NomadConnectionError, NomadError),
+    ],
+)
+def test_error_class_subclasses_its_parent(
+    error_class: type[NomadError], parent_class: type[NomadError]
+):
+    """Verify each error subclasses its parent, so `main()` reports every one as a NomadError."""
+    # Given an error class and the parent it belongs under
+    # When checking the hierarchy
+    # Then the class derives from that parent
+    assert issubclass(error_class, parent_class)
 
 
 def test_decode_error_carries_payload():
@@ -45,15 +57,5 @@ def test_decode_error_carries_payload():
     err = NomadDecodeError("bad", payload='{"a":1}')
 
     # When inspecting it
-    # Then the payload is preserved and it is a NomadError
+    # Then the payload is preserved
     assert err.payload == '{"a":1}'
-    assert isinstance(err, NomadError)
-
-
-def test_config_and_connection_errors_are_nomad_errors():
-    """Verify the marker error subclasses derive from NomadError."""
-    # Given the config and connection error classes
-    # When instantiated
-    # Then both are NomadError instances
-    assert isinstance(NomadConfigError("x"), NomadError)
-    assert isinstance(NomadConnectionError("x"), NomadError)

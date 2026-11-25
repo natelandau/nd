@@ -1,130 +1,77 @@
 """Tests for the jobs resource."""
 
-import asyncio
-
+import pytest
 import respx
 
-from nd.nomad.config import NomadConfig
-from nd.nomad.models.job import JobDeregisterResponse, JobRegisterResponse
-from nd.nomad.resources.jobs import JobsResource
-from nd.nomad.transport import AsyncTransport
-
-_ADDR = "http://nomad.test:4646"
-_STUB = {
-    "ID": "web",
-    "Name": "web",
-    "Type": "service",
-    "Status": "running",
-    "Priority": 50,
-    "Namespace": "default",
-    "CreateIndex": 1,
-    "ModifyIndex": 2,
-}
+from tests.builders import alloc_stub, deployment, job_stub, to_payload
+from tests.helpers import NOMAD_TEST_ADDR, run_with_client
 
 
 def test_list_decodes_jobs(httpx2_mock: respx.Router):
     """Verify jobs.list decodes the jobs listing into stubs."""
     # Given a mocked jobs listing endpoint
-    route = httpx2_mock.get(f"{_ADDR}/v1/jobs").respond(json=[_STUB])
-    resource = JobsResource(AsyncTransport(NomadConfig(address=_ADDR)))
+    route = httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/jobs").respond(
+        json=[to_payload(job_stub("web"))]
+    )
 
     # When listing jobs
-    async def run() -> list:
-        result = await resource.list()
-        await resource._transport.aclose()
-        return result
-
-    jobs = asyncio.run(run())
+    jobs = run_with_client(lambda client: client.jobs.list())
 
     # Then the stub is decoded and the expected path was called
     assert jobs[0].id == "web"
     assert route.calls.last.request.url.path == "/v1/jobs"
 
 
-_ALLOC = {
-    "ID": "a1",
-    "Name": "web.web[0]",
-    "Namespace": "default",
-    "NodeID": "n1",
-    "JobID": "web",
-    "TaskGroup": "web",
-    "ClientStatus": "running",
-    "DesiredStatus": "stop",
-    "CreateIndex": 1,
-    "ModifyIndex": 2,
-}
-
-
-def test_stop_sends_delete_with_purge(httpx2_mock: respx.Router):
-    """Verify jobs.stop issues a DELETE with purge=true and decodes the eval id."""
+def test_stop_sends_delete_and_decodes_eval_id(httpx2_mock: respx.Router):
+    """Verify jobs.stop issues a DELETE to the job and decodes the eval id."""
     # Given a mocked stop endpoint
-    route = httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(
+    route = httpx2_mock.delete(f"{NOMAD_TEST_ADDR}/v1/job/web").respond(
         json={"EvalID": "e1", "EvalCreateIndex": 3, "JobModifyIndex": 4}
     )
-    resource = JobsResource(AsyncTransport(NomadConfig(address=_ADDR)))
 
     # When stopping the job with purge
-    async def run() -> JobDeregisterResponse:
-        result = await resource.stop("web", purge=True)
-        await resource._transport.aclose()
-        return result
+    resp = run_with_client(lambda client: client.jobs.stop("web", purge=True))
 
-    resp = asyncio.run(run())
-
-    # Then the eval id decodes and purge is sent as a query param
+    # Then the eval id decodes and the job path was called
     assert resp.eval_id == "e1"
     assert route.calls.last.request.url.path == "/v1/job/web"
-    assert route.calls.last.request.url.params["purge"] == "true"
 
 
-def test_stop_defaults_purge_false(httpx2_mock: respx.Router):
-    """Verify jobs.stop sends purge=false by default."""
+@pytest.mark.parametrize(
+    ("stop_kwargs", "expected_params"),
+    [
+        pytest.param({}, {"purge": "false", "no_shutdown_delay": "false"}, id="defaults"),
+        pytest.param({"purge": True}, {"purge": "true"}, id="purge"),
+        pytest.param(
+            {"no_shutdown_delay": True}, {"no_shutdown_delay": "true"}, id="no-shutdown-delay"
+        ),
+    ],
+)
+def test_stop_sends_flags_as_query_params(
+    httpx2_mock: respx.Router, stop_kwargs: dict[str, bool], expected_params: dict[str, str]
+):
+    """Verify jobs.stop forwards purge and no_shutdown_delay as query params, both off by default."""
     # Given a mocked stop endpoint
-    route = httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
-    resource = JobsResource(AsyncTransport(NomadConfig(address=_ADDR)))
+    route = httpx2_mock.delete(f"{NOMAD_TEST_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
 
-    # When stopping without purge
-    async def run() -> None:
-        await resource.stop("web")
-        await resource._transport.aclose()
+    # When stopping the job with the given flags
+    run_with_client(lambda client: client.jobs.stop("web", **stop_kwargs))
 
-    asyncio.run(run())
-
-    # Then purge is false and the shutdown delay is kept by default
-    assert route.calls.last.request.url.params["purge"] == "false"
-    assert route.calls.last.request.url.params["no_shutdown_delay"] == "false"
-
-
-def test_stop_sends_no_shutdown_delay(httpx2_mock: respx.Router):
-    """Verify jobs.stop forwards no_shutdown_delay as a query param when requested."""
-    # Given a mocked stop endpoint
-    route = httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
-    resource = JobsResource(AsyncTransport(NomadConfig(address=_ADDR)))
-
-    # When stopping with no_shutdown_delay
-    async def run() -> None:
-        await resource.stop("web", no_shutdown_delay=True)
-        await resource._transport.aclose()
-
-    asyncio.run(run())
-
-    # Then the bypass flag is sent as true
-    assert route.calls.last.request.url.params["no_shutdown_delay"] == "true"
+    # Then each flag is sent with the expected value
+    sent_params = route.calls.last.request.url.params
+    for name, value in expected_params.items():
+        assert sent_params[name] == value
 
 
 def test_allocations_lists_job_allocations(httpx2_mock: respx.Router):
     """Verify jobs.allocations fetches and decodes a job's allocations."""
     # Given a mocked job-allocations endpoint
-    route = httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[_ALLOC])
-    resource = JobsResource(AsyncTransport(NomadConfig(address=_ADDR)))
+    route = httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/allocations").respond(
+        json=[to_payload(alloc_stub(job_id="web", client_status="running", desired_status="stop"))]
+    )
 
     # When listing the job's allocations
-    async def run() -> list:
-        result = await resource.allocations("web")
-        await resource._transport.aclose()
-        return result
-
-    allocs = asyncio.run(run())
+    allocs = run_with_client(lambda client: client.jobs.allocations("web"))
 
     # Then the allocation decodes and the expected path was called
     assert allocs[0].client_status == "running"
@@ -134,17 +81,13 @@ def test_allocations_lists_job_allocations(httpx2_mock: respx.Router):
 def test_jobs_register_posts_compiled_body(httpx2_mock: respx.Router):
     """Verify jobs.register POSTs the compiled job bytes unchanged and decodes the eval id."""
     # Given a mocked register endpoint
-    route = httpx2_mock.post(f"{_ADDR}/v1/jobs").respond(json={"EvalID": "e1", "JobModifyIndex": 7})
-    resource = JobsResource(AsyncTransport(NomadConfig(address=_ADDR)))
+    route = httpx2_mock.post(f"{NOMAD_TEST_ADDR}/v1/jobs").respond(
+        json={"EvalID": "e1", "JobModifyIndex": 7}
+    )
     body = b'{"Job": {"ID": "web"}}'
 
     # When registering a compiled job payload
-    async def run() -> JobRegisterResponse:
-        result = await resource.register(body)
-        await resource._transport.aclose()
-        return result
-
-    resp = asyncio.run(run())
+    resp = run_with_client(lambda client: client.jobs.register(body))
 
     # Then the body is sent as JSON byte for byte and the eval id decodes
     sent = route.calls.last.request
@@ -155,29 +98,16 @@ def test_jobs_register_posts_compiled_body(httpx2_mock: respx.Router):
     assert resp.job_modify_index == 7
 
 
-_DEPLOY_STUB = {
-    "ID": "d1",
-    "JobID": "web",
-    "Status": "running",
-    "CreateIndex": 1,
-    "ModifyIndex": 2,
-}
-
-
 def test_jobs_deployments_lists_for_job(httpx2_mock: respx.Router):
     """Verify jobs.deployments lists a job's deployments."""
     # Given a mocked job-deployments endpoint
-    route = httpx2_mock.get(f"{_ADDR}/v1/job/web/deployments").respond(json=[_DEPLOY_STUB])
-    resource = JobsResource(AsyncTransport(NomadConfig(address=_ADDR)))
+    route = httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/deployments").respond(
+        json=[to_payload(deployment("web"))]
+    )
 
     # When listing the job's deployments
-    async def run() -> list:
-        result = await resource.deployments("web")
-        await resource._transport.aclose()
-        return result
+    deps = run_with_client(lambda client: client.jobs.deployments("web"))
 
-    deps = asyncio.run(run())
-
-    # Then the stub decodes and the expected path was called
-    assert [d.id for d in deps] == ["d1"]
+    # Then the deployment decodes and the expected path was called
+    assert [d.id for d in deps] == ["dep-web"]
     assert route.calls.last.request.url.path == "/v1/job/web/deployments"

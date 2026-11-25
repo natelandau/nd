@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+from io import StringIO
 from types import SimpleNamespace
 
 import pytest
+from rich.console import Console
 
 from nd.ui import prompts
 
@@ -129,3 +131,32 @@ def test_can_prompt_true_when_both_streams_are_terminals(monkeypatch) -> None:
 
     # When asking whether a prompt is possible, Then it is
     assert prompts.can_prompt() is True
+
+
+def test_clear_prompt_line_noop_when_not_terminal(mocker) -> None:
+    """Verify the prompt eraser writes nothing to a non-terminal console."""
+    # Given a non-terminal recording console
+    buffer = StringIO()
+    console = Console(file=buffer, force_terminal=False)
+    mocker.patch("nd.ui.prompts.pp.console", return_value=console)
+
+    # When clearing the prompt line
+    prompts.clear_prompt_line()
+
+    # Then nothing is written
+    assert buffer.getvalue() == ""
+
+
+def test_clear_prompt_line_writes_escape_when_terminal(mocker) -> None:
+    """Verify the prompt eraser emits cursor-up + erase on a terminal."""
+    # Given a terminal recording console
+    buffer = StringIO()
+    console = Console(file=buffer, force_terminal=True)
+    mocker.patch("nd.ui.prompts.pp.console", return_value=console)
+
+    # When clearing two prompt lines
+    prompts.clear_prompt_line(2)
+
+    # Then it writes the cursor-up and erase-to-end sequence
+    assert "\x1b[2A" in buffer.getvalue()
+    assert "\x1b[J" in buffer.getvalue()

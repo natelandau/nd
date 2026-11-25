@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
+from nclutils import pp
 from rich.console import Console
 
 from nd.ui.live_panel import (
@@ -162,3 +163,30 @@ def test_build_panel_dims_children_after_healthy_finish() -> None:
     # Then the finished parent's child status is dim-wrapped and the in-flight one's is not
     assert "\x1b[2mrunning" in child_line(finished)
     assert "\x1b[2mrunning" not in child_line(running)
+
+
+def test_build_panel_shows_running_and_finished_rows() -> None:
+    """Verify the panel shows the title, row labels, phase, and a finished glyph."""
+    # Given one in-flight row and one stopped row
+    rows = [
+        LiveRow(label="ladder", phase="waiting on: cleanup", started_at=0.0),
+        LiveRow(
+            label="linkding",
+            phase="stopped",
+            glyph=OUTCOME_GLYPH["ok"],
+            started_at=0.0,
+            ended_at=5.0,
+        ),
+    ]
+    console = Console(theme=pp.THEME, record=True, force_terminal=True, width=80)
+
+    # When rendering the panel
+    console.print(_build_panel(rows, title="Stopping 2 jobs", now=3.0))
+    text = console.export_text()
+
+    # Then the title, both labels, the in-flight phase, and a check glyph appear
+    assert "Stopping 2 jobs" in text
+    assert "ladder" in text
+    assert "linkding" in text
+    assert "waiting on: cleanup" in text
+    assert "✓" in text

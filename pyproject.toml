@@ -80,7 +80,7 @@
     version_provider           = "uv"
 
 [tool.coverage.report]
-    exclude_also = ['def __repr__', 'except [\w\s\._]+ as .*:', 'if TYPE_CHECKING']
+    exclude_also = ['def __repr__', 'if TYPE_CHECKING']
     fail_under   = 90
     show_missing = true
     skip_covered = true
