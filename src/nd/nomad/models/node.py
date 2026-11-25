@@ -21,6 +21,14 @@ class _NodeCommon(NomadModel, frozen=True, kw_only=True):
     create_index: int
     modify_index: int
 
+    @property
+    def is_eligible(self) -> bool:
+        """Whether the scheduler may place new work on this node.
+
+        A draining node reads as ineligible even before Nomad flips its eligibility flag.
+        """
+        return self.scheduling_eligibility == "eligible" and not self.drain
+
 
 class NodeListStub(_NodeCommon, frozen=True, kw_only=True):
     """A node as returned by ``GET /v1/nodes``."""

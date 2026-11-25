@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import TYPE_CHECKING
 
+from nd.nodes import node_label
 from nd.ui.live_panel import LiveChild
 from nd.ui.styles import accent, muted, status_cell
 
@@ -62,7 +63,7 @@ def alloc_children(
 
 def _alloc_node_label(alloc: AllocListStub, node_names: dict[str, str], *, ambiguous: bool) -> str:
     """Label an allocation by its node, appending the alloc index when a node repeats."""
-    node = node_names.get(alloc.node_id, alloc.node_id[:8])
+    node = node_label(node_names=node_names, node_id=alloc.node_id)
     if not ambiguous:
         return node
     bracket = alloc.name.rfind("[")

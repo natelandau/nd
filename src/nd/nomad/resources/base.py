@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import msgspec
-
-from nd.nomad.errors import NomadDecodeError
+from nd.nomad.models import decode_json
 
 if TYPE_CHECKING:
     from typing import Any
@@ -24,13 +22,7 @@ class BaseResource:
 
     def _decode[T](self, response: httpx2.Response, type_: type[T]) -> T:
         """Decode a response body into ``type_``, mapping failures to NomadDecodeError."""
-        try:
-            return msgspec.json.decode(response.content, type=type_)
-        except msgspec.DecodeError as exc:
-            # A generic alias such as list[Item] reports its origin's bare __name__ ("list")
-            type_name = type_.__name__ if isinstance(type_, type) else repr(type_)
-            msg = f"Failed to decode {type_name}: {exc}"
-            raise NomadDecodeError(msg, payload=response.text[:500]) from exc
+        return decode_json(data=response.content, type_=type_)
 
     def _decode_list[T](self, response: httpx2.Response, item_type: type[T]) -> list[T]:
         """Decode a JSON array into ``list[item_type]``."""

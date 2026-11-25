@@ -15,16 +15,19 @@ from nd.targets.alloc_target import (
 )
 from nd.targets.selection import (
     TargetResolution,
+    job_file_label,
     pick_single,
     resolve_targets,
     select_candidates,
     select_one_candidate,
+    select_targets,
 )
 
 __all__ = [
     "ResolvedTarget",
     "SelectionError",
     "TargetResolution",
+    "job_file_label",
     "pick_single",
     "resolve_alloc_task",
     "resolve_target",
@@ -32,4 +35,5 @@ __all__ = [
     "resolve_with_client",
     "select_candidates",
     "select_one_candidate",
+    "select_targets",
 ]

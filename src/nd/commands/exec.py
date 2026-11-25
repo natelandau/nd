@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 from typer.core import TyperGroup
 
-from nd.commands._common import VerboseOption, configure_verbosity, run_alloc_action
+from nd.commands._common import (
+    VerboseOption,
+    command_app,
+    configure_verbosity,
+    run_alloc_action,
+)
 from nd.constants import DEFAULT_EXEC_SHELL, EXEC_SHELL_PROBE
 from nd.nomad import NomadConfig
 
@@ -36,8 +41,7 @@ class ExecGroup(TyperGroup):
         return super().parse_args(ctx, args)
 
 
-# allow_interspersed_args lets options follow the positional JOB (e.g. `nd exec web -s sh`).
-app = typer.Typer(cls=ExecGroup, context_settings={"allow_interspersed_args": True})
+app = command_app(cls=ExecGroup)
 
 
 def _container_command(shell: str | None, command: list[str] | None) -> list[str]:

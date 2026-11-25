@@ -48,9 +48,6 @@ def require_prompt(*, needed: bool = True, what: str, remedy: str) -> None:
     the candidates are ambiguous, so the message says a choice is required rather than
     claiming ambiguity. ``remedy`` names the one thing that resolves this specific call
     site, since the call sites do not share a fix.
-
-    Raises:
-        PromptUnavailableError: If a prompt is needed but stdin or stdout is not a terminal.
     """
     if needed and not can_prompt():
         msg = f"{what} requires an interactive terminal; {remedy}"
@@ -69,9 +66,27 @@ def clear_prompt_line(lines: int = 1) -> None:
     console.file.flush()
 
 
-async def select_one[T](choices: list[tuple[str, T]], message: str) -> T | None:
-    """Prompt for a single choice, returning the value or None when cancelled."""
-    require_prompt(what=f"'{message}'", remedy="run in an interactive terminal")
+_DEFAULT_PROMPT_REMEDY = "run in an interactive terminal"
+# Remedies the commands report when a prompt they need cannot be shown
+FORCE_REMEDY = "pass --force"
+NAME_JOB_REMEDY = "name a job explicitly"
+
+
+async def select_one[T](
+    choices: list[tuple[str, T]], message: str, *, remedy: str = _DEFAULT_PROMPT_REMEDY
+) -> T | None:
+    """Prompt for a single choice, returning the value or None when cancelled.
+
+    Args:
+        choices: ``(label, value)`` pairs to offer.
+        message: The question shown above the choices.
+        remedy: What the user can do instead when the session cannot show the prompt,
+            such as naming the flag that makes the choice unnecessary.
+
+    Returns:
+        T | None: The chosen value, or None when the user cancels.
+    """
+    require_prompt(what=f"'{message}'", remedy=remedy)
     chosen = cast(
         "T | None",
         await asyncio.to_thread(choose_one_from_list, choices, message),
@@ -80,12 +95,42 @@ async def select_one[T](choices: list[tuple[str, T]], message: str) -> T | None:
     return chosen
 
 
-async def select_many[T](choices: list[tuple[str, T]], message: str) -> list[T] | None:
-    """Prompt for multiple choices, returning the values or None when cancelled."""
-    require_prompt(what=f"'{message}'", remedy="run in an interactive terminal")
+async def select_many[T](
+    choices: list[tuple[str, T]], message: str, *, remedy: str = _DEFAULT_PROMPT_REMEDY
+) -> list[T] | None:
+    """Prompt for multiple choices, returning the values or None when cancelled.
+
+    Args:
+        choices: ``(label, value)`` pairs to offer.
+        message: The question shown above the choices.
+        remedy: What the user can do instead when the session cannot show the prompt,
+            such as naming the argument that makes the choice unambiguous.
+
+    Returns:
+        list[T] | None: The chosen values, or None when the user cancels.
+    """
+    require_prompt(what=f"'{message}'", remedy=remedy)
     chosen = cast(
         "list[T] | None",
         await asyncio.to_thread(choose_multiple_from_list, choices, message),
     )
     clear_prompt_line()
     return chosen
+
+
+async def confirm(question: str, *, remedy: str) -> bool:
+    """Ask a Yes/No question before an action the user may want to back out of.
+
+    A cancelled prompt counts as No, so a caller never proceeds without an explicit Yes.
+
+    Args:
+        question: The question to show, phrased so Yes proceeds.
+        remedy: The flag or step that skips this confirmation, reported when the
+            session cannot show the prompt.
+
+    Returns:
+        bool: True when the user answers Yes.
+    """
+    require_prompt(what="Confirmation", remedy=remedy)
+    answer = await select_one([("Yes", True), ("No", False)], question)
+    return bool(answer)

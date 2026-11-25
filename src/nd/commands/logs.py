@@ -7,11 +7,15 @@ from typing import Annotated
 
 import typer
 
-from nd.commands._common import VerboseOption, configure_verbosity, run_alloc_action
+from nd.commands._common import (
+    VerboseOption,
+    command_app,
+    configure_verbosity,
+    run_alloc_action,
+)
 from nd.nomad import NomadConfig
 
-# allow_interspersed_args lets options follow the positional JOB (e.g. `nd logs web -e`).
-app = typer.Typer(context_settings={"allow_interspersed_args": True})
+app = command_app()
 
 
 def _streams(*, only_stdout: bool, only_stderr: bool) -> tuple[str, ...]:

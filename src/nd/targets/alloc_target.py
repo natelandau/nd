@@ -56,7 +56,7 @@ class _TargetFilter:
 
     def jobs(self, jobs: list[JobListStub]) -> list[JobListStub]:
         """Keep only running jobs when the policy is live-only."""
-        return [j for j in jobs if j.status == "running"] if self.running_only else jobs
+        return [j for j in jobs if j.is_running] if self.running_only else jobs
 
     def allocs(self, allocs: list[AllocListStub]) -> list[AllocListStub]:
         """Keep only running allocations when the policy is live-only."""

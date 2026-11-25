@@ -63,7 +63,7 @@ def test_plan_registrations_builds_host_path_from_meta() -> None:
     # When planning registrations
     # Then a single register action is planned with the joined host path
     assert len(plan) == 1
-    assert plan[0].action == "register"
+    assert plan[0].is_skipped is False
     assert plan[0].host_path == "/srv/data"
 
 
@@ -73,7 +73,7 @@ def test_plan_registrations_skips_node_without_meta() -> None:
     plan = plan_registrations([_spec()], [_node(root="")], [])
     # When planning registrations
     # Then the node is skipped
-    assert plan[0].action == "skip"
+    assert plan[0].is_skipped is True
     assert "nfsStorageRoot" in plan[0].reason
 
 
@@ -83,7 +83,7 @@ def test_plan_registrations_skips_already_registered() -> None:
     plan = plan_registrations([_spec()], [_node()], [_registered()])
     # When planning registrations
     # Then it is skipped as already registered
-    assert plan[0].action == "skip"
+    assert plan[0].is_skipped is True
     assert "already" in plan[0].reason.lower()
 
 
@@ -102,7 +102,7 @@ def test_plan_registrations_skips_spec_without_relative_path() -> None:
     plan = plan_registrations([_spec(relative=None)], [_node()], [])
     # When planning registrations
     # Then it is skipped
-    assert plan[0].action == "skip"
+    assert plan[0].is_skipped is True
     assert "relative_path" in plan[0].reason
 
 

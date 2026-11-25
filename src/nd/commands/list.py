@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 from nclutils import pp
 
-from nd.commands._common import VerboseOption, configure_verbosity
+from nd.commands._common import VerboseOption, command_app, configure_verbosity
 from nd.jobfiles import discover_job_files, load_job_directories
 from nd.nomad import NomadClient, NomadConfig
 from nd.ui.links import WebUi
@@ -60,7 +60,7 @@ def build_rows(
         for name in names:
             job = jobs_by_name.get(name)
             status = job.status if job else _NOT_DEPLOYED
-            if hide_running and status == "running":
+            if hide_running and job is not None and job.is_running:
                 continue
             link_id = job.id if job else None
             rows.append(
@@ -88,7 +88,7 @@ def _render(rows: list[ListRow], ui_base: str) -> None:
     pp.console().print(titled_panel(table, "Job files"))
 
 
-app = typer.Typer()
+app = command_app()
 
 
 @app.callback(invoke_without_command=True)

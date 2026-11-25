@@ -1,6 +1,9 @@
 """Tests for the volume command wiring."""
 
+import pytest
+
 from nd.commands.volume import app
+from nd.nomad import NomadConnectionError
 
 
 def test_volume_help_lists_subcommands(typer_runner) -> None:
@@ -189,8 +192,8 @@ def test_volume_delete_aborts_when_user_declines(monkeypatch, typer_runner) -> N
     # Given a matching registration and a confirmation prompt the user declines
     from unittest.mock import AsyncMock
 
-    cmd, fake_client = _delete_fixture(monkeypatch)
-    monkeypatch.setattr(cmd, "select_one", AsyncMock(return_value=False))
+    _, fake_client = _delete_fixture(monkeypatch)
+    monkeypatch.setattr("nd.ui.prompts.select_one", AsyncMock(return_value=False))
     monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: True)
 
     # When deleting the named spec without --force
@@ -206,9 +209,9 @@ def test_volume_delete_force_skips_confirmation(monkeypatch, typer_runner) -> No
     # Given a matching registration and a confirmation prompt that must not be reached
     from unittest.mock import AsyncMock
 
-    cmd, fake_client = _delete_fixture(monkeypatch)
+    _, fake_client = _delete_fixture(monkeypatch)
     prompt = AsyncMock(return_value=False)
-    monkeypatch.setattr(cmd, "select_one", prompt)
+    monkeypatch.setattr("nd.ui.prompts.select_one", prompt)
 
     # When deleting the named spec with --force
     result = typer_runner.invoke(app, ["delete", "data", "--force"])
@@ -217,3 +220,79 @@ def test_volume_delete_force_skips_confirmation(monkeypatch, typer_runner) -> No
     assert result.exit_code == 0
     prompt.assert_not_awaited()
     fake_client.volumes.delete.assert_awaited_once_with("v1")
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_exception"),
+    [
+        (NomadConnectionError("connection refused"), None),
+        (RuntimeError("bug"), RuntimeError),
+    ],
+)
+def test_volume_delete_reports_nomad_failures_and_propagates_others(
+    monkeypatch, typer_runner, error: Exception, expected_exception: type[Exception] | None
+) -> None:
+    """Verify a Nomad error on one delete is reported in place while any other error propagates."""
+    # Given a matching registration whose delete call fails
+    from unittest.mock import AsyncMock
+
+    _, fake_client = _delete_fixture(monkeypatch)
+    fake_client.volumes.delete = AsyncMock(side_effect=error)
+
+    # When deleting the named spec with --force
+    result = typer_runner.invoke(app, ["delete", "data", "--force"])
+
+    # Then a Nomad failure exits cleanly after reporting, and any other error escapes
+    if expected_exception is None:
+        assert result.exit_code == 0
+    else:
+        assert isinstance(result.exception, expected_exception)
+
+
+def test_volume_list_joins_named_specs_to_registrations(
+    monkeypatch, typer_runner, httpx2_mock
+) -> None:
+    """Verify `nd volume list NAME` narrows specs and shows each one's registered node names."""
+    # Given two specs, a cluster node, and a registration of one spec on that node
+    from pathlib import Path
+
+    import nd.commands.volume.command as cmd
+    from nd.commands.volume.report import VolumeRow
+    from nd.volumefiles import VolumeSpec
+
+    addr = "http://nomad.test:4646"
+    monkeypatch.setenv("NOMAD_ADDR", addr)
+    specs = [
+        VolumeSpec(path=Path("/v/data.hcl"), name="data", capabilities=[], relative_path="data"),
+        VolumeSpec(path=Path("/v/logs.hcl"), name="logs", capabilities=[], relative_path="logs"),
+    ]
+    monkeypatch.setattr(cmd, "load_volume_directories", list)
+    monkeypatch.setattr(cmd, "discover_volume_files", lambda dirs: specs)
+    httpx2_mock.get(f"{addr}/v1/nodes").respond(
+        json=[
+            {
+                "ID": "n1-0000-0000",
+                "Datacenter": "dc1",
+                "Name": "node1",
+                "NodeClass": "",
+                "Drain": False,
+                "SchedulingEligibility": "eligible",
+                "Status": "ready",
+                "Version": "1.9.0",
+                "CreateIndex": 1,
+                "ModifyIndex": 2,
+            }
+        ]
+    )
+    httpx2_mock.get(f"{addr}/v1/volumes").respond(
+        json=[{"ID": "v1", "Name": "data", "NodeID": "n1-0000-0000", "State": "ready"}]
+    )
+    rendered: list[list[VolumeRow]] = []
+    monkeypatch.setattr(cmd, "render_list", rendered.append)
+
+    # When listing volumes, naming the "data" spec
+    result = typer_runner.invoke(app, ["list", "data"])
+
+    # Then only the named spec is shown, registered on the node by name
+    assert result.exit_code == 0
+    assert rendered == [[VolumeRow(name="data", nodes=["node1"], registered=True)]]

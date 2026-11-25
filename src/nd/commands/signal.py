@@ -8,7 +8,13 @@ from typing import Annotated
 import typer
 from nclutils import pp
 
-from nd.commands._common import VerboseOption, configure_verbosity, record_step
+from nd.commands._common import (
+    VerboseOption,
+    command_app,
+    configure_verbosity,
+    dry_run_option,
+    record_step,
+)
 from nd.nomad import NomadClient, NomadConfig
 from nd.targets import resolve_with_client
 
@@ -49,8 +55,7 @@ _VALID_SIGNALS = frozenset(
     }
 )
 
-# allow_interspersed_args lets options follow the positional JOB (e.g. `nd signal web -s HUP`).
-app = typer.Typer(context_settings={"allow_interspersed_args": True})
+app = command_app()
 
 
 def _normalize_signal(value: str) -> str:
@@ -98,8 +103,7 @@ def signal(
         typer.Option("--task", "-t", help="Target task; skips the task prompt."),
     ] = None,
     dry_run: Annotated[  # noqa: FBT002
-        bool,
-        typer.Option("--dry-run", "-n", help="Show the target that would be signaled."),
+        bool, dry_run_option("Show the target that would be signaled.")
     ] = False,
     verbose: VerboseOption = 0,
 ) -> None:
@@ -115,7 +119,11 @@ def signal(
     verbose = configure_verbosity(ctx, verbose)
     sig = _normalize_signal(signal_name)
     config = NomadConfig.resolve()
-    asyncio.run(_run(config, job=job, task=task, sig=sig, dry_run=dry_run, verbose=verbose))
+    exit_code = asyncio.run(
+        _run(config, job=job, task=task, sig=sig, dry_run=dry_run, verbose=verbose)
+    )
+    if exit_code != 0:
+        raise typer.Exit(exit_code)
 
 
 async def _run(
@@ -126,26 +134,23 @@ async def _run(
     sig: str,
     dry_run: bool,
     verbose: int,
-) -> None:
+) -> int:
     """Resolve a live target and signal it, sharing one client between both steps.
 
-    Raises:
-        typer.Exit: If an argument matches nothing selectable, or a needed prompt
-            cannot be shown.
+    Returns:
+        int: The exit code: the resolver's code when there is nothing to signal, else 0.
     """
     async with NomadClient(config) as client:
         exit_code, target = await resolve_with_client(
             client, job_arg=job, task_arg=task, running_only=True
         )
-        if exit_code != 0:
-            raise typer.Exit(exit_code)
         if target is None:
-            return
+            return exit_code
 
         where = f"task {target.task} in alloc {target.alloc_id[:8]} ({target.job_name})"
         if dry_run:
             pp.dryrun(f"Would send {sig} to {where}")
-            return
+            return 0
 
         with pp.step(f"Sending {sig} to {target.task}") as step:
             await record_step(
@@ -160,3 +165,4 @@ async def _run(
         f"Sent {sig} to {where}",
         details=[f"run `nd logs {target.job_name}` to see what the task did"],
     )
+    return 0

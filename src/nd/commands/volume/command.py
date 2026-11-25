@@ -8,24 +8,31 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 from nclutils import pp
 
-from nd.commands._common import VerboseOption, configure_verbosity
+from nd.commands._common import ForceOption, VerboseOption, configure_verbosity, dry_run_option
 from nd.commands.volume.render import (
     render_deletion_results,
     render_list,
     render_registration_results,
 )
 from nd.commands.volume.report import (
+    DONE,
+    DRY_RUN,
+    Outcome,
+    OutcomeKind,
     build_list_rows,
     build_register_payload,
     plan_deletions,
     plan_registrations,
 )
-from nd.nomad import NomadClient, NomadConfig
-from nd.targets import resolve_targets, select_candidates
-from nd.ui.prompts import require_prompt, select_one
+from nd.nodes import node_names_by_id
+from nd.nomad import NomadClient, NomadConfig, NomadError
+from nd.targets import job_file_label, resolve_targets, select_targets
+from nd.ui.prompts import FORCE_REMEDY, confirm
 from nd.volumefiles import discover_volume_files, load_volume_directories
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Sequence
+
     from nd.commands.volume.report import Registration
     from nd.nomad.models.node import Node
     from nd.nomad.models.volume import HostVolumeListStub
@@ -36,21 +43,11 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-DryRunOption = Annotated[
-    bool, typer.Option("--dry-run", "-n", help="Report actions without changing the cluster.")
-]
-ForceOption = Annotated[
-    bool, typer.Option("--force", "-f", help="Skip the confirmation prompt before deleting.")
-]
+DryRunOption = Annotated[bool, dry_run_option("Report actions without changing the cluster.")]
 NameArgument = Annotated[
     str | None,
     typer.Argument(help="Volume to act on; matches any spec whose name contains this."),
 ]
-
-
-def _volume_label(spec: VolumeSpec) -> str:
-    """Render a volume spec's prompt line as ``<name>  [<file>]``."""
-    return f"{spec.name}  [{spec.path.name}]"
 
 
 async def _collect_register_inputs(
@@ -61,12 +58,34 @@ async def _collect_register_inputs(
     Split out as a named coroutine so tests can monkeypatch it as the single
     data-collection seam, running the command fully offline.
     """
-    stubs = await client.nodes.list()
-    nodes, registered = await asyncio.gather(
-        asyncio.gather(*(client.nodes.read(s.id) for s in stubs)),
-        client.volumes.list(),
-    )
+    stubs, registered = await asyncio.gather(client.nodes.list(), client.volumes.list())
+    # Only ready nodes get registrations, so only they need the full record's meta.
+    nodes = await asyncio.gather(*(client.nodes.read(s.id) for s in stubs if s.status == "ready"))
     return list(nodes), registered
+
+
+async def _attempt_all(attempts: Sequence[Awaitable[object]]) -> list[Outcome]:
+    """Run per-node volume calls concurrently and report each one's outcome in order.
+
+    A Nomad failure on one node becomes that node's failed outcome so the rest still
+    run and report; any other exception is a bug and propagates.
+
+    Args:
+        attempts: The register or delete calls, one per node.
+
+    Returns:
+        list[Outcome]: One outcome per attempt, in the order given.
+    """
+    settled = await asyncio.gather(*attempts, return_exceptions=True)
+    outcomes: list[Outcome] = []
+    for result in settled:
+        if isinstance(result, NomadError):
+            outcomes.append(Outcome(kind=OutcomeKind.FAILED, error=str(result)))
+        elif isinstance(result, BaseException):
+            raise result
+        else:
+            outcomes.append(DONE)
+    return outcomes
 
 
 @app.command()
@@ -122,36 +141,29 @@ async def _select_specs(name_arg: str | None, action: str) -> list[VolumeSpec]:
     """Discover specs and resolve the optional name argument to a non-empty selection.
 
     Shared by ``register`` and ``delete`` so both narrow to an optional name the same
-    way ``run``/``stop`` do: a missing name offers every spec for a multi-select, a
-    name substring auto-selects a lone match or prompts among several. Always returns at least
-    one spec; the three terminal cases raise ``typer.Exit`` here (rather than each
-    caller re-decoding a tristate): no specs configured or a cancelled prompt exit 0,
-    a name that matched nothing reports the miss and exits 1.
+    way ``run``/``stop`` do. No specs configured exits 0 here; ``select_targets``
+    handles the cancelled prompt and the unmatched name.
     """
     specs = discover_volume_files(load_volume_directories())
     if not specs:
         pp.info("No host volume specs found; set [volumes] directories in your nd config.")
         raise typer.Exit(0)
-    resolution = resolve_targets(specs, name_arg, name_of=lambda s: s.name)
-    targets = await select_candidates(
-        resolution,
-        f"Select volumes to {action}",
-        label_of=_volume_label,
+    return await select_targets(
+        specs,
+        name_arg,
+        name_of=lambda s: s.name,
+        label_of=lambda s: job_file_label(name=s.name, path=s.path),
+        prompt=f"Select volumes to {action}",
+        miss_noun="host volume spec",
         remedy="name a volume explicitly",
     )
-    if targets is None:
-        raise typer.Exit(0)
-    if not targets:
-        pp.error(f"No host volume spec matching '{name_arg}'")
-        raise typer.Exit(1)
-    return targets
 
 
 async def _run_register(*, name_arg: str | None, dry_run: bool) -> None:
     """Discover specs, plan registrations, and register (unless dry-run).
 
-    In dry-run mode the planned actions are collected with a ``"dryrun"`` outcome
-    and rendered as a tree so the output is consistent with a real run.
+    Registrations run concurrently. Dry-run renders the same tree with "would
+    register" leaves so the output matches a real run.
     """
     specs = await _select_specs(name_arg, "register")
     config = NomadConfig.resolve()
@@ -161,23 +173,24 @@ async def _run_register(*, name_arg: str | None, dry_run: bool) -> None:
         if not plan:
             pp.info("No eligible nodes to register host volumes on.")
             return
-        results: list[tuple[Registration, str]] = []
-        for reg in plan:
-            if reg.action == "skip":
-                results.append((reg, "skip"))
-                continue
-            if dry_run:
-                results.append((reg, "dryrun"))
-                continue
-            try:
-                payload = build_register_payload(
-                    spec=reg.spec, node_id=reg.node_id, host_path=reg.host_path or ""
+        attempts = (
+            []
+            if dry_run
+            else [
+                client.volumes.register(
+                    build_register_payload(
+                        spec=reg.spec, node_id=reg.node_id, host_path=reg.host_path
+                    )
                 )
-                await client.volumes.register(payload)
-                results.append((reg, "ok"))
-            except Exception as exc:  # noqa: BLE001 - surface any per-node failure, continue
-                results.append((reg, str(exc)))
-    render_registration_results(results)
+                for reg in plan
+                if reg.host_path is not None
+            ]
+        )
+        attempted = iter(await _attempt_all(attempts))
+    results: list[tuple[Registration, Outcome | None]] = [
+        (reg, None if reg.is_skipped else DRY_RUN if dry_run else next(attempted)) for reg in plan
+    ]
+    render_registration_results(results, dry_run=dry_run)
 
 
 async def _confirm_delete(to_delete: list[HostVolumeListStub]) -> bool:
@@ -186,17 +199,12 @@ async def _confirm_delete(to_delete: list[HostVolumeListStub]) -> bool:
     Deleting a dynamic host volume is irreversible and orphans data for any job that
     mounts it, so a real delete confirms before touching the cluster unless --force is
     passed. The prompt names the distinct volumes so the user sees exactly what goes.
-
-    Raises:
-        PromptUnavailableError: If the session cannot show a confirmation prompt.
     """
-    require_prompt(what="Confirmation", remedy="pass --force")
     names = ", ".join(sorted({vol.name for vol in to_delete}))
-    answer = await select_one(
-        [("Yes", True), ("No", False)],
+    return await confirm(
         f"Delete {len(to_delete)} host volume registration(s) ({names})? This cannot be undone.",
+        remedy=FORCE_REMEDY,
     )
-    return bool(answer)
 
 
 async def _run_delete(*, name_arg: str | None, force: bool, dry_run: bool) -> None:
@@ -204,13 +212,15 @@ async def _run_delete(*, name_arg: str | None, force: bool, dry_run: bool) -> No
 
     Fetches node names so deletion trees show human-readable names rather than
     node GUIDs. A real delete confirms first unless ``force`` is set; dry-run never
-    prompts. In dry-run mode volumes are collected with a ``"would-delete"`` outcome
-    and rendered as a tree consistent with a real run.
+    prompts. Deletes run concurrently; dry-run renders the same tree with "would
+    delete" leaves so the output matches a real run.
     """
     specs = await _select_specs(name_arg, "delete")
     config = NomadConfig.resolve()
     async with NomadClient(config) as client:
-        nodes, registered = await asyncio.gather(client.nodes.list(), client.volumes.list())
+        node_names, registered = await asyncio.gather(
+            node_names_by_id(client), client.volumes.list()
+        )
         to_delete = plan_deletions(specs=specs, registered=registered)
         if not to_delete:
             pp.info("No registered host volumes match the selected specs.")
@@ -218,18 +228,12 @@ async def _run_delete(*, name_arg: str | None, force: bool, dry_run: bool) -> No
         if not dry_run and not force and not await _confirm_delete(to_delete):
             pp.info("Aborted")
             return
-        node_names: dict[str, str] = {n.id: n.name for n in nodes}
-        results: list[tuple[HostVolumeListStub, str]] = []
-        for vol in to_delete:
-            if dry_run:
-                results.append((vol, "would-delete"))
-                continue
-            try:
-                await client.volumes.delete(vol.id)
-                results.append((vol, "deleted"))
-            except Exception as exc:  # noqa: BLE001 - surface any per-volume failure, continue
-                results.append((vol, str(exc)))
-    render_deletion_results(results, node_names=node_names)
+        outcomes = (
+            [DRY_RUN] * len(to_delete)
+            if dry_run
+            else await _attempt_all([client.volumes.delete(vol.id) for vol in to_delete])
+        )
+    render_deletion_results(list(zip(to_delete, outcomes, strict=True)), node_names=node_names)
 
 
 async def _run_list(*, name_arg: str | None) -> None:
@@ -243,6 +247,7 @@ async def _run_list(*, name_arg: str | None) -> None:
     targets = resolve_targets(specs, name_arg, name_of=lambda s: s.name).candidates
     config = NomadConfig.resolve()
     async with NomadClient(config) as client:
-        nodes, registered = await asyncio.gather(client.nodes.list(), client.volumes.list())
-    node_names = {n.id: n.name for n in nodes}
+        node_names, registered = await asyncio.gather(
+            node_names_by_id(client), client.volumes.list()
+        )
     render_list(build_list_rows(specs=targets, registered=registered, node_names=node_names))

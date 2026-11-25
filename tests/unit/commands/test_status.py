@@ -6,16 +6,21 @@ import respx
 from nclutils import pp
 from rich.console import Console
 
-from nd.commands.status import Health, StatusReport, build_report
+from nd.commands.status.command import _collect
+from nd.commands.status.render import render_hosts, render_report
 from nd.commands.status.report import (
+    Health,
+    ServerInfo,
+    StatusReport,
     _alloc_run_start_ns,
-    _rfc3339_to_ns,
     build_host_report,
+    build_report,
+    correlate_nodes,
 )
 from nd.nomad.config import NomadConfig
 from nd.nomad.models.agent import AgentMember
 from nd.nomad.models.allocation import AllocListStub, TaskState
-from nd.nomad.models.deployment import DeploymentListStub
+from nd.nomad.models.deployment import Deployment
 from nd.nomad.models.evaluation import EvalListStub
 from nd.nomad.models.job import JobListStub
 from nd.nomad.models.node import NodeListStub
@@ -28,8 +33,8 @@ def _member(*, name="mf1.global", addr="10.0.0.1", status="alive", build="2.0.3"
     return AgentMember(name=name, addr=addr, status=status, tags={"build": build, "port": "4647"})
 
 
-def _deployment(*, job_id="web", status="running", job_version=3) -> DeploymentListStub:
-    return DeploymentListStub(
+def _deployment(*, job_id="web", status="running", job_version=3) -> Deployment:
+    return Deployment(
         id=f"dep-{job_id}",
         job_id=job_id,
         namespace="default",
@@ -118,43 +123,6 @@ def _alloc(
 
 def _task_state(*, state="running", started_at="") -> TaskState:
     return TaskState(state=state, failed=False, restarts=0, started_at_raw=started_at)
-
-
-def test_rfc3339_to_ns_parses_whole_and_fractional_seconds():
-    """Verify _rfc3339_to_ns converts RFC3339 timestamps to precise unix nanoseconds."""
-    # Given RFC3339 timestamps relative to the unix epoch
-    # When parsing whole and fractional seconds (with a trailing Z)
-    # Then the nanosecond value is exact, with sub-microsecond digits truncated
-    assert _rfc3339_to_ns("1970-01-01T00:00:01Z") == 1_000_000_000
-    assert _rfc3339_to_ns("1970-01-01T00:00:00.5Z") == 500_000_000
-    assert _rfc3339_to_ns("1970-01-01T00:00:00.123456789Z") == 123_456_000
-
-
-def test_rfc3339_to_ns_returns_zero_for_sentinel_and_garbage():
-    """Verify _rfc3339_to_ns returns 0 for Nomad's zero sentinel, blanks, and unparsable input."""
-    # Given the zero sentinel Nomad emits before a task starts, plus blank and garbage input
-    # When parsing each
-    # Then all collapse to 0 so the CreateTime fallback applies
-    assert _rfc3339_to_ns("0001-01-01T00:00:00Z") == 0
-    assert _rfc3339_to_ns("") == 0
-    assert _rfc3339_to_ns("not-a-timestamp") == 0
-
-
-def test_rfc3339_to_ns_returns_zero_for_offsetless_timestamp():
-    """Verify _rfc3339_to_ns returns 0 for a timestamp with no UTC offset instead of raising."""
-    # Given a timestamp Python parses into a naive datetime (no trailing Z or offset)
-    # When parsing it
-    # Then it collapses to 0 rather than blowing up on naive/aware arithmetic
-    assert _rfc3339_to_ns("2024-06-01T12:00:00") == 0
-    assert _rfc3339_to_ns("2024-06-01T12:00:00.123456789") == 0
-
-
-def test_rfc3339_to_ns_honors_non_utc_offsets():
-    """Verify _rfc3339_to_ns normalizes a non-UTC offset to the correct unix instant."""
-    # Given the same instant expressed in UTC and in a +05:00 offset
-    # When parsing both
-    # Then they resolve to identical nanoseconds
-    assert _rfc3339_to_ns("1970-01-01T05:00:01+05:00") == 1_000_000_000
 
 
 def test_alloc_run_start_ns_prefers_earliest_task_started_at():
@@ -327,7 +295,6 @@ def test_build_report_all_healthy():
     assert report.nodes_total == 2
     assert report.jobs_total == 2
     assert report.jobs_running == 2
-    assert report.allocs_total == 2
     assert report.allocs_running == 1
 
 
@@ -787,7 +754,6 @@ def test_build_report_degraded_on_failed_alloc():
     report = build_report(nodes=[], jobs=[], allocs=allocs, config=_CONFIG)
 
     # Then failure counts are tracked and the cluster is degraded
-    assert report.allocs_total == 3
     assert report.allocs_failed == 1
     assert report.allocs_running == 1
     assert report.health is Health.DEGRADED
@@ -800,8 +766,6 @@ def _capture_render(report: StatusReport) -> Console:
     original = pp.get_default()
     pp.set_default(emitter)
     try:
-        from nd.commands.status import render_report
-
         render_report(report)
     finally:
         pp.set_default(original)
@@ -902,7 +866,6 @@ def test_render_report_combines_servers_into_nodes_table():
 def test_correlate_nodes_annotates_roles_and_appends_server_only():
     """Verify nodes get server roles by address and server-only hosts are appended."""
     # Given a leader host, a client-only host, and a server with no client node
-    from nd.commands.status import ServerInfo, correlate_nodes
 
     nodes = [_node(name="mf1", address="10.0.0.1"), _node(name="box", address="10.0.0.9")]
     servers = [
@@ -924,7 +887,6 @@ def test_correlate_nodes_annotates_roles_and_appends_server_only():
 def test_correlate_nodes_matches_by_name_when_addresses_differ():
     """Verify a server folds into its client node by host name when addresses differ."""
     # Given a node and its server whose serf addr differs from the node HTTP address
-    from nd.commands.status import ServerInfo, correlate_nodes
 
     nodes = [_node(name="mf1", address="10.0.30.95")]
     servers = [
@@ -1011,8 +973,6 @@ def test_render_report_links_names_to_webui():
     original = pp.get_default()
     pp.set_default(emitter)
     try:
-        from nd.commands.status import render_report
-
         render_report(report)
     finally:
         pp.set_default(original)
@@ -1090,8 +1050,6 @@ def test_collect_aggregates_all_endpoints(httpx2_mock: respx.Router, monkeypatch
     _mock_all(httpx2_mock)
 
     # When collecting status
-    from nd.commands.status import _collect
-
     report, _panels = asyncio.run(_collect(verbose=0))
 
     # Then the report reflects the mocked data
@@ -1127,9 +1085,7 @@ def test_collect_returns_report_and_host_panels(httpx2_mock: respx.Router, monke
     _mock_all(httpx2_mock)
 
     # When collecting status
-    from nd.commands.status import _collect
-
-    report, panels = asyncio.run(_collect(verbose=0))
+    report, panels = asyncio.run(_collect(verbose=0, hosts=True))
 
     # Then the report is populated and a host panel exists for the mocked node
     assert report.health is Health.HEALTHY
@@ -1239,8 +1195,6 @@ def _capture_render_hosts(report: StatusReport, panels, *, width: int = 100) -> 
     original = pp.get_default()
     pp.set_default(emitter)
     try:
-        from nd.commands.status import render_hosts
-
         render_hosts(report, panels)
     finally:
         pp.set_default(original)

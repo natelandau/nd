@@ -37,7 +37,7 @@ Async `NomadClient` facade -> per-resource namespaces (`client.jobs`, `client.no
 
 Discovered from directories in `$XDG_CONFIG_HOME/nd/config.toml`. Both kinds share `*.hcl`/`*.nomad`, so classify by content: `type = "host"` -> volume spec (`parse_volume_spec()`, `python-hcl2`), `job "..." {` block -> job (`is_job_file()`). Skip names that are unresolved `${...}` interpolations.
 
-`src/nd/binary/` wraps the local `nomad` binary because the HTTP API cannot parse HCL2 or run the raw-TTY exec protocol. Build with `NomadBinary.create(config)`, once per command. It provides `validate`, `plan`, `compile_to_json` (HCL -> JSON for `client.jobs.register()`), `exec_command`, `stream_logs`. Everything else uses the API client.
+`src/nd/binary/` wraps the local `nomad` binary because the HTTP API cannot parse HCL2 or run the raw-TTY exec protocol. Build with `NomadBinary.create(config)`, once per command. It provides `validate`, `validate_all` (concurrent), `plan`, `compile_to_json` (HCL -> JSON for `client.jobs.register()`; `compile_job` is its async form), `exec_command`, `stream_logs`. Everything else uses the API client.
 
 ## Console output
 
@@ -54,10 +54,12 @@ Discovered from directories in `$XDG_CONFIG_HOME/nd/config.toml`. Both kinds sha
 
 Match the existing commands: optional `NAME` substring argument and `--dry-run / -n` where they apply. Reuse:
 
-- `commands/_common.py`: `VerboseOption`, `configure_verbosity`, `record_step`, `run_alloc_action`.
-- `commands/_orchestration.py`: `report_outcomes` and row helpers for multi-target results.
-- `ui/`: styles, panels, prompts, durations, `live_panel.run_rows` (concurrent per-target rows).
-- `targets/`: `resolve_targets` for substring match and multi-select; `alloc_target.py` for resolving one job/alloc/task.
+- `commands/_common.py`: `command_app`, `VerboseOption`, `ForceOption`, `dry_run_option`, `configure_verbosity`, `record_step`, `run_alloc_action`.
+- `commands/_orchestration.py`: `Outcome`/`Severity` for multi-target results, `run_outcome_rows` (live rows, report, exit code), `request_all` (`--detach` fan-out), `confirm_jobs`.
+- `commands/_lifecycle.py`: `watch_deploy`, `stop_and_wait`, `poll_until` (deadline poll loop), `task_lifecycle`.
+- `ui/`: styles, panels, prompts (`confirm`, `select_one`, `select_many`), durations, `text.plural`, `live_panel.run_rows` (concurrent per-target rows).
+- `targets/`: `select_targets` (substring match, multi-select, exits on no match), `job_file_label`; `alloc_target.py` for resolving one job/alloc/task.
+- `nodes.py`: `node_names_by_id`, `node_label` (name, or short ID when unknown).
 
 ## Testing
 

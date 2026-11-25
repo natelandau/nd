@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     import builtins
 
 from nd.nomad.models.allocation import AllocListStub
-from nd.nomad.models.deployment import DeploymentListStub
+from nd.nomad.models.deployment import Deployment
 from nd.nomad.models.job import JobDeregisterResponse, JobListStub, JobRegisterResponse
 from nd.nomad.resources.base import BaseResource
 
@@ -52,12 +52,10 @@ class JobsResource(BaseResource):
         response = await self._transport.request(method="POST", path="/jobs", content=body)
         return self._decode(response=response, type_=JobRegisterResponse)
 
-    async def deployments(self, job_id: str) -> builtins.list[DeploymentListStub]:
+    async def deployments(self, job_id: str) -> builtins.list[Deployment]:
         """List a job's deployments (``GET /v1/job/:id/deployments``), following pagination.
 
         The endpoint's ordering is undocumented, so callers that need the most
         recent deployment must select it by ``CreateIndex`` rather than position.
         """
-        return await self._paginate_list(
-            path=f"/job/{job_id}/deployments", item_type=DeploymentListStub
-        )
+        return await self._paginate_list(path=f"/job/{job_id}/deployments", item_type=Deployment)

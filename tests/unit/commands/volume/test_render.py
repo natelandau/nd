@@ -12,7 +12,15 @@ from nd.commands.volume.render import (
     render_list,
     render_registration_results,
 )
-from nd.commands.volume.report import ALREADY_REGISTERED_REASON, Registration, VolumeRow
+from nd.commands.volume.report import (
+    ALREADY_REGISTERED_REASON,
+    DONE,
+    DRY_RUN,
+    Outcome,
+    OutcomeKind,
+    Registration,
+    VolumeRow,
+)
 from nd.nomad.models.volume import HostVolumeListStub
 from nd.volumefiles import VolumeSpec
 
@@ -46,7 +54,6 @@ def _reg(
     *,
     spec_name: str = "data",
     node_name: str = "node1",
-    action: str = "register",
     reason: str = "",
     host_path: str | None = "/srv/data",
 ) -> Registration:
@@ -55,7 +62,6 @@ def _reg(
         node_id="n1",
         node_name=node_name,
         host_path=host_path,
-        action=action,
         reason=reason,
     )
 
@@ -115,8 +121,8 @@ def test_render_registration_results_ok_leaf_shows_volume_and_node() -> None:
     # Given a recording console and one successful registration result
     console = _record()
     reg = _reg(spec_name="data", node_name="node1", host_path="/srv/data")
-    # When rendering with outcome "ok"
-    render_registration_results([(reg, "ok")])
+    # When rendering a successful outcome
+    render_registration_results([(reg, DONE)])
     out = console.export_text()
     # Then the volume name appears as the tree root and the node name in the leaf
     assert "data" in out
@@ -130,7 +136,9 @@ def test_render_registration_results_failed_leaf_shows_error() -> None:
     console = _record()
     reg = _reg(spec_name="data", node_name="node1")
     # When rendering with an error outcome
-    render_registration_results([(reg, "connection refused")])
+    render_registration_results(
+        [(reg, Outcome(kind=OutcomeKind.FAILED, error="connection refused"))]
+    )
     out = console.export_text()
     # Then the failure is visible
     assert "data" in out
@@ -145,12 +153,11 @@ def test_render_registration_results_already_registered_renders_dimly() -> None:
     reg = _reg(
         spec_name="data",
         node_name="node1",
-        action="skip",
         reason=ALREADY_REGISTERED_REASON,
         host_path=None,
     )
     # When rendering
-    render_registration_results([(reg, "skip")])
+    render_registration_results([(reg, None)])
     out = console.export_text()
     # Then the already-registered leaf text is present (not generic skip text)
     assert "already registered on" in out
@@ -164,12 +171,11 @@ def test_render_registration_results_generic_skip_shows_reason() -> None:
     reg = _reg(
         spec_name="data",
         node_name="node1",
-        action="skip",
         reason="spec has no relative_path",
         host_path=None,
     )
     # When rendering
-    render_registration_results([(reg, "skip")])
+    render_registration_results([(reg, None)])
     out = console.export_text()
     # Then the reason appears in the output with skipped phrasing
     assert "skipped on" in out
@@ -181,8 +187,8 @@ def test_render_registration_results_dryrun_shows_would_register() -> None:
     # Given a recording console and a dry-run registration
     console = _record()
     reg = _reg(spec_name="data", node_name="node1", host_path="/srv/data")
-    # When rendering with a "dryrun" outcome
-    render_registration_results([(reg, "dryrun")])
+    # When rendering a dry-run outcome
+    render_registration_results([(reg, DRY_RUN)])
     out = console.export_text()
     # Then the would-register text appears
     assert "would register on" in out
@@ -194,8 +200,8 @@ def test_render_registration_results_groups_by_volume() -> None:
     # Given registrations for two different volumes
     console = _record()
     results = [
-        (_reg(spec_name="alpha", node_name="n1"), "ok"),
-        (_reg(spec_name="beta", node_name="n2"), "ok"),
+        (_reg(spec_name="alpha", node_name="n1"), DONE),
+        (_reg(spec_name="beta", node_name="n2"), DONE),
     ]
     # When rendering
     render_registration_results(results)
@@ -212,8 +218,8 @@ def test_render_registration_results_frames_groups_in_a_titled_panel() -> None:
     # Given successful registrations across two volumes
     console = _record()
     results = [
-        (_reg(spec_name="alpha", node_name="n1"), "ok"),
-        (_reg(spec_name="beta", node_name="n2"), "ok"),
+        (_reg(spec_name="alpha", node_name="n1"), DONE),
+        (_reg(spec_name="beta", node_name="n2"), DONE),
     ]
     # When rendering
     render_registration_results(results)
@@ -227,9 +233,22 @@ def test_render_registration_results_dryrun_title_does_not_claim_success() -> No
     """Verify a dry-run frames the panel as 'would register' rather than 'registered'."""
     # Given a dry-run registration result
     console = _record()
-    render_registration_results([(_reg(spec_name="alpha"), "dryrun")])
+    render_registration_results([(_reg(spec_name="alpha"), DRY_RUN)])
     out = console.export_text()
     # Then the panel title reflects the dry-run, not a real registration
+    assert "Would register 1 volume" in out
+    assert "Registered" not in out
+
+
+def test_render_registration_results_dryrun_title_when_every_node_skipped() -> None:
+    """Verify a dry run whose plan skips every node still titles the panel 'would register'."""
+    # Given a dry run whose only registration is skipped
+    console = _record()
+    skipped = _reg(spec_name="alpha", host_path=None, reason="already registered")
+    # When rendering the dry run
+    render_registration_results([(skipped, None)], dry_run=True)
+    out = console.export_text()
+    # Then the title does not claim a registration happened
     assert "Would register 1 volume" in out
     assert "Registered" not in out
 
@@ -245,8 +264,8 @@ def test_render_deletion_results_deleted_shows_node_name() -> None:
     console = _record()
     vol = HostVolumeListStub(id="vol-1", name="data", node_id="n1")
     node_names = {"n1": "my-node"}
-    # When rendering with outcome "deleted"
-    render_deletion_results([(vol, "deleted")], node_names=node_names)
+    # When rendering a successful outcome
+    render_deletion_results([(vol, DONE)], node_names=node_names)
     out = console.export_text()
     # Then the node NAME appears, not the GUID
     assert "data" in out
@@ -261,8 +280,8 @@ def test_render_deletion_results_dryrun_shows_would_delete() -> None:
     console = _record()
     vol = HostVolumeListStub(id="vol-2", name="cache", node_id="n2")
     node_names = {"n2": "node-beta"}
-    # When rendering with outcome "would-delete"
-    render_deletion_results([(vol, "would-delete")], node_names=node_names)
+    # When rendering a dry-run outcome
+    render_deletion_results([(vol, DRY_RUN)], node_names=node_names)
     out = console.export_text()
     # Then would-delete text with node name appears
     assert "cache" in out
@@ -276,7 +295,7 @@ def test_render_deletion_results_frames_groups_in_a_titled_panel() -> None:
     console = _record()
     vol = HostVolumeListStub(id="vol-1", name="data", node_id="n1")
     # When rendering
-    render_deletion_results([(vol, "deleted")], node_names={"n1": "my-node"})
+    render_deletion_results([(vol, DONE)], node_names={"n1": "my-node"})
     out = console.export_text()
     # Then a panel titled with the deleted count frames the group
     assert "Deleted 1 volume" in out
@@ -290,7 +309,10 @@ def test_render_deletion_results_failed_shows_error() -> None:
     vol = HostVolumeListStub(id="vol-3", name="data", node_id="n3")
     node_names = {"n3": "node-gamma"}
     # When rendering with an error outcome
-    render_deletion_results([(vol, "some error occurred")], node_names=node_names)
+    render_deletion_results(
+        [(vol, Outcome(kind=OutcomeKind.FAILED, error="some error occurred"))],
+        node_names=node_names,
+    )
     out = console.export_text()
     # Then the failure message appears
     assert "data" in out
@@ -305,7 +327,7 @@ def test_render_deletion_results_fallback_to_id_prefix_on_unknown_node() -> None
     vol = HostVolumeListStub(id="vol-4", name="data", node_id="abcdef1234567890")
     node_names: dict[str, str] = {}
     # When rendering
-    render_deletion_results([(vol, "deleted")], node_names=node_names)
+    render_deletion_results([(vol, DONE)], node_names=node_names)
     out = console.export_text()
     # Then the first 8 chars of the node_id appear as fallback
     assert "abcdef12" in out

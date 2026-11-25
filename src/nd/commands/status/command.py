@@ -47,7 +47,7 @@ def status(
 ) -> None:
     """Show an at-a-glance overview of the Nomad cluster."""
     verbose = configure_verbosity(ctx, verbose)
-    report, host_panels = asyncio.run(_collect(verbose=verbose))
+    report, host_panels = asyncio.run(_collect(verbose=verbose, hosts=hosts))
     if verbose:  # separate the progress tree from the dashboard
         pp.console().print()
     if hosts:
@@ -56,13 +56,13 @@ def status(
         render_report(report)
 
 
-async def _collect(*, verbose: int) -> tuple[StatusReport, list[HostPanel]]:
+async def _collect(*, verbose: int, hosts: bool = False) -> tuple[StatusReport, list[HostPanel]]:
     """Fetch all cluster endpoints concurrently and build the report and host panels.
 
     Both views share one fetch: the default dashboard consumes the `StatusReport`, and
-    ``--hosts`` consumes the per-host panels. The default view is silent; ``-v`` shows a
-    `pp.step` tree of the requests we make, and ``-vv`` adds each response's item count
-    and elapsed time.
+    ``--hosts`` also consumes the per-host panels, which are built only when ``hosts``
+    is set. The default view is silent; ``-v`` shows a `pp.step` tree of the requests
+    we make, and ``-vv`` adds each response's item count and elapsed time.
     """
     config = NomadConfig.resolve()
     pp.debug(
@@ -114,5 +114,5 @@ async def _collect(*, verbose: int) -> tuple[StatusReport, list[HostPanel]]:
         evals=evals,
         volumes=volumes,
     )
-    host_panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs)
+    host_panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs) if hosts else []
     return report, host_panels

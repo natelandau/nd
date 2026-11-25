@@ -9,6 +9,7 @@ binary and builds the env once rather than per call.
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 from typing import TYPE_CHECKING
 
@@ -18,6 +19,7 @@ from nclutils.sh import ShellCommandError, run_command, run_interactive
 from nd.binary.env import NomadBinaryError, binary_env, ensure_nomad
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from pathlib import Path
 
     from nd.nomad.config import NomadConfig
@@ -59,6 +61,29 @@ class NomadBinary:
             msg = f"`nomad job validate {file}` failed: {_stderr(exc)}"
             raise NomadBinaryError(msg) from exc
 
+    async def validate_all(self, paths: Iterable[Path]) -> None:
+        """Validate every job file concurrently before acting on any of them.
+
+        Use this to reject a batch up front, so a bad spec fails the command before any
+        job is registered or stopped. Duplicate paths (several jobs in one file) are
+        validated once.
+
+        Args:
+            paths: Job files to validate, possibly with repeats.
+
+        Raises:
+            NomadBinaryError: The first failure in ``paths`` order, if any file is invalid.
+        """
+        # gather (without return_exceptions) would raise whichever failure finished first;
+        # collecting all results keeps the reported failure deterministic.
+        results = await asyncio.gather(
+            *(asyncio.to_thread(self.validate, path) for path in dict.fromkeys(paths)),
+            return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
+
     def plan(self, file: Path) -> int:
         """Preview a job with `nomad job plan`, streaming its output verbatim.
 
@@ -90,6 +115,17 @@ class NomadBinary:
             msg = f"`nomad job run -output {file}` failed: {_stderr(exc)}"
             raise NomadBinaryError(msg) from exc
         return result.stdout.encode("utf-8")
+
+    async def compile_job(self, file: Path) -> bytes:
+        """Compile a job file off the event loop so concurrent deploys keep progressing.
+
+        Args:
+            file: The job file to compile.
+
+        Returns:
+            bytes: The ``{"Job": {...}}`` JSON register payload.
+        """
+        return await asyncio.to_thread(self.compile_to_json, file)
 
     # --- allocations (interactive exec, log streaming) -------------------------------
 

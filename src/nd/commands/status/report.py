@@ -9,16 +9,17 @@ from __future__ import annotations
 import enum
 from collections import Counter
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from nd.commands.volume.report import volume_node_labels
 from nd.constants import FAILED_ALLOC_STATUSES, HEALTHY_ALLOC_STATUSES
+from nd.nodes import node_label
 
 if TYPE_CHECKING:
     from nd.nomad.config import NomadConfig
     from nd.nomad.models.agent import AgentMember
     from nd.nomad.models.allocation import AllocListStub
-    from nd.nomad.models.deployment import DeploymentListStub
+    from nd.nomad.models.deployment import Deployment
     from nd.nomad.models.evaluation import EvalListStub
     from nd.nomad.models.job import JobListStub
     from nd.nomad.models.node import NodeListStub
@@ -26,38 +27,12 @@ if TYPE_CHECKING:
 
 # Allocation client statuses that represent live work (counted in the per-node/per-job columns).
 _ACTIVE_ALLOC_STATUSES = frozenset({"running", "pending"})
-# Desired statuses Nomad assigns to allocations it has retired (rescheduled, drained, superseded).
-# Their client_status is historical, so they must not count toward current cluster health.
-_RETIRED_DESIRED_STATUSES = frozenset({"stop", "evict"})
 # Deployment statuses that represent an in-progress (notable) rollout.
 _ACTIVE_DEPLOYMENT_STATUSES = frozenset({"running", "pending", "blocked", "paused", "unblocking"})
 # Evaluation statuses that indicate the scheduler is stuck.
 _PROBLEM_EVAL_STATUSES = frozenset({"blocked", "pending"})
 # Terminal evaluation statuses whose queued-allocation counts are historical, not live.
 _TERMINAL_EVAL_STATUSES = frozenset({"complete", "canceled", "cancelled", "failed"})
-
-_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
-
-
-def _rfc3339_to_ns(value: str) -> int:
-    """Convert an RFC3339 timestamp to unix nanoseconds, or 0 when it is unusable.
-
-    Nomad emits a zero sentinel ("0001-01-01T00:00:00Z") before a task starts and 9
-    fractional digits once it has. Blanks, unparsable input, the sentinel, and a
-    timestamp carrying no UTC offset (whose true instant is unknowable) all collapse to 0
-    so the caller can fall back to another anchor. Uses integer date math to stay exact.
-    """
-    if not value:
-        return 0
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return 0
-    if parsed.tzinfo is None:
-        return 0
-    delta = parsed - _EPOCH
-    ns = (delta.days * 86_400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1_000
-    return max(0, ns)
 
 
 def _alloc_run_start_ns(alloc: AllocListStub) -> int:
@@ -66,9 +41,7 @@ def _alloc_run_start_ns(alloc: AllocListStub) -> int:
     Prefers the earliest task ``StartedAt`` (when the alloc came up), falling back to the
     alloc's ``CreateTime`` when no task has a usable start time yet.
     """
-    starts = [
-        ns for task in alloc.task_states.values() if (ns := _rfc3339_to_ns(task.started_at)) > 0
-    ]
+    starts = [ns for task in alloc.task_states.values() if (ns := task.started_at_ns) > 0]
     return min(starts) if starts else alloc.create_time
 
 
@@ -150,25 +123,40 @@ class StatusReport:
     namespace: str | None
     servers: list[ServerInfo]
     servers_alive: int
-    servers_total: int
     leader_name: str | None
     nodes: list[NodeListStub]
     nodes_ready: int
-    nodes_total: int
     jobs: list[JobListStub]
-    jobs_total: int
     jobs_running: int
     job_statuses: dict[str, str]  # effective display status keyed by job id (may be "degraded")
-    allocs_total: int
     allocs_running: int
     allocs_failed: int
     allocs_pending: int
     node_alloc_counts: dict[str, int]  # active alloc count, keyed by node id
     job_nodes: dict[str, list[str]]  # sorted node names an active alloc lives on, keyed by job id
-    deployments_active: list[DeploymentListStub]
+    deployments_active: list[Deployment]
     evals_problem: list[EvalListStub]
     volume_rows: list[VolumeStatusRow]  # one row per distinct volume name, aggregated
-    volumes_total: int  # count of distinct volume names
+
+    @property
+    def servers_total(self) -> int:
+        """Count the server members, the denominator of the servers-alive summary."""
+        return len(self.servers)
+
+    @property
+    def nodes_total(self) -> int:
+        """Count the client nodes, the denominator of the nodes-ready summary."""
+        return len(self.nodes)
+
+    @property
+    def jobs_total(self) -> int:
+        """Count the jobs, the denominator of the jobs-running summary."""
+        return len(self.jobs)
+
+    @property
+    def volumes_total(self) -> int:
+        """Count distinct volume names, not per-node registrations."""
+        return len(self.volume_rows)
 
 
 def build_report(  # noqa: PLR0913
@@ -179,7 +167,7 @@ def build_report(  # noqa: PLR0913
     config: NomadConfig,
     members: list[AgentMember] | None = None,
     leader: str | None = None,
-    deployments: list[DeploymentListStub] | None = None,
+    deployments: list[Deployment] | None = None,
     evals: list[EvalListStub] | None = None,
     volumes: list[HostVolumeListStub] | None = None,
 ) -> StatusReport:
@@ -205,21 +193,20 @@ def build_report(  # noqa: PLR0913
     # Only allocs Nomad still wants running reflect current health, so drop the ones it has
     # intentionally retired (desired_status stop/evict). A failed corpse that was rescheduled
     # keeps desired_status "run" and survives this filter; it is instead excluded per-check via
-    # _is_replaced, whose next_allocation points at the now-live replacement.
-    live_allocs = [a for a in allocs if a.desired_status not in _RETIRED_DESIRED_STATUSES]
-    allocs_failed = sum(
-        1 for a in live_allocs if a.client_status == "failed" and not _is_replaced(a)
-    )
+    # is_replaced, whose next_allocation points at the now-live replacement.
+    live_allocs = [a for a in allocs if not a.is_retired]
+    allocs_failed = sum(1 for a in live_allocs if a.client_status == "failed" and not a.is_replaced)
     allocs_pending = sum(1 for a in live_allocs if a.client_status == "pending")
     allocs_unhealthy = any(
-        a.client_status not in HEALTHY_ALLOC_STATUSES and not _is_replaced(a) for a in live_allocs
+        a.client_status not in HEALTHY_ALLOC_STATUSES and not a.is_replaced for a in live_allocs
     )
     node_alloc_counts = Counter(
         a.node_id for a in allocs if a.client_status in _ACTIVE_ALLOC_STATUSES
     )
-    job_nodes = _job_node_names(allocs, nodes)
+    node_names = {node.id: node.name for node in nodes}
+    job_nodes = _job_node_names(allocs=allocs, node_names=node_names)
     job_statuses = _job_display_statuses(jobs, live_allocs)
-    volume_rows = _build_volume_rows(volumes or [], nodes)
+    volume_rows = _build_volume_rows(volumes=volumes or [], node_names=node_names)
 
     return StatusReport(
         health=_assess_health(
@@ -236,16 +223,12 @@ def build_report(  # noqa: PLR0913
         namespace=config.namespace,
         servers=servers,
         servers_alive=sum(1 for s in servers if s.status == "alive"),
-        servers_total=len(servers),
         leader_name=leader_name,
         nodes=nodes,
         nodes_ready=sum(1 for n in nodes if n.status == "ready"),
-        nodes_total=len(nodes),
         jobs=jobs,
-        jobs_total=len(jobs),
         jobs_running=sum(1 for j in jobs if job_statuses[j.id] == "running"),
         job_statuses=job_statuses,
-        allocs_total=len(allocs),
         allocs_running=sum(1 for a in allocs if a.client_status == "running"),
         allocs_failed=allocs_failed,
         allocs_pending=allocs_pending,
@@ -254,7 +237,6 @@ def build_report(  # noqa: PLR0913
         deployments_active=deployments_active,
         evals_problem=evals_problem,
         volume_rows=volume_rows,
-        volumes_total=len(volume_rows),
     )
 
 
@@ -292,7 +274,7 @@ def build_host_report(
                 link_id=node.id,
                 address=node.address,
                 status=node.status,
-                eligible=node.scheduling_eligibility == "eligible" and not node.drain,
+                eligible=node.is_eligible,
                 version=node.version,
                 jobs=job_rows,
             )
@@ -307,7 +289,7 @@ def _is_host_job_alloc(alloc: AllocListStub) -> bool:
     (desired_status stop/evict) or already replaced, then keep the active work
     (running/pending) plus a genuine failure (failed/lost) that has not recovered.
     """
-    if alloc.desired_status in _RETIRED_DESIRED_STATUSES or _is_replaced(alloc):
+    if alloc.is_retired or alloc.is_replaced:
         return False
     return (
         alloc.client_status in _ACTIVE_ALLOC_STATUSES
@@ -328,45 +310,25 @@ def _host_job_row(alloc: AllocListStub, job: JobListStub | None) -> HostJobRow:
 
 
 def _build_volume_rows(
-    volumes: list[HostVolumeListStub], nodes: list[NodeListStub]
+    *, volumes: list[HostVolumeListStub], node_names: dict[str, str]
 ) -> list[VolumeStatusRow]:
     """Aggregate per-registration volume stubs into one row per distinct volume name.
 
-    Node IDs are resolved to display names so the panel shows human-readable hostnames
-    rather than GUIDs. The fallback to ``node_id[:8]`` keeps unknown nodes readable when
-    a node is absent from the current node list (e.g. decommissioned hosts).
+    Node IDs resolve to display names so the panel shows hostnames rather than GUIDs.
     """
-    node_names = {n.id: n.name for n in nodes}
-    groups: dict[str, tuple[list[str], set[str]]] = {}
+    states: dict[str, set[str]] = {}
     for vol in volumes:
-        display = node_names.get(vol.node_id, vol.node_id[:8])
-        if vol.name not in groups:
-            groups[vol.name] = ([], set())
-        groups[vol.name][0].append(display)
         if vol.state:
-            groups[vol.name][1].add(vol.state)
-    return sorted(
-        [
-            VolumeStatusRow(
-                name=name,
-                nodes=sorted(node_list),
-                state=", ".join(sorted(states)) if states else "-",
-            )
-            for name, (node_list, states) in groups.items()
-        ],
-        key=lambda r: r.name,
-    )
-
-
-def _is_replaced(alloc: AllocListStub) -> bool:
-    """Return True when Nomad has superseded this alloc with a newer one in a reschedule chain.
-
-    A failed/lost alloc keeps ``desired_status`` "run" while it lingers in history, so the empty
-    ``next_allocation`` (not the desired status) is what distinguishes the current head of the
-    chain from a corpse whose replacement is already running. A replaced corpse is not a live
-    problem, so cluster health, the failed count, and per-job degraded status all ignore it.
-    """
-    return bool(alloc.next_allocation)
+            states.setdefault(vol.name, set()).add(vol.state)
+    labels = volume_node_labels(registered=volumes, node_names=node_names)
+    return [
+        VolumeStatusRow(
+            name=name,
+            nodes=nodes,
+            state=", ".join(sorted(states.get(name, ()))) or "-",
+        )
+        for name, nodes in sorted(labels.items())
+    ]
 
 
 def _job_display_statuses(
@@ -378,34 +340,34 @@ def _job_display_statuses(
     allocation on a node has failed (e.g. a system job that can't start on one node), so the raw
     status hides the outage. A job is "degraded" only when it has a genuinely-stuck placement: a
     ``failed``/``lost`` alloc that Nomad still wants running (not intentionally stopped) and has
-    NOT replaced (see ``_is_replaced``), so a failure that already recovered does not read as
+    NOT replaced (see ``AllocListStub.is_replaced``), so a failure that already recovered does not read as
     degraded.
     """
     degraded_jobs = {
         a.job_id
         for a in live_allocs
-        if a.client_status in FAILED_ALLOC_STATUSES and not _is_replaced(a)
+        if a.client_status in FAILED_ALLOC_STATUSES and not a.is_replaced
     }
     return {
-        job.id: "degraded" if job.status == "running" and job.id in degraded_jobs else job.status
+        job.id: "degraded" if job.is_running and job.id in degraded_jobs else job.status
         for job in jobs
     }
 
 
-def _job_node_names(allocs: list[AllocListStub], nodes: list[NodeListStub]) -> dict[str, list[str]]:
+def _job_node_names(
+    *, allocs: list[AllocListStub], node_names: dict[str, str]
+) -> dict[str, list[str]]:
     """Map each job id to the sorted, de-duplicated names of nodes its active allocs run on.
 
     Only running/pending allocations count, so the column reflects live placement rather than
-    the historical pile of terminal allocs. Node ids are resolved to display names, falling
-    back to a short id when a node is unknown.
+    the historical pile of terminal allocs.
     """
-    node_names = {node.id: node.name for node in nodes}
     job_node_sets: dict[str, set[str]] = {}
     for alloc in allocs:
-        if alloc.client_status not in _ACTIVE_ALLOC_STATUSES:
-            continue
-        name = node_names.get(alloc.node_id, alloc.node_id[:8])
-        job_node_sets.setdefault(alloc.job_id, set()).add(name)
+        if alloc.client_status in _ACTIVE_ALLOC_STATUSES:
+            job_node_sets.setdefault(alloc.job_id, set()).add(
+                node_label(node_names=node_names, node_id=alloc.node_id)
+            )
     return {job_id: sorted(names) for job_id, names in job_node_sets.items()}
 
 
@@ -465,8 +427,8 @@ def _assess_health(
         return Health.CRITICAL
     if servers and leader_name is None:  # have servers but no elected leader
         return Health.CRITICAL
-    node_degraded = any(n.drain or n.scheduling_eligibility != "eligible" for n in nodes)
-    jobs_degraded = any(j.status != "running" for j in jobs)
+    node_degraded = any(not n.is_eligible for n in nodes)
+    jobs_degraded = any(not j.is_running for j in jobs)
     servers_degraded = any(s.status != "alive" for s in servers)
     if node_degraded or jobs_degraded or servers_degraded or allocs_unhealthy or evals_problem:
         return Health.DEGRADED
@@ -498,7 +460,7 @@ def _node_row(node: NodeListStub, server: ServerInfo | None) -> NodeRow:
         role=role,
         role_healthy=server is None or server.status == "alive",
         status=node.status,
-        eligible=node.scheduling_eligibility == "eligible" and not node.drain,
+        eligible=node.is_eligible,
         version=node.version,
         link_id=node.id,
     )

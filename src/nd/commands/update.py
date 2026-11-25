@@ -3,38 +3,42 @@
 from __future__ import annotations
 
 import asyncio
-import enum
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from functools import partial
 from typing import TYPE_CHECKING, Annotated
 
 import typer
 from nclutils import pp
 
 from nd.binary import NomadBinary, NomadBinaryError
-from nd.commands._common import VerboseOption, configure_verbosity
-from nd.commands._orchestration import (
-    confirm_jobs,
-    fail_row,
-    final_panel_title,
-    node_names_by_id,
-    ok_row,
-    report_outcomes,
-    warn_row,
+from nd.commands._common import (
+    ForceOption,
+    VerboseOption,
+    command_app,
+    configure_verbosity,
+    dry_run_option,
 )
-from nd.commands.run import DeployStatus, task_lifecycle, watch_deploy
-from nd.commands.stop import StopStatus, stop_and_wait
+from nd.commands._lifecycle import deploy_outcome, stop_and_wait, task_lifecycle, watch_deploy
+from nd.commands._orchestration import Outcome, Severity, confirm_jobs, run_outcome_rows
 from nd.jobfiles import candidates_for, discover_job_files, load_job_directories
+from nd.nodes import node_names_by_id
 from nd.nomad import NomadClient, NomadConfig
 from nd.nomad.errors import NomadError
-from nd.targets import resolve_targets, select_candidates
-from nd.ui.live_panel import LiveChild, PanelUpdate, run_rows
+from nd.targets import job_file_label, select_targets
+from nd.ui.live_panel import LiveChild
+from nd.ui.prompts import FORCE_REMEDY, NAME_JOB_REMEDY
 from nd.ui.styles import muted
+from nd.ui.text import plural
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from nd.jobfiles import JobFile
     from nd.nomad.models.job import JobListStub
+    from nd.ui.live_panel import PanelUpdate
+
+# The row label for a job whose recreate finished cleanly.
+_DONE_LABEL = "updated"
 
 
 @dataclass(frozen=True)
@@ -73,43 +77,6 @@ def build_update_targets(files: list[JobFile], running: list[JobListStub]) -> li
     return targets
 
 
-class UpdateStatus(enum.StrEnum):
-    """The terminal outcome of recreating one job."""
-
-    UPDATED = "updated"
-    FAILED = "failed"
-    TIMEOUT = "timeout"
-
-
-@dataclass(frozen=True)
-class UpdateOutcome:
-    """The result of recreating one job, ready for summary rendering."""
-
-    name: str
-    status: UpdateStatus
-    detail: str = ""
-    warnings: str = ""
-
-
-# Outcome labels carry their glyph's color so the status word reads on its own.
-_OUTCOME_ROW: dict[UpdateStatus, tuple[str, str]] = {
-    UpdateStatus.UPDATED: ok_row("updated"),
-    UpdateStatus.FAILED: fail_row("failed"),
-    UpdateStatus.TIMEOUT: warn_row("still deploying"),
-}
-
-# Map the deploy watch's terminal status onto the update outcome.
-_DEPLOY_TO_UPDATE: dict[DeployStatus, UpdateStatus] = {
-    DeployStatus.DEPLOYED: UpdateStatus.UPDATED,
-    DeployStatus.FAILED: UpdateStatus.FAILED,
-    DeployStatus.TIMEOUT: UpdateStatus.TIMEOUT,
-}
-
-# Stop outcomes that mean the workload reached a terminal state, so the recreate
-# may safely re-register. A drain that timed out or errored must not be re-run.
-_STOP_PROCEED = frozenset({StopStatus.STOPPED, StopStatus.PURGE_FAILED})
-
-
 def _with_stopped_marker(update: PanelUpdate, *, drained: int) -> PanelUpdate:
     """Wrap ``update`` so every deploy-phase refresh keeps a stopped-version marker.
 
@@ -122,8 +89,9 @@ def _with_stopped_marker(update: PanelUpdate, *, drained: int) -> PanelUpdate:
     if drained <= 0:
         return update
 
-    allocs_word = "alloc" if drained == 1 else "allocs"
-    marker = LiveChild(cells=[muted(f"stopped previous version · {drained} {allocs_word} drained")])
+    marker = LiveChild(
+        cells=[muted(f"stopped previous version · {plural(count=drained, noun='alloc')} drained")]
+    )
 
     def wrapped(phase: str, children: Sequence[LiveChild] = ()) -> None:
         update(phase, [marker, *children])
@@ -134,12 +102,12 @@ def _with_stopped_marker(update: PanelUpdate, *, drained: int) -> PanelUpdate:
 async def _update_one(
     client: NomadClient,
     target: UpdateTarget,
+    update: PanelUpdate,
     *,
     node_names: dict[str, str],
-    update: PanelUpdate,
     nomad: NomadBinary,
     purge: bool,
-) -> UpdateOutcome:
+) -> Outcome:
     """Recreate one running job: compile, stop, re-register, and watch the rollout.
 
     The new spec is compiled (and thereby parsed) before the running job is stopped,
@@ -151,53 +119,47 @@ async def _update_one(
     Args:
         client: Authenticated Nomad client.
         target: The running job paired with its local file.
-        node_names: Map of node ID to node name for the per-allocation detail rows.
         update: Callback to update the live panel phase text and detail rows.
+        node_names: Map of node ID to node name for the per-allocation detail rows.
         nomad: Configured ``nomad`` binary handle for the compile step.
         purge: Whether to garbage-collect the job after it drains.
 
     Returns:
-        The terminal outcome for this target.
+        Outcome: The terminal outcome for this target.
     """
+    failed = partial(deploy_outcome, target.name, Severity.FAIL, done_label=_DONE_LABEL)
     try:
         update("compiling")
-        # compile_to_json shells out to the nomad binary (blocking); run it off the
-        # event loop so sibling recreates keep making progress concurrently.
-        body = await asyncio.to_thread(nomad.compile_to_json, target.file.path)
+        body = await nomad.compile_job(target.file.path)
         lifecycle = task_lifecycle(body)
-    except NomadBinaryError as exc:
-        return UpdateOutcome(target.name, UpdateStatus.FAILED, f"compile failed: {exc}")
+    except (NomadBinaryError, NomadError) as exc:
+        return failed(detail=f"compile failed: {exc}")
 
     # Stop and watch the drain (and optional purge) before touching the new version.
-    stop_outcome = await stop_and_wait(
-        client, target.job, purge=purge, node_names=node_names, update=update
+    stopped = await stop_and_wait(
+        client, target.job, update=update, purge=purge, node_names=node_names
     )
-    if stop_outcome.status not in _STOP_PROCEED:
+    if not stopped.workload_stopped:
         # The job is still draining or the stop errored; leaving it untouched is safer
         # than re-registering on top of a job that has not come down.
-        status = (
-            UpdateStatus.TIMEOUT
-            if stop_outcome.status is StopStatus.TIMEOUT
-            else UpdateStatus.FAILED
-        )
-        return UpdateOutcome(
-            target.name,
-            status,
-            f"not re-deployed (stop {stop_outcome.status}): {stop_outcome.detail}",
+        reason = "timeout" if stopped.severity is Severity.WARN else "failed"
+        return Outcome(
+            name=target.name,
+            severity=stopped.severity,
+            label=stopped.label,
+            detail=f"not re-deployed (stop {reason}): {stopped.detail}",
         )
 
     # Keep a durable marker for the just-completed drain so the deploy rows that
     # replace the drain rows do not erase the "previous version is down" beat.
-    deploy_update = _with_stopped_marker(update, drained=stop_outcome.drained)
+    deploy_update = _with_stopped_marker(update, drained=stopped.drained)
 
     try:
         deploy_update("registering")
         resp = await client.jobs.register(body)
     except NomadError as exc:
         # The old version is already gone here, so call out that the job is down.
-        return UpdateOutcome(
-            target.name, UpdateStatus.FAILED, f"stopped but re-deploy failed: {exc}"
-        )
+        return failed(detail=f"stopped but re-deploy failed: {exc}")
 
     try:
         outcome = await watch_deploy(
@@ -206,23 +168,18 @@ async def _update_one(
             node_names=node_names,
             lifecycle=lifecycle,
             update=deploy_update,
+            done_label=_DONE_LABEL,
             since_index=resp.job_modify_index,
         )
     except NomadError as exc:
         # watch_deploy polls the cluster, so a transient error here would otherwise
         # escape and crash the concurrent panel, killing every sibling job's watch.
         # The job is already registered, so report the watch failure rather than raise.
-        return UpdateOutcome(
-            target.name, UpdateStatus.FAILED, f"re-registered but watch failed: {exc}"
-        )
-    return UpdateOutcome(
-        target.name, _DEPLOY_TO_UPDATE[outcome.status], outcome.detail, warnings=resp.warnings
-    )
+        return failed(detail=f"re-registered but watch failed: {exc}")
+    return replace(outcome, warnings=resp.warnings)
 
 
-# allow_interspersed_args lets options follow the positional JOB argument; Typer
-# groups disable that by default, which would parse flags as subcommands.
-app = typer.Typer(context_settings={"allow_interspersed_args": True})
+app = command_app()
 
 
 @app.callback(invoke_without_command=True)
@@ -242,13 +199,9 @@ def update(
             help="Stop without garbage-collecting the job (keeps its version history).",
         ),
     ] = False,
-    force: Annotated[  # noqa: FBT002
-        bool,
-        typer.Option("--force", "-f", help="Skip the confirmation prompt."),
-    ] = False,
+    force: ForceOption = False,  # noqa: FBT002
     dry_run: Annotated[  # noqa: FBT002
-        bool,
-        typer.Option("--dry-run", "-n", help="Resolve and validate without recreating."),
+        bool, dry_run_option("Resolve and validate without recreating.")
     ] = False,
     verbose: VerboseOption = 0,
 ) -> None:
@@ -266,7 +219,7 @@ def update(
         raise typer.Exit(exit_code)
 
 
-async def _run(*, job_arg: str | None, no_purge: bool, force: bool, dry_run: bool) -> int:  # noqa: PLR0911
+async def _run(*, job_arg: str | None, no_purge: bool, force: bool, dry_run: bool) -> int:
     """Resolve running targets with local files, confirm, then recreate them.
 
     Returns the exit code: 0 on clean success, 1 on any failure. The new spec for
@@ -276,24 +229,21 @@ async def _run(*, job_arg: str | None, no_purge: bool, force: bool, dry_run: boo
     config = NomadConfig.resolve()
     async with NomadClient(config) as client:
         jobs = await client.jobs.list()
-        running = [j for j in jobs if j.status == "running"]
+        running = [j for j in jobs if j.is_running]
         targets_all = build_update_targets(files, running)
         if not targets_all:
             pp.info("No running jobs have a local job file to update.")
             return 0
 
-        resolution = resolve_targets(targets_all, job_arg, name_of=lambda t: t.name)
-        targets = await select_candidates(
-            resolution,
-            "Select jobs to update",
-            label_of=lambda t: f"{t.name}  [{t.file.path.name}]",
-            remedy="name a job explicitly",
+        targets = await select_targets(
+            targets_all,
+            job_arg,
+            name_of=lambda t: t.name,
+            label_of=lambda t: job_file_label(name=t.name, path=t.file.path),
+            prompt="Select jobs to update",
+            miss_noun="running job with a local file",
+            remedy=NAME_JOB_REMEDY,
         )
-        if targets is None:
-            return 0
-        if not targets:
-            pp.error(f"No running job with a local file matching '{job_arg}'")
-            return 1
 
         purge = not no_purge
         if not force and not await _confirm(targets, purge=purge):
@@ -302,9 +252,7 @@ async def _run(*, job_arg: str | None, no_purge: bool, force: bool, dry_run: boo
 
         try:
             nomad = NomadBinary.create(config)
-            # dict.fromkeys dedups so a multi-job file is validated once.
-            for path in dict.fromkeys(t.file.path for t in targets):
-                nomad.validate(path)
+            await nomad.validate_all(t.file.path for t in targets)
         except NomadBinaryError as exc:
             pp.error(str(exc))
             return 1
@@ -314,69 +262,19 @@ async def _run(*, job_arg: str | None, no_purge: bool, force: bool, dry_run: boo
                 pp.dryrun(f"would recreate {t.name} ({t.file.path})")
             return 0
 
-        outcomes = await _update_all(client, targets, nomad, purge=purge)
-
-    return 0 if all(o.status is UpdateStatus.UPDATED for o in outcomes) else 1
+        node_names = await node_names_by_id(client)
+        return await run_outcome_rows(
+            targets,
+            partial(_update_one, client, node_names=node_names, nomad=nomad, purge=purge),
+            label_of=lambda t: t.name,
+            initial_phase="compiling",
+            running_title=f"Updating {len(targets)} job(s)",
+            done_verb="Updated",
+            fail_verb="update",
+        )
 
 
 async def _confirm(targets: list[UpdateTarget], *, purge: bool) -> bool:
     """Ask the user to confirm recreating the resolved jobs."""
     verb = "Stop, PURGE and re-deploy" if purge else "Stop and re-deploy"
-    return await confirm_jobs([t.name for t in targets], verb=verb, remedy="pass --force")
-
-
-async def _update_all(
-    client: NomadClient, targets: list[UpdateTarget], nomad: NomadBinary, *, purge: bool
-) -> list[UpdateOutcome]:
-    """Recreate every target concurrently under one live panel.
-
-    Args:
-        client: Authenticated Nomad client.
-        targets: The running jobs to recreate.
-        nomad: Configured ``nomad`` binary handle for the compile step.
-        purge: Whether to garbage-collect each job after it drains.
-
-    Returns:
-        Ordered list of outcomes, one per target.
-    """
-    # Resolve node IDs to names once so every job's detail rows can show placement.
-    node_names = await node_names_by_id(client)
-
-    async def do_work(target: UpdateTarget, update: PanelUpdate) -> UpdateOutcome:
-        return await _update_one(
-            client, target, node_names=node_names, update=update, nomad=nomad, purge=purge
-        )
-
-    ordered = await run_rows(
-        targets,
-        do_work,
-        label_of=lambda t: t.name,
-        initial_phase="compiling",
-        finish_of=lambda o: _OUTCOME_ROW[o.status],
-        running_title=f"Updating {len(targets)} job(s)",
-        final_title=_final_title,
-    )
-
-    # The live panel is transient on a pipe/CI; emit a durable line for anything that
-    # did not update cleanly so timeouts and a left-down job are never silent.
-    report_outcomes(
-        ordered,
-        name_of=lambda o: o.name,
-        detail_of=lambda o: o.detail,
-        is_warn=lambda o: o.status is UpdateStatus.TIMEOUT,
-        is_fail=lambda o: o.status is UpdateStatus.FAILED,
-        fail_verb="update",
-        warn_fallback="still deploying",
-        warnings_of=lambda o: o.warnings,
-    )
-    return ordered
-
-
-def _final_title(outcomes: list[UpdateOutcome], elapsed_seconds: float) -> str:
-    """Build the final panel title with updated totals and elapsed seconds."""
-    return final_panel_title(
-        outcomes,
-        elapsed_seconds,
-        verb="Updated",
-        succeeded=lambda o: o.status is UpdateStatus.UPDATED,
-    )
+    return await confirm_jobs([t.name for t in targets], verb=verb, remedy=FORCE_REMEDY)

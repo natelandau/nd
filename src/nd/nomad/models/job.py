@@ -20,6 +20,11 @@ class JobListStub(NomadModel, frozen=True, kw_only=True):
     create_index: int
     modify_index: int
 
+    @property
+    def is_running(self) -> bool:
+        """Whether Nomad reports the job as running (not pending or dead)."""
+        return self.status == "running"
+
 
 class JobDeregisterResponse(NomadModel, frozen=True, kw_only=True):
     """The response from stopping a job (``DELETE /v1/job/:id``)."""
@@ -37,3 +42,46 @@ class JobRegisterResponse(JobDeregisterResponse, frozen=True, kw_only=True):
     """
 
     warnings: str = ""
+
+
+class TaskLifecycleSpec(NomadModel, frozen=True, kw_only=True):
+    """A task's ``lifecycle`` block in a job spec."""
+
+    hook: str | None = None
+    sidecar: bool | None = None
+
+
+class TaskSpec(NomadModel, frozen=True, kw_only=True):
+    """A task in a job spec, limited to the fields ``nd`` reads."""
+
+    name: str
+    lifecycle: TaskLifecycleSpec | None = None
+
+
+class TaskGroupSpec(NomadModel, frozen=True, kw_only=True):
+    """A task group in a job spec, limited to the fields ``nd`` reads."""
+
+    name: str
+    tasks_raw: list[TaskSpec] | None = msgspec.field(name="Tasks", default=None)
+
+    @property
+    def tasks(self) -> list[TaskSpec]:
+        """The group's tasks in spec order, with a null list read as empty."""
+        return self.tasks_raw or []
+
+
+class JobSpec(NomadModel, frozen=True, kw_only=True):
+    """A job spec, limited to the fields ``nd`` reads."""
+
+    task_groups_raw: list[TaskGroupSpec] | None = msgspec.field(name="TaskGroups", default=None)
+
+    @property
+    def task_groups(self) -> list[TaskGroupSpec]:
+        """The job's task groups in spec order, with a null list read as empty."""
+        return self.task_groups_raw or []
+
+
+class JobRegisterPayload(NomadModel, frozen=True, kw_only=True):
+    """The ``{"Job": {...}}`` body that ``nomad job run -output`` emits for ``POST /v1/jobs``."""
+
+    job: JobSpec | None = None

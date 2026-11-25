@@ -5,11 +5,16 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
+import pytest
+import typer
+
+from nd.targets import selection
 from nd.targets.selection import (
     TargetResolution,
     pick_single,
     resolve_targets,
     select_one_candidate,
+    select_targets,
 )
 
 
@@ -109,3 +114,66 @@ def test_pick_single_empty_returns_none() -> None:
 
     # Then None is returned
     assert result is None
+
+
+def _select(name_arg: str | None) -> list[_Named]:
+    return asyncio.run(
+        select_targets(
+            _items(),
+            name_arg,
+            name_of=lambda i: i.name,
+            prompt="Select items",
+            miss_noun="item",
+            remedy="name an item explicitly",
+        )
+    )
+
+
+def test_select_targets_returns_lone_match_without_prompt() -> None:
+    """Verify a name matching one item selects it without prompting."""
+    # Given/When selecting by a name that matches only "db"
+    result = _select("db")
+
+    # Then that item is returned
+    assert result == [_Named("db")]
+
+
+def test_select_targets_returns_prompted_choices(monkeypatch) -> None:
+    """Verify an ambiguous name returns what the user picks in the multi-select."""
+
+    # Given a multi-select that picks the first offered item
+    async def pick_first(choices, message, *, remedy):  # noqa: ANN202
+        return [choices[0][1]]
+
+    monkeypatch.setattr(selection, "select_many", pick_first)
+
+    # When selecting by a name that matches "web" and "worker"
+    result = _select("w")
+
+    # Then only the picked item is returned
+    assert result == [_Named("web")]
+
+
+@pytest.mark.parametrize(
+    ("name_arg", "picked", "expected_code"),
+    [
+        pytest.param("w", [], 0, id="nothing-selected"),
+        pytest.param("w", None, 0, id="prompt-cancelled"),
+        pytest.param("zzz", None, 1, id="no-match"),
+    ],
+)
+def test_select_targets_exits_without_a_selection(
+    monkeypatch, name_arg, picked, expected_code
+) -> None:
+    """Verify an empty selection exits 0 and an unmatched name exits 1."""
+
+    # Given a multi-select that returns the parametrized answer
+    async def answer(choices, message, *, remedy):  # noqa: ANN202
+        return picked
+
+    monkeypatch.setattr(selection, "select_many", answer)
+
+    # When selecting, Then the command ends with the expected code
+    with pytest.raises(typer.Exit) as exc:
+        _select(name_arg)
+    assert exc.value.exit_code == expected_code

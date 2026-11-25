@@ -5,12 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+import typer
 from nclutils import pp
 
-from nd.ui.prompts import require_prompt, select_many, select_one
+from nd.ui.prompts import select_many, select_one
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -56,13 +58,71 @@ async def select_candidates[T](
     """
     if not resolution.needs_prompt:
         return resolution.candidates
-    require_prompt(what=f"'{prompt}'", remedy=remedy)
     choices = [(label_of(item), item) for item in resolution.candidates]
-    chosen = await select_many(choices, prompt)
+    chosen = await select_many(choices, prompt, remedy=remedy)
     if not chosen:
         pp.info("Nothing selected")
         return None
     return chosen
+
+
+async def select_targets[T](
+    items: list[T],
+    name_arg: str | None,
+    *,
+    name_of: Callable[[T], str],
+    label_of: Callable[[T], str] | None = None,
+    prompt: str,
+    miss_noun: str,
+    remedy: str,
+) -> list[T]:
+    """Resolve a command's optional name argument to the items it acts on.
+
+    Use it as the whole selection step of a command that takes an optional name
+    substring: no name offers every item for a multi-select, a name auto-selects a
+    lone match or prompts among several. The terminal cases end the command here so
+    callers only ever see a real selection.
+
+    Args:
+        items: Every item the command could act on.
+        name_arg: The name substring the user typed, or None to choose from all.
+        name_of: The name that ``name_arg`` is matched against.
+        label_of: Each item's prompt line. Defaults to ``name_of``.
+        prompt: The multi-select question.
+        miss_noun: What the items are, for the ``No <miss_noun> matching '<name>'`` error.
+        remedy: What makes the choice unambiguous, reported when the session cannot
+            show the prompt.
+
+    Returns:
+        list[T]: The selected items, never empty.
+
+    Raises:
+        typer.Exit: With code 0 when the user selects nothing, or code 1 after
+            reporting that ``name_arg`` matched no item.
+    """
+    resolution = resolve_targets(items, name_arg, name_of=name_of)
+    targets = await select_candidates(
+        resolution, prompt, label_of=label_of or name_of, remedy=remedy
+    )
+    if targets is None:
+        raise typer.Exit(0)
+    if not targets:
+        pp.error(f"No {miss_noun} matching '{name_arg}'")
+        raise typer.Exit(1)
+    return targets
+
+
+def job_file_label(name: str, path: Path) -> str:
+    """Label a job or volume for a prompt so same-named entries show their source file.
+
+    Args:
+        name: The job or volume name.
+        path: The file that defines it.
+
+    Returns:
+        str: ``<name>  [<file name>]``.
+    """
+    return f"{name}  [{path.name}]"
 
 
 async def select_one_candidate[T](

@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import asyncio
 
-import typer
+import typer  # noqa: TC002 - Typer resolves the callback's annotations at runtime
 from nclutils import pp
 
-from nd.commands._common import VerboseOption, configure_verbosity, record_step
+from nd.commands._common import VerboseOption, command_app, configure_verbosity, record_step
 from nd.nomad import NomadClient, NomadConfig
 
-app = typer.Typer()
+app = command_app()
 
 
 @app.callback(invoke_without_command=True)
