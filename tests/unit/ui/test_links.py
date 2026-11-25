@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from nd.ui.links import WebUi
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from nd.ui.links import WebUi, file_link
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def test_webui_job_links_jobs_route() -> None:
@@ -27,3 +33,15 @@ def test_webui_node_links_clients_route() -> None:
 
     # Then it is Rich link markup targeting the clients route
     assert markup == "[link=https://nomad.example.org/ui/clients/ebd78455]worker-1[/link]"
+
+
+def test_file_link_resolves_relative_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify a relative job file path links to its absolute file URI."""
+    # Given a working directory and a path relative to it
+    monkeypatch.chdir(tmp_path)
+
+    # When building a file link
+    markup = file_link(Path("jobs/web.hcl"), "web.hcl")
+
+    # Then it links to the absolute file
+    assert markup == f"[link={(tmp_path / 'jobs/web.hcl').as_uri()}]web.hcl[/link]"
