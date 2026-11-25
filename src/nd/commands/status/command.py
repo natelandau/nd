@@ -12,10 +12,8 @@ from nclutils import pp
 from nd.commands._common import (
     VerboseOption,
     configure_verbosity,
-    json_option,
     list_volumes_or_empty,
     record_step,
-    use_json_output,
 )
 from nd.commands.status.json_output import build_status_json
 from nd.commands.status.render import render_hosts, render_report
@@ -42,17 +40,16 @@ def status(
     ] = False,
     json_output: Annotated[  # noqa: FBT002
         bool,
-        json_option(
-            "Print a JSON object on stdout instead of the dashboard: health, cluster, servers, "
+        typer.Option(
+            "--json",
+            help="Print a JSON object on stdout instead of the dashboard: health, cluster, servers, "
             "nodes, jobs, allocations, volumes, deployments, problem_evaluations, and hosts "
-            "with --hosts."
+            "with --hosts.",
         ),
     ] = False,
 ) -> None:
     """Show an at-a-glance overview of the Nomad cluster."""
-    verbose = configure_verbosity(ctx, verbose)
-    if json_output:
-        use_json_output()
+    verbose = configure_verbosity(ctx, verbose, json_output=json_output)
     report, host_panels = asyncio.run(_collect(verbose=verbose, hosts=hosts))
     if json_output:
         print_json(build_status_json(report, host_panels if hosts else None))

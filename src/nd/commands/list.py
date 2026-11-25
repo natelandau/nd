@@ -14,8 +14,6 @@ from nd.commands._common import (
     VerboseOption,
     command_app,
     configure_verbosity,
-    json_option,
-    use_json_output,
 )
 from nd.jobfiles import discover_job_files, load_job_directories
 from nd.nomad import NomadClient, NomadConfig
@@ -133,29 +131,32 @@ def list_(
     verbose: VerboseOption = 0,
     json_output: Annotated[  # noqa: FBT002
         bool,
-        json_option(
-            "Print a JSON array of {job, status, file} on stdout instead of the table. "
-            'Status is the Nomad job status, or "not deployed".'
+        typer.Option(
+            "--json",
+            help="Print a JSON array of {job, status, file} on stdout instead of the table. "
+            'Status is the Nomad job status, or "not deployed".',
         ),
     ] = False,
 ) -> None:
     """List known job files and whether each is running, dead, or not deployed."""
-    configure_verbosity(ctx, verbose)
+    configure_verbosity(ctx, verbose, json_output=json_output)
+    rows, ui_base = asyncio.run(_collect(hide_running=hide_running))
     if json_output:
-        use_json_output()
-    asyncio.run(_run(hide_running=hide_running, json_output=json_output))
+        print_json(list_json_rows(rows))
+    else:
+        _render(rows, ui_base)
 
 
-async def _run(*, hide_running: bool = False, json_output: bool = False) -> None:
-    """Discover job files, fetch cluster jobs, and render the joined table."""
+async def _collect(*, hide_running: bool = False) -> tuple[list[ListRow], str]:
+    """Discover job files and join them to cluster jobs.
+
+    Returns:
+        tuple[list[ListRow], str]: The joined rows and the web UI base URL for links.
+    """
     directories = load_job_directories()
     files = discover_job_files(directories)
     pp.debug(f"Discovered {len(files)} job file(s) in {len(directories)} dir(s)")
     config = NomadConfig.resolve()
     async with NomadClient(config) as client:
         jobs = await client.jobs.list()
-    rows = build_rows(files, jobs, hide_running=hide_running)
-    if json_output:
-        print_json(list_json_rows(rows))
-    else:
-        _render(rows, config.ui_base)
+    return build_rows(files, jobs, hide_running=hide_running), config.ui_base

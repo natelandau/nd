@@ -9,7 +9,7 @@ import msgspec
 import pytest
 
 from nd.commands.status.json_output import build_status_json
-from nd.commands.status.report import HostJobRow, HostPanel, build_report
+from nd.commands.status.report import build_host_report, build_report
 from nd.nomad.config import NomadConfig
 from tests.builders import agent_member, alloc_stub, job_stub, node_stub
 from tests.helpers import NOMAD_TEST_ADDR
@@ -94,29 +94,15 @@ def test_build_status_json_omits_hosts_without_host_panels() -> None:
 )
 def test_build_status_json_host_started_at(run_start_ns: int, expected: str | None) -> None:
     """Verify a host job's start time is ISO 8601 UTC, or null when Nomad gave none."""
-    # Given one host running one job
-    report = build_report(nodes=[node_stub("n1")], jobs=[], allocs=[], config=_CONFIG)
-    host = HostPanel(
-        name="n1",
-        link_id="n1",
-        address="10.0.0.1",
-        status="ready",
-        eligible=True,
-        version="1.9.0",
-        jobs=[
-            HostJobRow(
-                job_id="web",
-                name="web",
-                job_type="service",
-                group="app",
-                status="running",
-                run_start_ns=run_start_ns,
-            )
-        ],
-    )
+    # Given one host running one job whose start anchor is the allocation's create time
+    nodes = [node_stub("n1")]
+    jobs = [job_stub("web")]
+    allocs = [alloc_stub("a1", job_id="web", node_id="n1", create_time=run_start_ns)]
+    report = build_report(nodes=nodes, jobs=jobs, allocs=allocs, config=_CONFIG)
+    hosts = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs)
 
     # When building the JSON document with host panels
-    document = _encoded(build_status_json(report, [host]))
+    document = _encoded(build_status_json(report, hosts))
 
     # Then the host's job carries the expected start time
     assert document["hosts"][0]["jobs"][0]["started_at"] == expected
