@@ -1,4 +1,4 @@
-"""Shared wiring for the ``nd`` subcommands: verbosity and progress-step helpers."""
+"""Shared wiring for the ``nd`` subcommands: app, options, verbosity, and progress steps."""
 
 from __future__ import annotations
 
@@ -16,6 +16,9 @@ from nd.targets import resolve_target
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from typer.core import TyperGroup
+    from typer.models import OptionInfo
+
     from nd.nomad.config import NomadConfig
 
 # Every subcommand accepts the same -v/--verbose count option; declare it once.
@@ -23,6 +26,37 @@ VerboseOption = Annotated[
     int,
     typer.Option("-v", "--verbose", count=True, help="Increase verbosity (-v debug, -vv trace)."),
 ]
+
+ForceOption = Annotated[bool, typer.Option("--force", "-f", help="Skip the confirmation prompt.")]
+
+
+def dry_run_option(help_text: str) -> OptionInfo:
+    """Declare a command's ``--dry-run/-n`` flag with help saying what it skips.
+
+    The flag is the same everywhere, but what a dry run leaves undone differs per
+    command, so each command supplies its own help text.
+
+    Args:
+        help_text: What the dry run reports or skips for this command.
+
+    Returns:
+        OptionInfo: The option, for use as ``Annotated[bool, dry_run_option(...)]``.
+    """
+    return typer.Option("--dry-run", "-n", help=help_text)
+
+
+def command_app(*, cls: type[TyperGroup] | None = None) -> typer.Typer:
+    """Create a single-command subcommand app that accepts options after its arguments.
+
+    Args:
+        cls: A custom group class, for a command that preprocesses its argv.
+
+    Returns:
+        typer.Typer: The app to register the command's callback on.
+    """
+    # Typer groups disable interspersed args, which would parse an option after the
+    # positional argument (`nd stop web -p`) as a subcommand name.
+    return typer.Typer(cls=cls, context_settings={"allow_interspersed_args": True})
 
 
 def configure_verbosity(ctx: typer.Context, verbose: int) -> int:

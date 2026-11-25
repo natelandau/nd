@@ -3,32 +3,26 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 
 import pytest
 from nclutils import pp
 from rich.console import Console
 
 from nd.commands._orchestration import (
+    Outcome,
+    Severity,
     confirm_jobs,
-    fail_row,
+    exit_code_for,
     final_panel_title,
-    ok_row,
     report_outcomes,
-    warn_row,
+    request_all,
 )
-from nd.ui.prompts import PromptUnavailableError
+from nd.nomad import NomadError
 from nd.ui.styles import OUTCOME_GLYPH
 
 
-@dataclass(frozen=True)
-class _Outcome:
-    """A minimal outcome stand-in for exercising the shared reporters."""
-
-    name: str
-    kind: str  # "ok", "warn", or "fail"
-    detail: str = ""
-    warnings: str = ""
+def _outcome(name: str, severity: Severity, *, detail: str = "", warnings: str = "") -> Outcome:
+    return Outcome(name=name, severity=severity, label="label", detail=detail, warnings=warnings)
 
 
 def _capture(func) -> str:
@@ -44,85 +38,115 @@ def _capture(func) -> str:
     return console.export_text()
 
 
-def test_row_helpers_pair_glyph_and_colored_label():
-    """Verify the row helpers pair each glyph with its matching color and label."""
-    # When building a row of each severity
-    # Then each carries its glyph and a same-colored label
-    assert ok_row("stopped") == (OUTCOME_GLYPH["ok"], "[green]stopped[/]")
-    assert warn_row("still draining") == (OUTCOME_GLYPH["warn"], "[yellow]still draining[/]")
-    assert fail_row("failed") == (OUTCOME_GLYPH["fail"], "[red]failed[/]")
+@pytest.mark.parametrize("severity", list(Severity))
+def test_outcome_row_marks_label_with_its_severity_glyph(severity: Severity):
+    """Verify a finished row pairs the severity's glyph with the outcome's own label."""
+    # Given an outcome of each severity
+    outcome = Outcome(name="web", severity=severity, label="still draining")
+
+    # When building its finished row
+    glyph, label = outcome.row()
+
+    # Then the glyph matches the severity and the label text is kept
+    assert glyph == OUTCOME_GLYPH[severity]
+    assert "still draining" in label
 
 
 def test_final_panel_title_full_and_partial():
-    """Verify the final title shows totals, elapsed, and the X-of-N partial form."""
-    # Given a set of outcomes where only some succeeded
-    outcomes = [
-        _Outcome("web", "ok"),
-        _Outcome("api", "warn"),
-    ]
-    succeeded = lambda o: o.kind == "ok"  # noqa: E731
+    """Verify the final title counts clean outcomes, with the X-of-N partial form."""
+    # Given outcomes where all succeeded, and where only some did
+    all_ok = [_outcome("web", Severity.OK), _outcome("api", Severity.OK)]
+    mixed = [_outcome("web", Severity.OK), _outcome("api", Severity.WARN)]
 
-    # When all succeed vs only some
-    all_ok = [_Outcome("web", "ok"), _Outcome("api", "ok")]
-
+    # When building the final titles
     # Then the title reflects the clean count and the partial form
-    assert final_panel_title(all_ok, 12.4, verb="Stopped", succeeded=succeeded) == (
-        "Stopped 2 jobs · 12s"
-    )
-    assert final_panel_title(outcomes, 12.4, verb="Stopped", succeeded=succeeded) == (
-        "Stopped 1 of 2 jobs · 12s"
-    )
+    assert final_panel_title(all_ok, 12.4, verb="Stopped") == "Stopped 2 jobs · 12s"
+    assert final_panel_title(mixed, 12.4, verb="Stopped") == "Stopped 1 of 2 jobs · 12s"
+
+
+@pytest.mark.parametrize(
+    ("severities", "expected"),
+    [
+        ([Severity.OK, Severity.OK], 0),
+        ([Severity.OK, Severity.WARN], 1),
+        ([Severity.FAIL], 1),
+    ],
+    ids=["all-ok", "one-warning", "one-failure"],
+)
+def test_exit_code_for_is_zero_only_when_all_clean(severities: list[Severity], expected: int):
+    """Verify the exit code is 0 only when every outcome finished cleanly."""
+    # Given outcomes of the given severities
+    outcomes = [_outcome(f"job{i}", severity) for i, severity in enumerate(severities)]
+
+    # When computing the exit code
+    # Then any warning or failure makes it 1
+    assert exit_code_for(outcomes) == expected
 
 
 def test_report_outcomes_warns_fails_and_surfaces_warnings():
     """Verify report_outcomes emits a warning, an error, and register warnings."""
     # Given a clean, a timed-out, and a failed outcome (the failed one also warns)
     outcomes = [
-        _Outcome("clean", "ok"),
-        _Outcome("slow", "warn"),
-        _Outcome("broken", "fail", detail="boom", warnings="deprecated stanza"),
+        _outcome("clean", Severity.OK),
+        Outcome(name="slow", severity=Severity.WARN, label="still deploying"),
+        _outcome("broken", Severity.FAIL, detail="boom", warnings="deprecated stanza"),
     ]
 
     # When reporting them
-    text = _capture(
-        lambda: report_outcomes(
-            outcomes,
-            name_of=lambda o: o.name,
-            detail_of=lambda o: o.detail,
-            is_warn=lambda o: o.kind == "warn",
-            is_fail=lambda o: o.kind == "fail",
-            fail_verb="deploy",
-            warn_fallback="still deploying",
-            warnings_of=lambda o: o.warnings,
-        )
-    )
+    text = _capture(lambda: report_outcomes(outcomes, fail_verb="deploy"))
 
-    # Then the clean outcome is silent, the timeout falls back, and the failure reports
+    # Then the clean outcome is silent, the detail-less warning falls back to its label,
+    # and the failure reports with its register warning
     assert "clean" not in text
     assert "slow: still deploying" in text
     assert "broken failed to deploy" in text
     assert "broken: deprecated stanza" in text
 
 
-def test_report_outcomes_warn_fallback_uses_detail_when_present():
-    """Verify a warning shows the outcome detail in place of the fallback."""
+def test_report_outcomes_warning_prefers_detail_over_label():
+    """Verify a warning shows the outcome detail in place of its label."""
     # Given a timed-out outcome that carries its own detail
-    outcomes = [_Outcome("slow", "warn", detail="stop requested, still draining")]
+    outcomes = [_outcome("slow", Severity.WARN, detail="stop requested, still draining")]
 
-    # When reporting with no warnings accessor
-    text = _capture(
-        lambda: report_outcomes(
-            outcomes,
-            name_of=lambda o: o.name,
-            detail_of=lambda o: o.detail,
-            is_warn=lambda o: o.kind == "warn",
-            is_fail=lambda o: o.kind == "fail",
-            fail_verb="stop",
-        )
-    )
+    # When reporting it
+    text = _capture(lambda: report_outcomes(outcomes, fail_verb="stop"))
 
-    # Then the detail is used, not the fallback
+    # Then the detail is used, not the label
     assert "slow: stop requested, still draining" in text
+
+
+def test_request_all_reports_each_target_and_fails_on_any_error():
+    """Verify request_all sends every request, reports failures and warnings, and exits 1."""
+
+    # Given one target that succeeds with a warning and one whose request fails
+    async def request(name: str) -> str:
+        if name == "broken":
+            msg = "boom"
+            raise NomadError(msg)
+        return "deprecated stanza"
+
+    # When requesting both
+    exit_code = 0
+
+    def run() -> None:
+        nonlocal exit_code
+        exit_code = asyncio.run(
+            request_all(
+                ["web", "broken"],
+                request,
+                name_of=str,
+                summary_of=lambda count: f"Registered {count} job(s)",
+                fail_verb="register",
+            )
+        )
+
+    text = _capture(run)
+
+    # Then the success, the failure, and the warning are each reported, and it exits 1
+    assert exit_code == 1
+    assert "Registered 1 job(s)" in text
+    assert "broken failed to register" in text
+    assert "web: deprecated stanza" in text
 
 
 def test_confirm_jobs_builds_prompt_and_coerces_answer(monkeypatch):
@@ -138,7 +162,7 @@ def test_confirm_jobs_builds_prompt_and_coerces_answer(monkeypatch):
 
         return _answer()
 
-    monkeypatch.setattr("nd.commands._orchestration.select_one", fake_select_one)
+    monkeypatch.setattr("nd.ui.prompts.select_one", fake_select_one)
     monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: True)
 
     # When confirming two jobs
@@ -147,17 +171,3 @@ def test_confirm_jobs_builds_prompt_and_coerces_answer(monkeypatch):
     # Then the prompt reads the shared wording and the answer is a bool
     assert result is True
     assert seen["message"] == "Stop and PURGE 2 job(s): web, api?"
-
-
-def test_confirm_jobs_off_a_terminal_raises(monkeypatch):
-    """Verify an unanswerable confirmation is a hard error, not a silent decline."""
-    # Given a session that cannot show a prompt and a widget that must not be reached
-    monkeypatch.setattr(
-        "nd.commands._orchestration.select_one",
-        lambda choices, message: pytest.fail("the widget must not run"),
-    )
-    monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: False)
-
-    # When confirming, Then it refuses rather than reading None as "no"
-    with pytest.raises(PromptUnavailableError, match="Confirmation requires"):
-        asyncio.run(confirm_jobs(["web"], verb="Stop", remedy="pass --force"))

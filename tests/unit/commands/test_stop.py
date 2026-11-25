@@ -1,37 +1,19 @@
 """Tests for the stop command helpers."""
 
-import asyncio
 from io import StringIO
 
-import httpx
 import msgspec
 import respx
 from nclutils import pp
 from rich.console import Console
 
 from nd.commands import stop as stop_module
-from nd.commands.stop import (
-    _OUTCOME_ROW,
-    StopOutcome,
-    StopStatus,
-    _build_dry_run_panel,
-    all_allocs_terminal,
-    exit_code_for,
-    final_title,
-    phase_text,
-    running_task_names,
-    stop_and_wait,
-    stopping_title,
-)
-from nd.nomad.client import NomadClient
-from nd.nomad.config import NomadConfig
-from nd.nomad.models.allocation import AllocListStub
+from nd.commands.stop import _build_dry_run_panel, stopping_title
 from nd.nomad.models.job import JobListStub
 from nd.targets import resolve_targets
 from nd.ui.duration import fmt_elapsed as _fmt_elapsed
 from nd.ui.live_panel import LiveRow, _build_panel
 from nd.ui.prompts import clear_prompt_line as _clear_prompt_line
-from tests.unit.commands.panel_helpers import discard_panel_update
 
 _ADDR = "http://nomad.test:4646"
 
@@ -48,23 +30,6 @@ def _job(name: str, status: str = "running") -> JobListStub:
             "ModifyIndex": 2,
         },
         type=JobListStub,
-    )
-
-
-def _alloc(client_status: str) -> AllocListStub:
-    return msgspec.convert(
-        {
-            "ID": "a",
-            "Name": "n",
-            "NodeID": "x",
-            "JobID": "web",
-            "TaskGroup": "web",
-            "ClientStatus": client_status,
-            "DesiredStatus": "stop",
-            "CreateIndex": 1,
-            "ModifyIndex": 2,
-        },
-        type=AllocListStub,
     )
 
 
@@ -118,322 +83,6 @@ def test_resolve_targets_no_match_returns_empty():
     # Then there are no candidates and no prompt
     assert result.needs_prompt is False
     assert result.candidates == []
-
-
-def test_all_allocs_terminal_true_when_all_terminal():
-    """Verify all_allocs_terminal is True only when every alloc is terminal."""
-    # Given a mix of terminal allocations
-    allocs = [_alloc("complete"), _alloc("failed"), _alloc("lost")]
-
-    # When checking terminality
-    # Then it is terminal
-    assert all_allocs_terminal(allocs) is True
-
-
-def test_all_allocs_terminal_false_when_any_running():
-    """Verify all_allocs_terminal is False when any alloc is still running."""
-    # Given one running allocation among terminal ones
-    allocs = [_alloc("complete"), _alloc("running")]
-
-    # When checking terminality
-    # Then it is not terminal
-    assert all_allocs_terminal(allocs) is False
-
-
-def test_all_allocs_terminal_true_for_empty():
-    """Verify a job with no allocations counts as terminal."""
-    # Given no allocations
-    # When checking terminality
-    # Then it is terminal
-    assert all_allocs_terminal([]) is True
-
-
-def test_exit_code_for_zero_when_all_stopped():
-    """Verify the exit code is 0 when every job stopped cleanly."""
-    # Given all-stopped outcomes
-    outcomes = [StopOutcome(_job("web"), StopStatus.STOPPED)]
-
-    # When computing the exit code
-    # Then it is zero
-    assert exit_code_for(outcomes) == 0
-
-
-def test_exit_code_for_one_when_any_not_stopped():
-    """Verify the exit code is 1 when any job timed out or failed."""
-    # Given a timeout outcome alongside a stopped one
-    outcomes = [
-        StopOutcome(_job("web"), StopStatus.STOPPED),
-        StopOutcome(_job("api"), StopStatus.TIMEOUT, "still draining"),
-    ]
-
-    # When computing the exit code
-    # Then it is one
-    assert exit_code_for(outcomes) == 1
-
-
-def _alloc_json(client_status: str) -> dict:
-    return {
-        "ID": "a",
-        "Name": "n",
-        "NodeID": "x",
-        "JobID": "web",
-        "TaskGroup": "web",
-        "ClientStatus": client_status,
-        "DesiredStatus": "stop",
-        "CreateIndex": 1,
-        "ModifyIndex": 2,
-    }
-
-
-def test_stop_and_wait_returns_stopped_when_allocs_drain(httpx2_mock: respx.Router, mocker):
-    """Verify stop_and_wait reports STOPPED once allocations reach a terminal state."""
-    # Given a stop call and allocations that drain running -> complete
-    httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
-    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").mock(
-        side_effect=[
-            httpx.Response(200, json=[_alloc_json("running")]),
-            httpx.Response(200, json=[_alloc_json("complete")]),
-        ]
-    )
-    # And a no-op sleep so the poll loop runs instantly
-    mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
-
-    # When stopping and waiting
-    async def run() -> StopOutcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await stop_and_wait(
-                client, _job("web"), purge=False, node_names={}, update=discard_panel_update
-            )
-
-    outcome = asyncio.run(run())
-
-    # Then the job is reported stopped
-    assert outcome.status is StopStatus.STOPPED
-
-
-def test_stop_and_wait_skips_transient_alloc_decode_error(httpx2_mock: respx.Router, mocker):
-    """Verify a one-off allocation decode error skips the poll instead of failing the stop."""
-    # Given a stop call whose first drain poll is undecodable, then drains to complete
-    httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
-    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").mock(
-        side_effect=[
-            httpx.Response(200, json=[{"unexpected": "shape"}]),
-            httpx.Response(200, json=[_alloc_json("complete")]),
-        ]
-    )
-    # And a no-op sleep so the retry runs instantly
-    mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
-
-    # When stopping and waiting through the transient decode error
-    async def run() -> StopOutcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await stop_and_wait(
-                client, _job("web"), purge=False, node_names={}, update=discard_panel_update
-            )
-
-    outcome = asyncio.run(run())
-
-    # Then the transient error is skipped and the drain resolves to STOPPED, not FAILED
-    assert outcome.status is StopStatus.STOPPED
-
-
-def test_stop_and_wait_times_out_when_never_terminal(httpx2_mock: respx.Router, mocker):
-    """Verify stop_and_wait reports TIMEOUT when allocations never drain."""
-    # Given a stop call and allocations that stay running
-    httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
-    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[_alloc_json("running")])
-    # And a tiny timeout budget plus a no-op sleep so the loop ends quickly
-    mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
-    mocker.patch("nd.commands.stop.STOP_TIMEOUT_SECONDS", 0.03)
-    mocker.patch("nd.commands.stop.POLL_INTERVAL_SECONDS", 0.01)
-
-    # When stopping and waiting
-    async def run() -> StopOutcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await stop_and_wait(
-                client, _job("web"), purge=False, node_names={}, update=discard_panel_update
-            )
-
-    outcome = asyncio.run(run())
-
-    # Then the job is reported as timed out
-    assert outcome.status is StopStatus.TIMEOUT
-    assert "draining" in outcome.detail
-
-
-def test_stop_and_wait_reports_phase_and_drain_detail(httpx2_mock: respx.Router, mocker):
-    """Verify the poll loop reports the running task in the phase and as a detail row."""
-    # Given a stop call and an allocation with a running cleanup task, then terminal
-    httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
-    alloc_running = {
-        **_alloc_json("running"),
-        "TaskStates": {"cleanup": {"State": "running", "Failed": False, "Restarts": 0}},
-    }
-    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").mock(
-        side_effect=[
-            httpx.Response(200, json=[alloc_running]),
-            httpx.Response(200, json=[_alloc_json("complete")]),
-        ]
-    )
-    mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
-    phases: list[str] = []
-    detail_labels: list[str] = []
-
-    def _update(phase: str, children=()) -> None:
-        phases.append(phase)
-        detail_labels.extend(c.cells[0] for c in children)
-
-    # When stopping and waiting, capturing the phase texts and detail rows
-    async def run() -> StopOutcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await stop_and_wait(
-                client, _job("web"), purge=False, node_names={}, update=_update
-            )
-
-    outcome = asyncio.run(run())
-
-    # Then it stops, the phase names the task still draining, and a detail row names it too
-    assert outcome.status is StopStatus.STOPPED
-    assert "waiting on: cleanup" in phases
-    assert any("cleanup" in label for label in detail_labels)
-
-
-def test_stop_and_wait_purges_after_drain(httpx2_mock: respx.Router, mocker):
-    """Verify a purge stop watches the drain first, then garbage-collects the dead job."""
-    # Given a job that drains running -> complete and a deregister endpoint
-    stop_route = httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
-    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").mock(
-        side_effect=[
-            httpx.Response(200, json=[_alloc_json("running")]),
-            httpx.Response(200, json=[_alloc_json("complete")]),
-        ]
-    )
-    mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
-
-    # When stopping with purge=True
-    async def run() -> StopOutcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await stop_and_wait(
-                client, _job("web"), purge=True, node_names={}, update=discard_panel_update
-            )
-
-    outcome = asyncio.run(run())
-
-    # Then the job stops, and the deregister was issued first plain then with purge=true
-    assert outcome.status is StopStatus.STOPPED
-    assert [c.request.url.params["purge"] for c in stop_route.calls] == ["false", "true"]
-
-
-def test_stop_and_wait_reports_drained_alloc_count(httpx2_mock: respx.Router, mocker):
-    """Verify a clean stop records the terminal-frame allocation count as drained."""
-    # Given two allocations that are already terminal on the first drain poll
-    httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
-    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(
-        json=[_alloc_json("complete"), _alloc_json("complete")]
-    )
-    mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
-
-    # When stopping without purge
-    async def run() -> StopOutcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await stop_and_wait(
-                client, _job("web"), purge=False, node_names={}, update=discard_panel_update
-            )
-
-    outcome = asyncio.run(run())
-
-    # Then the outcome carries the count of allocations that drained
-    assert outcome.status is StopStatus.STOPPED
-    assert outcome.drained == 2
-
-
-def test_stop_and_wait_purge_reports_drained_alloc_count(httpx2_mock: respx.Router, mocker):
-    """Verify a purge stop still records the drained allocation count on its outcome."""
-    # Given one allocation that is already terminal, with purge enabled
-    httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
-    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[_alloc_json("complete")])
-    mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
-
-    # When stopping with purge=True
-    async def run() -> StopOutcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await stop_and_wait(
-                client, _job("web"), purge=True, node_names={}, update=discard_panel_update
-            )
-
-    outcome = asyncio.run(run())
-
-    # Then the drained count survives the purge path
-    assert outcome.status is StopStatus.STOPPED
-    assert outcome.drained == 1
-
-
-def test_stop_and_wait_does_not_purge_on_timeout(httpx2_mock: respx.Router, mocker):
-    """Verify a purge stop that never drains times out without purging the job."""
-    # Given a job whose allocations stay running past a tiny timeout budget
-    stop_route = httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
-    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[_alloc_json("running")])
-    mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
-    mocker.patch("nd.commands.stop.STOP_TIMEOUT_SECONDS", 0.03)
-    mocker.patch("nd.commands.stop.POLL_INTERVAL_SECONDS", 0.01)
-
-    # When stopping with purge=True
-    async def run() -> StopOutcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await stop_and_wait(
-                client, _job("web"), purge=True, node_names={}, update=discard_panel_update
-            )
-
-    outcome = asyncio.run(run())
-
-    # Then it times out and the job was never purged (only the plain stop was issued)
-    assert outcome.status is StopStatus.TIMEOUT
-    assert "true" not in [c.request.url.params["purge"] for c in stop_route.calls]
-
-
-def test_stop_and_wait_reports_failed_when_purge_fails(httpx2_mock: respx.Router, mocker):
-    """Verify a clean stop whose follow-up purge errors is reported as FAILED."""
-    # Given a job that drains immediately, with the follow-up purge call erroring
-    httpx2_mock.delete(f"{_ADDR}/v1/job/web").mock(
-        side_effect=[
-            httpx.Response(200, json={"EvalID": "e1"}),
-            httpx.Response(500, text="boom"),
-        ]
-    )
-    httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[_alloc_json("complete")])
-    mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
-
-    # When stopping with purge=True
-    async def run() -> StopOutcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await stop_and_wait(
-                client, _job("web"), purge=True, node_names={}, update=discard_panel_update
-            )
-
-    outcome = asyncio.run(run())
-
-    # Then the outcome flags the purge failure distinctly from a hard stop failure
-    assert outcome.status is StopStatus.PURGE_FAILED
-    assert "purge failed" in outcome.detail
-
-
-def test_stop_and_wait_reports_failed_on_nomad_error(httpx2_mock: respx.Router):
-    """Verify stop_and_wait reports FAILED when the stop call errors."""
-    # Given a stop endpoint that returns a server error
-    httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(status_code=500, text="boom")
-
-    # When stopping and waiting
-    async def run() -> StopOutcome:
-        async with NomadClient(NomadConfig(address=_ADDR)) as client:
-            return await stop_and_wait(
-                client, _job("web"), purge=False, node_names={}, update=discard_panel_update
-            )
-
-    outcome = asyncio.run(run())
-
-    # Then the failure is captured, not raised
-    assert outcome.status is StopStatus.FAILED
-    assert "500" in outcome.detail
 
 
 def _running_job_json(name: str = "web") -> dict:
@@ -527,7 +176,7 @@ def test_stop_app_force_stops_single_match(
     httpx2_mock.get(f"{_ADDR}/v1/nodes").respond(json=[])
     httpx2_mock.delete(f"{_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
     httpx2_mock.get(f"{_ADDR}/v1/job/web/allocations").respond(json=[])
-    mocker.patch("nd.commands.stop.asyncio.sleep", autospec=True)
+    mocker.patch("nd.commands._lifecycle.asyncio.sleep", autospec=True)
 
     # When invoking with --force on the substring
     result = typer_runner.invoke(stop_module.app, ["we", "--force"])
@@ -592,78 +241,6 @@ def test_stop_app_dry_run_skips_delete(
     assert not any(call.request.method == "DELETE" for call in httpx2_mock.calls)
 
 
-def _alloc_with_tasks(client_status: str, task_states: dict[str, str]) -> AllocListStub:
-    return msgspec.convert(
-        {
-            "ID": "a",
-            "Name": "n",
-            "NodeID": "x",
-            "JobID": "web",
-            "TaskGroup": "web",
-            "ClientStatus": client_status,
-            "DesiredStatus": "stop",
-            "CreateIndex": 1,
-            "ModifyIndex": 2,
-            "TaskStates": {
-                name: {"State": state, "Failed": False, "Restarts": 0}
-                for name, state in task_states.items()
-            },
-        },
-        type=AllocListStub,
-    )
-
-
-def test_running_task_names_returns_sorted_unique_running():
-    """Verify running_task_names lists only running tasks, sorted and de-duplicated."""
-    # Given allocations with a mix of running and dead tasks
-    allocs = [
-        _alloc_with_tasks("running", {"web": "dead", "backup": "running"}),
-        _alloc_with_tasks("running", {"cleanup": "running", "backup": "running"}),
-    ]
-
-    # When collecting running task names
-    # Then only running tasks appear, sorted and unique
-    assert running_task_names(allocs) == ["backup", "cleanup"]
-
-
-def test_running_task_names_empty_when_none_running():
-    """Verify running_task_names is empty when no task is running."""
-    # Given allocations whose tasks are all dead
-    allocs = [_alloc_with_tasks("complete", {"web": "dead"})]
-
-    # When collecting running task names
-    # Then the list is empty
-    assert running_task_names(allocs) == []
-
-
-def test_phase_text_names_running_tasks():
-    """Verify phase_text surfaces the names of tasks still draining."""
-    # Given an allocation with a running cleanup task
-    allocs = [_alloc_with_tasks("running", {"web": "dead", "cleanup": "running"})]
-
-    # When building phase text
-    # Then it names the task still being waited on
-    assert phase_text(allocs) == "waiting on: cleanup"
-
-
-def test_phase_text_drains_when_no_task_running():
-    """Verify phase_text falls back to a drain count when nothing is running."""
-    # Given a non-terminal allocation with no running task
-    allocs = [_alloc_with_tasks("pending", {})]
-
-    # When building phase text
-    # Then it reports the draining count
-    assert phase_text(allocs) == "draining 1 allocs"
-
-
-def test_phase_text_stopping_when_no_allocs():
-    """Verify phase_text reports 'stopping' before any allocations are seen."""
-    # Given no allocations
-    # When building phase text
-    # Then it reports stopping
-    assert phase_text([]) == "stopping"
-
-
 def test_stopping_title_includes_purge():
     """Verify stopping_title pluralizes and flags purge."""
     # Given a purge stop of two jobs
@@ -671,24 +248,6 @@ def test_stopping_title_includes_purge():
     # Then it pluralizes and notes purge
     assert stopping_title(2, purge=True) == "Stopping 2 jobs (purge)"
     assert stopping_title(1, purge=False) == "Stopping 1 job"
-
-
-def test_final_title_all_stopped_and_partial():
-    """Verify final_title shows totals, elapsed, and the X-of-N partial form."""
-    # Given outcomes where all stopped, then where one timed out
-    all_ok = [
-        StopOutcome(_job("web"), StopStatus.STOPPED),
-        StopOutcome(_job("api"), StopStatus.STOPPED),
-    ]
-    mixed = [
-        StopOutcome(_job("web"), StopStatus.STOPPED),
-        StopOutcome(_job("api"), StopStatus.TIMEOUT, "still draining"),
-    ]
-
-    # When building final titles with a 12s elapsed
-    # Then the all-stopped form and the partial form both render
-    assert final_title(all_ok, elapsed_seconds=12.4) == "Stopped 2 jobs · 12s"
-    assert final_title(mixed, elapsed_seconds=12.4) == "Stopped 1 of 2 jobs · 12s"
 
 
 def test_fmt_elapsed_formats_h_mm_ss():
@@ -731,22 +290,6 @@ def test_build_panel_shows_running_and_finished_rows():
     assert "linkding" in text
     assert "waiting on: cleanup" in text
     assert "✓" in text
-
-
-def test_outcome_row_maps_status_to_glyph_and_label():
-    """Verify _OUTCOME_ROW maps each terminal status to the correct glyph and label."""
-    from nd.ui.styles import OUTCOME_GLYPH
-
-    # Given the three terminal statuses
-    # When looking up each status in _OUTCOME_ROW
-    # Then each maps to the expected (glyph, label) pair
-    assert _OUTCOME_ROW[StopStatus.STOPPED] == (OUTCOME_GLYPH["ok"], "[green]stopped[/]")
-    assert _OUTCOME_ROW[StopStatus.TIMEOUT] == (OUTCOME_GLYPH["warn"], "[yellow]still draining[/]")
-    assert _OUTCOME_ROW[StopStatus.FAILED] == (OUTCOME_GLYPH["fail"], "[red]failed[/]")
-    assert _OUTCOME_ROW[StopStatus.PURGE_FAILED] == (
-        OUTCOME_GLYPH["warn"],
-        "[yellow]stopped, purge failed[/]",
-    )
 
 
 def test_build_dry_run_panel_names_targets():

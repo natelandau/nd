@@ -1,8 +1,9 @@
 """Tests for allocation models."""
 
 import msgspec
+import pytest
 
-from nd.nomad.models.allocation import AllocListStub
+from nd.nomad.models.allocation import AllocListStub, TaskState
 
 
 def test_alloc_list_stub_decodes_irregular_keys():
@@ -172,3 +173,62 @@ def test_alloc_list_stub_decodes_null_task_states():
 
     # Then task_states is an empty dict rather than raising a decode error
     assert stub.task_states == {}
+
+
+@pytest.mark.parametrize(
+    ("client_status", "expected"),
+    [
+        ("complete", True),
+        ("failed", True),
+        ("lost", True),
+        ("running", False),
+        ("pending", False),
+    ],
+)
+def test_alloc_list_stub_is_terminal(client_status: str, *, expected: bool) -> None:
+    """Verify only complete, failed, and lost allocations count as fully stopped."""
+    # Given an allocation in the given client status
+    alloc = msgspec.convert(
+        {
+            "ID": "a1",
+            "Name": "web.web[0]",
+            "NodeID": "n1",
+            "JobID": "web",
+            "TaskGroup": "web",
+            "ClientStatus": client_status,
+            "DesiredStatus": "stop",
+            "CreateIndex": 1,
+            "ModifyIndex": 2,
+        },
+        type=AllocListStub,
+    )
+
+    # When / Then it reports terminal only for a stopped client status
+    assert alloc.is_terminal is expected
+
+
+@pytest.mark.parametrize(
+    ("started_at", "expected_ns"),
+    [
+        ("1970-01-01T00:00:01Z", 1_000_000_000),
+        ("1970-01-01T00:00:00.5Z", 500_000_000),
+        # Sub-microsecond digits are truncated
+        ("1970-01-01T00:00:00.123456789Z", 123_456_000),
+        # A non-UTC offset normalizes to the same instant
+        ("1970-01-01T05:00:01+05:00", 1_000_000_000),
+        # Nomad's not-started sentinel, blanks, and garbage read as unusable
+        ("0001-01-01T00:00:00Z", 0),
+        ("", 0),
+        ("not-a-timestamp", 0),
+        # A timestamp with no offset has no knowable instant
+        ("2024-06-01T12:00:00", 0),
+        ("2024-06-01T12:00:00.123456789", 0),
+    ],
+)
+def test_task_state_started_at_ns(started_at: str, expected_ns: int) -> None:
+    """Verify started_at_ns converts StartedAt to exact unix nanoseconds, or 0 when unusable."""
+    # Given a task state carrying the StartedAt value
+    state = TaskState(state="running", failed=False, restarts=0, started_at_raw=started_at)
+
+    # When / Then the nanosecond anchor matches
+    assert state.started_at_ns == expected_ns

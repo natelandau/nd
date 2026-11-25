@@ -9,19 +9,17 @@ import typer
 from nclutils import pp
 
 from nd.binary import NomadBinary, NomadBinaryError
-from nd.commands._common import VerboseOption, configure_verbosity
+from nd.commands._common import VerboseOption, command_app, configure_verbosity, dry_run_option
 from nd.jobfiles import candidates_for, discover_job_files, load_job_directories
 from nd.nomad import NomadConfig
-from nd.targets import resolve_targets, select_candidates
+from nd.targets import job_file_label, select_targets
+from nd.ui.prompts import NAME_JOB_REMEDY
 
 if TYPE_CHECKING:
     from nd.jobfiles import JobCandidate
-    from nd.targets import TargetResolution
 
 
-# allow_interspersed_args lets options follow the positional JOB (e.g. `nd plan web -n`);
-# Typer groups disable that by default, which would parse `-n` as a subcommand.
-app = typer.Typer(context_settings={"allow_interspersed_args": True})
+app = command_app()
 
 
 @app.callback(invoke_without_command=True)
@@ -34,8 +32,7 @@ def plan(
         ),
     ] = None,
     dry_run: Annotated[  # noqa: FBT002
-        bool,
-        typer.Option("--dry-run", "-n", help="Resolve and report targets without planning them."),
+        bool, dry_run_option("Resolve and report targets without planning them.")
     ] = False,
     verbose: VerboseOption = 0,
 ) -> None:
@@ -54,20 +51,15 @@ async def _run(*, job_arg: str | None, dry_run: bool) -> int:
         pp.info("No job files found; set [jobs] directories in your nd config.")
         return 0
 
-    resolution: TargetResolution[JobCandidate] = resolve_targets(
-        candidates, job_arg, name_of=lambda c: c.name
+    targets = await select_targets(
+        candidates,
+        job_arg,
+        name_of=lambda c: c.name,
+        label_of=lambda c: job_file_label(name=c.name, path=c.file.path),
+        prompt="Select jobs to plan",
+        miss_noun="job file",
+        remedy=NAME_JOB_REMEDY,
     )
-    targets = await select_candidates(
-        resolution,
-        "Select jobs to plan",
-        label_of=lambda c: f"{c.name}  [{c.file.path.name}]",
-        remedy="name a job explicitly",
-    )
-    if targets is None:
-        return 0
-    if not targets:
-        pp.error(f"No job file matching '{job_arg}'")
-        return 1
 
     if dry_run:
         for c in targets:

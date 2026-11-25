@@ -35,34 +35,60 @@ def test_select_many_returns_choices(monkeypatch) -> None:
     assert result == [1]
 
 
-def test_select_one_off_a_terminal_raises(monkeypatch) -> None:
-    """Verify select_one refuses to render into a pipe rather than answering None."""
+@pytest.mark.parametrize(
+    ("selector", "widget"),
+    [
+        (prompts.select_one, "choose_one_from_list"),
+        (prompts.select_many, "choose_multiple_from_list"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("remedy_kwargs", "expected_remedy"),
+    [
+        ({}, "run in an interactive terminal"),
+        ({"remedy": "name a job explicitly"}, "name a job explicitly"),
+    ],
+)
+def test_selector_off_a_terminal_raises_with_remedy(
+    monkeypatch, selector, widget, remedy_kwargs, expected_remedy
+) -> None:
+    """Verify a selector refuses to render into a pipe and names the caller's remedy."""
     # Given a session that cannot show a prompt and a widget that must not be reached
     monkeypatch.setattr(prompts, "can_prompt", lambda: False)
     monkeypatch.setattr(
-        prompts,
-        "choose_one_from_list",
-        lambda choices, message: pytest.fail("the widget must not run"),
+        prompts, widget, lambda choices, message: pytest.fail("the widget must not run")
     )
 
-    # When selecting, Then it is a hard error
-    with pytest.raises(prompts.PromptUnavailableError, match="requires an interactive terminal"):
-        asyncio.run(prompts.select_one([("a", 1)], "pick"))
+    # When selecting, Then it is a hard error naming the remedy
+    with pytest.raises(prompts.PromptUnavailableError) as exc:
+        asyncio.run(selector([("a", 1)], "pick", **remedy_kwargs))
+    assert str(exc.value) == f"'pick' requires an interactive terminal; {expected_remedy}"
 
 
-def test_select_many_off_a_terminal_raises(monkeypatch) -> None:
-    """Verify select_many refuses to render into a pipe rather than answering None."""
-    # Given a session that cannot show a prompt and a widget that must not be reached
+@pytest.mark.parametrize(("answer", "expected"), [(True, True), (False, False), (None, False)])
+def test_confirm_proceeds_only_on_yes(monkeypatch, answer, expected) -> None:
+    """Verify confirm returns True only for Yes, treating a cancelled prompt as No."""
+    # Given a Yes/No widget that answers with the parametrized value
+    monkeypatch.setattr(prompts, "can_prompt", lambda: True)
+    monkeypatch.setattr(prompts, "clear_prompt_line", lambda lines=1: None)
+    monkeypatch.setattr(prompts, "choose_one_from_list", lambda choices, message: answer)
+
+    # When confirming
+    result = asyncio.run(prompts.confirm("Delete it?", remedy="pass --force"))
+
+    # Then only an explicit Yes proceeds
+    assert result is expected
+
+
+def test_confirm_off_a_terminal_raises(monkeypatch) -> None:
+    """Verify an unanswerable confirmation is a hard error naming the skip flag."""
+    # Given a session that cannot show a prompt
     monkeypatch.setattr(prompts, "can_prompt", lambda: False)
-    monkeypatch.setattr(
-        prompts,
-        "choose_multiple_from_list",
-        lambda choices, message: pytest.fail("the widget must not run"),
-    )
 
-    # When selecting, Then it is a hard error
-    with pytest.raises(prompts.PromptUnavailableError, match="requires an interactive terminal"):
-        asyncio.run(prompts.select_many([("a", 1)], "pick"))
+    # When confirming, Then it refuses rather than reading no answer as "no"
+    with pytest.raises(prompts.PromptUnavailableError) as exc:
+        asyncio.run(prompts.confirm("Delete it?", remedy="pass --force"))
+    assert str(exc.value) == "Confirmation requires an interactive terminal; pass --force"
 
 
 def test_require_prompt_not_needed_is_a_noop(monkeypatch) -> None:

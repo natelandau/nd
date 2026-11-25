@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from nd.ui.text import plural
+
 
 def fmt_elapsed(seconds: float) -> str:
     """Format an elapsed duration as ``H:MM:SS`` for live panels."""
@@ -17,7 +19,7 @@ def summary_title(verb: str, done: int, total: int, seconds: float) -> str:
     Shows ``N of M jobs`` when only some of the work succeeded so a partial result
     reads clearly. Shared by the commands that end on a live panel.
     """
-    noun = f"{done} job{'s' if done != 1 else ''}" if done == total else f"{done} of {total} jobs"
+    noun = plural(count=done, noun="job") if done == total else f"{done} of {total} jobs"
     return f"{verb} {noun} · {int(seconds)}s"
 
 

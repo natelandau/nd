@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import enum
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+from nd.nodes import node_label
 
 if TYPE_CHECKING:
     from nd.nomad.models.node import Node
@@ -25,9 +28,33 @@ class Registration:
     spec: VolumeSpec
     node_id: str
     node_name: str
-    host_path: str | None
-    action: str  # "register" | "skip"
-    reason: str
+    host_path: str | None  # None when the node is skipped
+    reason: str  # why the node is skipped; empty when registering
+
+    @property
+    def is_skipped(self) -> bool:
+        """Report whether the plan leaves this node alone instead of registering on it."""
+        return self.host_path is None
+
+
+class OutcomeKind(enum.Enum):
+    """How an attempted volume action on one node ended."""
+
+    DONE = enum.auto()
+    DRY_RUN = enum.auto()
+    FAILED = enum.auto()
+
+
+@dataclass(frozen=True)
+class Outcome:
+    """The result of one volume register or delete call, with the error when it failed."""
+
+    kind: OutcomeKind
+    error: str = ""
+
+
+DONE = Outcome(kind=OutcomeKind.DONE)
+DRY_RUN = Outcome(kind=OutcomeKind.DRY_RUN)
 
 
 @dataclass(frozen=True)
@@ -57,11 +84,6 @@ def build_register_payload(spec: VolumeSpec, node_id: str, host_path: str) -> di
     }
 
 
-def _registered_index(registered: list[HostVolumeListStub]) -> set[tuple[str, str]]:
-    """Return the set of (name, node_id) pairs already registered."""
-    return {(v.name, v.node_id) for v in registered}
-
-
 def plan_registrations(
     specs: list[VolumeSpec], nodes: list[Node], registered: list[HostVolumeListStub]
 ) -> list[Registration]:
@@ -71,7 +93,7 @@ def plan_registrations(
     ``nfsStorageRoot`` meta, when the spec has no ``relative_path``, or when the volume
     is already registered on it. Host paths are ``<nfsStorageRoot>/<relative_path>``.
     """
-    already = _registered_index(registered)
+    already = {(v.name, v.node_id) for v in registered}
     plan: list[Registration] = []
     ready = [n for n in nodes if n.status == "ready"]
     for spec in specs:
@@ -93,7 +115,6 @@ def plan_registrations(
                     node_id=node.id,
                     node_name=node.name,
                     host_path=host_path,
-                    action="register",
                     reason="",
                 )
             )
@@ -107,7 +128,6 @@ def _skip(spec: VolumeSpec, node: Node, reason: str) -> Registration:
         node_id=node.id,
         node_name=node.name,
         host_path=None,
-        action="skip",
         reason=reason,
     )
 
@@ -120,6 +140,29 @@ def plan_deletions(
     return [v for v in registered if v.name in names]
 
 
+def volume_node_labels(
+    registered: list[HostVolumeListStub], node_names: dict[str, str]
+) -> dict[str, list[str]]:
+    """Map each registered volume name to the sorted names of the nodes it is on.
+
+    Use it wherever output lists volumes by where they live, so every view resolves
+    node IDs to the same readable names.
+
+    Args:
+        registered: Host volume registrations, one per volume per node.
+        node_names: Node names keyed by node ID; unknown IDs fall back to a short ID.
+
+    Returns:
+        dict[str, list[str]]: Sorted node labels keyed by volume name.
+    """
+    labels: dict[str, list[str]] = {}
+    for vol in registered:
+        labels.setdefault(vol.name, []).append(
+            node_label(node_names=node_names, node_id=vol.node_id)
+        )
+    return {name: sorted(nodes) for name, nodes in labels.items()}
+
+
 def build_list_rows(
     specs: list[VolumeSpec],
     registered: list[HostVolumeListStub],
@@ -127,19 +170,15 @@ def build_list_rows(
 ) -> list[VolumeRow]:
     """Join specs to their registrations, one row per spec, sorted by name.
 
-    Node IDs are resolved to display names via ``node_names``. When a node ID is not
-    present in the map, the first 8 characters of the ID are used as a fallback so
-    recently deregistered or unknown nodes still render something readable.
+    Node IDs resolve to display names through ``node_names``, so the table shows
+    hostnames rather than GUIDs.
     """
-    names_by_volume: dict[str, list[str]] = {}
-    for vol in registered:
-        display = node_names.get(vol.node_id, vol.node_id[:8])
-        names_by_volume.setdefault(vol.name, []).append(display)
+    labels = volume_node_labels(registered=registered, node_names=node_names)
     rows = [
         VolumeRow(
             name=spec.name,
-            nodes=sorted(names_by_volume.get(spec.name, [])),
-            registered=spec.name in names_by_volume,
+            nodes=labels.get(spec.name, []),
+            registered=spec.name in labels,
         )
         for spec in specs
     ]

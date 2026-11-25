@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -95,6 +96,35 @@ def test_compile_to_json_failure_raises(monkeypatch, nomad) -> None:
     # When / Then compiling raises the friendly error
     with pytest.raises(NomadBinaryError):
         nomad.compile_to_json(Path("/home/user/web.hcl"))
+
+
+def test_validate_all_validates_each_file_once(monkeypatch, nomad) -> None:
+    """Verify validate_all validates every distinct file once, ignoring repeats."""
+    # Given a recording validate and a path list with a repeated file
+    validated: list[Path] = []
+    monkeypatch.setattr(nomad, "validate", validated.append)
+    web, api = Path("/j/web.hcl"), Path("/j/api.hcl")
+
+    # When validating the batch
+    asyncio.run(nomad.validate_all([web, api, web]))
+
+    # Then each distinct file is validated exactly once
+    assert sorted(validated) == sorted([web, api])
+
+
+def test_validate_all_raises_first_failure_in_path_order(monkeypatch, nomad) -> None:
+    """Verify validate_all raises the failure of the earliest invalid file."""
+
+    # Given two invalid files
+    def fake_validate(file: Path) -> None:
+        msg = f"bad {file.name}"
+        raise NomadBinaryError(msg)
+
+    monkeypatch.setattr(nomad, "validate", fake_validate)
+
+    # When / Then validating raises the first file's error
+    with pytest.raises(NomadBinaryError, match=r"bad a\.hcl"):
+        asyncio.run(nomad.validate_all([Path("/j/a.hcl"), Path("/j/b.hcl")]))
 
 
 def test_plan_returns_exit_code(monkeypatch, nomad) -> None:
