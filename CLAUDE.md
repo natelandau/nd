@@ -44,6 +44,11 @@ Discovered from directories in `$XDG_CONFIG_HOME/nd/config.toml`. Both kinds sha
 - All output through `from nclutils import pp`. No `print()` and no `rich.Console()` in `src/`.
 - `pp.step(...)` (context manager, `s.sub(...)`), `pp.success/info/debug/trace/dryrun/warning/error`. `debug` shows at `-v`, `trace` at `-vv`. `warning`/`error` go to stderr and take `details=[...]`.
 - Tables and panels: `pp.console().print(...)`.
+- Layout, so every command reads as one product (see `commands/status/render.py`, `commands/doctor/render.py`):
+    - One `titled_panel` per kind of item, holding a `status_table`. Uppercase column headers named for the data (`IMAGE`, `SERVICE`, `FIX`), not generic (`DETAIL`).
+    - One line per item at 80 columns, with no wrapping and no `…` truncation. Shorten values (drop a registry host, a repeated job name) before adding a column. Set `overflow="fold"` so a rare long value wraps instead of truncating.
+    - Link the visible text: jobs and nodes with `WebUi.job`/`WebUi.node`, local files with `links.file_link`. No separate "UI" label.
+    - Glyphs and status colors from `ui/styles.py`.
 - `nclutils` API reference: the `natelandau-nclutils:nclutils` skill. Never patch `nclutils`; ask the user for a change to it.
 
 ## Adding a subcommand
@@ -65,7 +70,7 @@ Match the existing commands: optional `NAME` substring argument and `--dry-run /
 
 - `tests/unit/` mirrors `src/nd/`.
 - Invoke CLI commands with the `typer_runner` fixture, not `typer.testing.CliRunner`. Typer colors output when `GITHUB_ACTIONS`/`FORCE_COLOR` is set, and only `typer_runner` strips the ANSI, so raw substring asserts pass locally and fail in CI.
-- Assert on `exit_code`; `pp` output is not reliably captured. To assert rendered output, call `capture_output()` from `tests/helpers.py` and read the returned console's `export_text()`.
+- Assert on `exit_code`; `pp` output is not reliably captured. For an expected exit 1, also assert the exception type (`isinstance(result.exception, SystemExit)` for `typer.Exit`, or `PromptUnavailableError`): the runner turns any exception into exit 1, including respx's error for an unmocked request, which `httpx2_mock.calls` does not record. To assert rendered output, call `capture_output()` from `tests/helpers.py` and read the returned console's `export_text()`.
 - Autouse fixtures in `tests/conftest.py` give each test a fresh `pp` emitter, fail any real DNS lookup or socket connection, and hide the `nomad` binary, so an unmocked request or `NomadBinary.create` fails instead of reaching a real cluster.
 - Fixtures in `tests/conftest.py` (prefer them over patching module internals):
     - `nomad_env`: sets `NOMAD_ADDR` to `NOMAD_TEST_ADDR` for code that calls `NomadConfig.resolve()`.
