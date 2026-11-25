@@ -149,9 +149,10 @@ def test_job_spec_command_failure_raises(monkeypatch, nomad, method: str) -> Non
 
     monkeypatch.setattr(runner_mod, "run_command", fake_run)
 
-    # When / Then the call raises the friendly error carrying the reason
-    with pytest.raises(NomadBinaryError, match="cannot launch"):
+    # When / Then the call raises the friendly error carrying the reason as its detail
+    with pytest.raises(NomadBinaryError, match="cannot launch") as exc_info:
         getattr(nomad, method)(Path("/home/user/web.hcl"))
+    assert exc_info.value.detail == "cannot launch"
 
 
 # --- allocations (interactive exec, log streaming) -----------------------------------

@@ -17,7 +17,6 @@ from nd.nomad.models.job import (
     JobDeregisterResponse,
     JobListStub,
     JobPlanResponse,
-    JobRegisterPayload,
     JobRegisterResponse,
     JobSpec,
 )
@@ -92,17 +91,18 @@ class JobsResource(BaseResource):
         Raises:
             NomadDecodeError: If ``body`` holds no job ID.
         """
-        payload = decode_json(data=body, type_=JobRegisterPayload)
-        if payload.job is None or not payload.job.id:
+        # The compiled job is untyped Nomad JSON, passed through unchanged.
+        request = decode_json(data=body, type_=dict[str, object])
+        job = request.get("Job")
+        job_id = job.get("ID") if isinstance(job, dict) else None
+        if not isinstance(job_id, str) or not job_id:
             msg = (
                 f'Compiled job has no job ID; expected {{"Job": {{"ID": ...}}}}, got {body[:200]!r}'
             )
             raise NomadDecodeError(msg)
-        # The compiled job is untyped Nomad JSON, passed through unchanged.
-        request = decode_json(data=body, type_=dict[str, object])
         response = await self._transport.request(
             method="POST",
-            path=f"/job/{payload.job.id}/plan",
+            path=f"/job/{job_id}/plan",
             content=msgspec.json.encode({**request, "Diff": True}),
         )
         return self._decode(response=response, type_=JobPlanResponse)

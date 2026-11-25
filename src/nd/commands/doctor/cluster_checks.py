@@ -177,7 +177,7 @@ def check_job_drift(snapshot: DoctorSnapshot) -> list[Finding]:
         list[Finding]: One warning per edited job or job whose plan failed, by job name,
             or one info finding when the `nomad` binary needed for the comparison is missing.
     """
-    if not snapshot.nomad_binary_found:
+    if snapshot.job_drift is None:
         return [
             Finding(
                 check="job-drift",
@@ -189,10 +189,10 @@ def check_job_drift(snapshot: DoctorSnapshot) -> list[Finding]:
     job_ids = {job.name: job.id for job in snapshot.jobs}
     findings: list[Finding] = []
     for name, drift in sorted(snapshot.job_drift.items()):
-        if drift.diff is None:
-            problem, fix_hint = f"plan failed: {drift.error}", None
-        elif drift.diff.is_changed:
-            problem, fix_hint = _describe_diff(drift.diff), f"nd plan {name}"
+        if isinstance(drift, str):
+            problem, fix_hint = f"plan failed: {drift}", None
+        elif drift.is_changed:
+            problem, fix_hint = _describe_diff(drift), f"nd plan {name}"
         else:
             continue
         findings.append(

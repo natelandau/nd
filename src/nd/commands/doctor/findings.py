@@ -47,12 +47,8 @@ class Finding:
     fix_hint: str | None = None  # the nd command that fixes the finding
 
 
-@dataclass(frozen=True)
-class JobDrift:
-    """How a running job compares with its local file: a plan diff, or why none exists."""
-
-    diff: JobDiff | None = None
-    error: str | None = None  # the compile or plan failure, first line only
+# How a running job compares with its local file: the plan's diff, or why there is none.
+type JobDrift = JobDiff | str
 
 
 @dataclass(frozen=True)
@@ -70,8 +66,9 @@ class DoctorSnapshot:
     job_directories_configured: bool
     unnamed_job_files: list[Path]  # job files that name their job with a variable
     volume_spec_names: frozenset[str]  # names of local host volume spec files
-    job_drift: dict[str, JobDrift]  # job name -> plan result, for planned jobs only
-    nomad_binary_found: bool  # False only when a job needed planning and the binary is missing
+    # Job name -> plan result for each planned job; None when the `nomad` binary needed
+    # to compile the files is missing.
+    job_drift: dict[str, JobDrift] | None
     now_ns: int
 
     @cached_property

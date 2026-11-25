@@ -17,10 +17,15 @@ from nd.nomad.models.allocation import AllocListStub, TaskState
 from nd.nomad.models.deployment import Deployment, TaskGroupDeploymentState
 from nd.nomad.models.evaluation import EvalListStub
 from nd.nomad.models.job import (
+    JobDiff,
     JobListStub,
+    JobPlanResponse,
+    JobRegisterPayload,
     JobRegisterResponse,
     JobSpec,
     ServiceSpec,
+    TaskDiff,
+    TaskGroupDiff,
     TaskGroupSpec,
     TaskLifecycleSpec,
     TaskResourcesSpec,
@@ -172,6 +177,46 @@ def job_spec(
         if groups is None
         else groups,
     )
+
+
+def compiled_job(job_id: str = "web") -> bytes:
+    """Build the `{"Job": {...}}` body that `nomad job run -output` emits for a job.
+
+    Returns:
+        bytes: The compiled job JSON.
+    """
+    return msgspec.json.encode(JobRegisterPayload(job=job_spec(job_id)))
+
+
+def task_group_diff(name: str = "app", *edited_tasks: str, type_: str = "Edited") -> TaskGroupDiff:
+    """Build a plan diff of one task group whose listed tasks are edited.
+
+    Returns:
+        TaskGroupDiff: The group diff.
+    """
+    return TaskGroupDiff(
+        name=name,
+        type=type_,
+        tasks_raw=[TaskDiff(name=task, type="Edited") for task in edited_tasks],
+    )
+
+
+def job_diff(*groups: TaskGroupDiff, type_: str = "Edited") -> JobDiff:
+    """Build a job plan diff over the given group diffs.
+
+    Returns:
+        JobDiff: The job diff.
+    """
+    return JobDiff(type=type_, task_groups_raw=list(groups))
+
+
+def job_plan(diff: JobDiff) -> dict[str, object]:
+    """Build the plan endpoint's response body for a diff.
+
+    Returns:
+        dict[str, object]: The JSON body.
+    """
+    return to_payload(JobPlanResponse(diff=diff))
 
 
 def alloc_stub(
@@ -378,7 +423,7 @@ def doctor_snapshot(
     unnamed_job_files: list[Path] | None = None,
     volume_spec_names: frozenset[str] = frozenset(),
     job_drift: dict[str, JobDrift] | None = None,
-    nomad_binary_found: bool = True,
+    binary_missing: bool = False,
     now_ns: int = 0,
 ) -> DoctorSnapshot:
     """Build a cluster snapshot for nd doctor checks; every listing defaults to empty.
@@ -398,7 +443,6 @@ def doctor_snapshot(
         job_directories_configured=job_directories_configured,
         unnamed_job_files=unnamed_job_files or [],
         volume_spec_names=volume_spec_names,
-        job_drift=job_drift or {},
-        nomad_binary_found=nomad_binary_found,
+        job_drift=None if binary_missing else job_drift or {},
         now_ns=now_ns,
     )
