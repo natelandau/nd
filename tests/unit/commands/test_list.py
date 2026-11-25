@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import msgspec
 import pytest
 
+from nd.cli import app
 from nd.commands.list import ListRow, build_rows
 from nd.jobfiles import JobFile
-from tests.builders import job_stub
+from tests.builders import job_stub, to_payload
+from tests.helpers import NOMAD_TEST_ADDR, capture_output
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    import respx
 
 
 @pytest.mark.parametrize(
@@ -68,3 +76,26 @@ def test_build_rows_surfaces_unresolved_job_name() -> None:
     assert rows[0].job_name == "?"
     assert rows[0].cluster_status == "not deployed"
     assert rows[0].link_id is None
+
+
+@pytest.mark.usefixtures("nomad_env")
+def test_list_command_shows_each_job_file_with_cluster_status(
+    job_files: Callable[..., Path], httpx2_mock: respx.Router, typer_runner
+) -> None:
+    """Verify `nd list` reads the configured job files and shows each one's cluster status."""
+    # Given two job files, of which only `web` is deployed
+    job_files("web.hcl", "web")
+    job_files("new.hcl", "new")
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/jobs").respond(json=[to_payload(job_stub("web"))])
+    console = capture_output(width=200)
+
+    # When listing job files
+    result = typer_runner.invoke(app, ["list"])
+
+    # Then both files appear with their status
+    assert result.exit_code == 0
+    text = console.export_text()
+    assert "web.hcl" in text
+    assert "running" in text
+    assert "new.hcl" in text
+    assert "not deployed" in text

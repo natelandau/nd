@@ -13,7 +13,7 @@ from nd.nomad import NomadConnectionError
 from nd.nomad.models.volume import HostVolumeListStub
 from nd.volumefiles import VolumeSpec
 from tests.builders import host_volume_stub, node_detail, node_stub, to_payload
-from tests.helpers import async_return
+from tests.helpers import async_return, run_with_client
 
 
 def _spec(name: str) -> VolumeSpec:
@@ -217,3 +217,28 @@ def test_volume_list_joins_named_specs_to_registrations(
     # Then only the named spec is shown, registered on the node by name
     assert result.exit_code == 0
     assert rendered == [[VolumeRow(name="data", nodes=["node1"], registered=True)]]
+
+
+def test_collect_register_inputs_reads_only_ready_nodes(
+    httpx2_mock: respx.Router, nomad_env: str
+) -> None:
+    """Verify registration reads full records only for ready nodes, skipping down ones."""
+    # Given one ready node, one down node, and no registered volumes
+    httpx2_mock.get(f"{nomad_env}/v1/nodes").respond(
+        json=[
+            to_payload(node_stub("up", node_id="n-up")),
+            to_payload(node_stub("down", node_id="n-down", status="down")),
+        ]
+    )
+    httpx2_mock.get(f"{nomad_env}/v1/volumes").respond(json=[])
+    httpx2_mock.get(f"{nomad_env}/v1/node/n-up").respond(
+        json=to_payload(node_detail("up", node_id="n-up"))
+    )
+    # No route for n-down, so reading it fails the test as an unmocked request
+
+    # When collecting the registration inputs
+    nodes, registered = run_with_client(volume_command._collect_register_inputs)
+
+    # Then only the ready node is returned
+    assert [node.id for node in nodes] == ["n-up"]
+    assert registered == []

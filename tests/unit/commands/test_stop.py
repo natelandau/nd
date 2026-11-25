@@ -8,7 +8,7 @@ from rich.console import Console
 from nd.commands import stop as stop_module
 from nd.commands.stop import _build_dry_run_panel, stopping_title
 from tests.builders import job_stub, to_payload
-from tests.helpers import NOMAD_TEST_ADDR
+from tests.helpers import NOMAD_TEST_ADDR, async_return
 
 
 @pytest.mark.usefixtures("nomad_env")
@@ -161,3 +161,21 @@ def test_build_dry_run_panel_names_targets():
     assert "ladder" in text
     assert "linkding" in text
     assert "dry-run" in text
+
+
+@pytest.mark.usefixtures("nomad_env")
+def test_stop_app_confirm_decline_stops_nothing(
+    monkeypatch, httpx2_mock: respx.Router, typer_runner
+):
+    """Verify declining the confirmation prompt exits cleanly without stopping any job."""
+    # Given one running job, and a user who answers no at the confirmation prompt
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/jobs").respond(json=[to_payload(job_stub("web"))])
+    monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: True)
+    monkeypatch.setattr("nd.ui.prompts.select_one", async_return(value=False))
+
+    # When invoking stop on the job without --force
+    result = typer_runner.invoke(stop_module.app, ["web"])
+
+    # Then it exits zero and issues no stop
+    assert result.exit_code == 0
+    assert not any(call.request.method == "DELETE" for call in httpx2_mock.calls)

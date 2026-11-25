@@ -14,7 +14,7 @@ from nd.nomad.errors import (
     NomadNotFoundError,
     NomadServerError,
 )
-from nd.nomad.transport import AsyncTransport
+from nd.nomad.transport import AsyncTransport, _build_client_cert
 from tests.helpers import NOMAD_TEST_ADDR
 
 
@@ -113,3 +113,23 @@ def test_paginate_follows_next_token(httpx2_mock: respx.Router):
     assert pages == [[1], [2]]
     assert route.call_count == 2
     assert route.calls.last.request.url.params["next_token"] == "t2"  # noqa: S105
+
+
+@pytest.mark.parametrize(
+    ("cert", "cert_key", "expected"),
+    [
+        pytest.param("/c.pem", "/k.pem", ("/c.pem", "/k.pem"), id="cert-and-key"),
+        pytest.param("/both.pem", None, "/both.pem", id="combined-cert"),
+        pytest.param(None, None, None, id="no-mtls"),
+    ],
+)
+def test_build_client_cert_pairs_cert_with_key(
+    cert: str | None, cert_key: str | None, expected: tuple[str, str] | str | None
+):
+    """Verify mutual TLS sends the cert with its key, or a combined cert file alone."""
+    # Given a config with the client certificate settings
+    config = NomadConfig(address=NOMAD_TEST_ADDR, client_cert=cert, client_key=cert_key)
+
+    # When building the client certificate argument
+    # Then a key is paired with its cert, and a lone cert is passed as a combined file
+    assert _build_client_cert(config) == expected

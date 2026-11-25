@@ -97,6 +97,14 @@ def test_resolve_auto_selects_single_alloc_and_task(httpx2_mock: respx.Router):
             id="bad-task",
         ),
         pytest.param(
+            [job_stub("web")],
+            [alloc_stub("alloc-1", task_states={"server": task_state("dead")})],
+            "web",
+            None,
+            "No running tasks in allocation",
+            id="no-running-tasks",
+        ),
+        pytest.param(
             [job_stub("web", status="dead")],
             None,
             "web",

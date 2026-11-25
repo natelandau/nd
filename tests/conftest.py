@@ -10,10 +10,12 @@ import pytest
 from nclutils import pp
 
 from nd.binary import env as binary_env_module
+from nd.nomad.config import default_config_path
 from tests.helpers import NOMAD_TEST_ADDR
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
+    from pathlib import Path
 
 
 @pytest.fixture(autouse=True)
@@ -52,6 +54,30 @@ def block_network(monkeypatch: pytest.MonkeyPatch) -> None:
 def hide_nomad_binary(monkeypatch: pytest.MonkeyPatch) -> None:
     """Hide the developer's `nomad` binary, so a test that forgot to mock it fails cleanly."""
     monkeypatch.setattr(binary_env_module, "which", lambda _name: None)
+
+
+@pytest.fixture
+def job_files(tmp_path: Path) -> Callable[..., Path]:
+    """Configure a job directory in the nd config and return a writer for job files in it.
+
+    Call the writer as `write("web.hcl", "web", "worker")` to create a file defining those
+    jobs; it returns the file's path.
+
+    Returns:
+        Callable[..., Path]: The job-file writer.
+    """
+    directory = tmp_path / "jobs"
+    directory.mkdir()
+    config_path = default_config_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(f'[jobs]\ndirectories = ["{directory}"]\n', encoding="utf-8")
+
+    def _write(filename: str, *job_names: str) -> Path:
+        path = directory / filename
+        path.write_text("".join(f'job "{name}" {{\n}}\n' for name in job_names), encoding="utf-8")
+        return path
+
+    return _write
 
 
 @pytest.fixture
