@@ -155,6 +155,7 @@ Run `nd --help`, or `nd <command> --help`, for the full option list at any time.
 | `nd logs [JOB]`             | Stream, tail, or export a task's logs.                                            |
 | `nd exec [JOB] [-- CMD]`    | Open a shell inside a running task, or run one command in it.                     |
 | `nd signal [JOB] -s SIG`    | Send a signal to a running task, such as to trigger an on-demand action.          |
+| `nd restart [JOB]`          | Restart a running allocation's tasks, or one task, in place.                      |
 | `nd clean`                  | Force garbage collection and reconcile job summaries.                             |
 | `nd volume register [NAME]` | Register host volumes on every eligible node.                                     |
 | `nd volume delete [NAME]`   | Delete registered host volumes matching the selected specs.                       |
@@ -182,6 +183,7 @@ nd run --dry-run
 nd update web --dry-run
 nd stop web --dry-run
 nd signal web -s SIGHUP --dry-run
+nd restart web --dry-run
 nd volume register --dry-run
 ```
 
@@ -276,6 +278,28 @@ Signaling needs the `alloc-lifecycle` capability on the namespace. A token that 
 for every other `nd` command can still be refused here, so a "not authorized" error is
 worth checking against your ACL policy before you suspect the token itself.
 
+### Restarting a task
+
+`nd restart` restarts tasks in place, on the same node and in the same allocation.
+Use it when a process hangs or must read its config again. It is faster than
+`nd update` because Nomad does not schedule a new allocation. The job, allocation,
+and task are selected the same way as for `nd signal`.
+
+```bash
+nd restart web               # restart every running task in the allocation
+nd restart web -t api        # restart only the "api" task
+nd restart web --all-tasks   # also run prestart and poststart tasks again
+nd restart web -n            # show the target without restarting anything
+```
+
+By default, Nomad restarts only the tasks that are running. A prestart or poststart
+task that finished does not run again unless you add `--all-tasks` (`-a`). You cannot
+use `--all-tasks` together with `--task`.
+
+A success line means that Nomad accepted the restart. To see the task start again,
+use `nd status` or `nd logs web`. Like signaling, restarting needs the
+`alloc-lifecycle` capability on the namespace.
+
 ### Stopping jobs
 
 `nd stop` confirms before it acts unless you pass `--force`. Use `--purge` to
@@ -331,6 +355,9 @@ nd signal web -s SIGHUP           # fails when "web" has more than one allocatio
 
 A named job that is not running is an error, not a no-op, so a scheduled trigger fails
 loudly instead of silently doing nothing.
+
+`nd restart` follows the same rules. Without `--task`, it never asks for a task, so
+naming a job with one running allocation is enough.
 
 ### Verbosity
 
