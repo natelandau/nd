@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from nclutils import pp
 
+from nd.commands._deploy_failure import FailedAlloc, collect_failed_allocs
 from nd.commands._orchestration import Outcome, Severity
 from nd.constants import (
     DEPLOY_TIMEOUT_SECONDS,
@@ -34,6 +35,18 @@ if TYPE_CHECKING:
 # Deployment statuses that mean the rollout is finished, one way or the other.
 _DEPLOY_SUCCESS = "successful"
 _DEPLOY_FAILURE = frozenset({"failed", "cancelled"})
+
+
+@dataclass(frozen=True, kw_only=True)
+class DeployOutcome(Outcome):
+    """The result of deploying one job, with the allocations that explain a failure.
+
+    Attributes:
+        failed_allocs: The failed deployment's failed or unhealthy allocations, newest
+            first. Empty unless the deployment failed.
+    """
+
+    failed_allocs: tuple[FailedAlloc, ...] = ()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -102,8 +115,14 @@ def deploy_phase(dep: Deployment) -> str:
 
 
 def deploy_outcome(
-    name: str, severity: Severity, *, done_label: str, detail: str = "", warnings: str = ""
-) -> Outcome:
+    name: str,
+    severity: Severity,
+    *,
+    done_label: str,
+    detail: str = "",
+    warnings: str = "",
+    failed_allocs: tuple[FailedAlloc, ...] = (),
+) -> DeployOutcome:
     """Build a deploy-shaped outcome, labeling its row by severity.
 
     ``nd run`` and ``nd update`` share the timeout and failure labels and differ only
@@ -115,13 +134,19 @@ def deploy_outcome(
         done_label: The row label for a clean finish, e.g. ``deployed``.
         detail: Why the deploy did not finish cleanly.
         warnings: Warnings Nomad returned on register.
+        failed_allocs: The allocations that explain a failed deployment.
 
     Returns:
-        Outcome: The labeled outcome.
+        DeployOutcome: The labeled outcome.
     """
     labels = {Severity.OK: done_label, Severity.WARN: "still deploying", Severity.FAIL: "failed"}
-    return Outcome(
-        name=name, severity=severity, label=labels[severity], detail=detail, warnings=warnings
+    return DeployOutcome(
+        name=name,
+        severity=severity,
+        label=labels[severity],
+        detail=detail,
+        warnings=warnings,
+        failed_allocs=failed_allocs,
     )
 
 
@@ -176,12 +201,13 @@ async def watch_deploy(
     update: PanelUpdate,
     done_label: str,
     since_index: int = 0,
-) -> Outcome:
+) -> DeployOutcome:
     """Poll a registered job until its deployment (or allocations) settle or time out.
 
     Service jobs expose a deployment that tracks health; batch/system jobs have no
     deployment so alloc statuses are used instead. Either way the job's allocations
-    are fetched each tick to show where each one is placed and its status.
+    are fetched each tick to show where each one is placed and its status. A failed
+    deployment's outcome carries its failed allocations' task events and stderr.
 
     Args:
         client: Authenticated Nomad client.
@@ -195,13 +221,17 @@ async def watch_deploy(
             of a dead job is not reported as instantly deployed off a stale record.
 
     Returns:
-        Outcome: The terminal deploy outcome for this job.
+        DeployOutcome: The terminal deploy outcome for this job.
     """
 
-    def finished(severity: Severity, detail: str = "") -> Outcome:
-        return deploy_outcome(job_id, severity, done_label=done_label, detail=detail)
+    def finished(
+        severity: Severity, detail: str = "", failed_allocs: tuple[FailedAlloc, ...] = ()
+    ) -> DeployOutcome:
+        return deploy_outcome(
+            job_id, severity, done_label=done_label, detail=detail, failed_allocs=failed_allocs
+        )
 
-    async def check() -> Outcome | None:
+    async def check() -> DeployOutcome | None:
         allocs, deployments = await asyncio.gather(
             client.jobs.allocations(job_id), client.jobs.deployments(job_id)
         )
@@ -209,15 +239,20 @@ async def watch_deploy(
         # by index rather than trusting position. A job that has ever run keeps its prior
         # deployments listed; ignoring those created before this registration is what
         # stops a stale "successful" record from ending the watch the instant a dead job
-        # is re-run.
+        # is re-run. The earliest remaining one is this registration's: a later one is an
+        # auto-revert rollback or another registration, whose success says nothing about
+        # the spec deployed here.
         mine = [d for d in deployments if d.create_index >= since_index]
-        dep = max(mine, key=lambda d: d.create_index) if mine else None
+        dep = min(mine, key=lambda d: d.create_index) if mine else None
         children = alloc_children(allocs, node_names, lifecycle)
         if dep is not None:  # service job: follow this run's deployment
             if dep.status == _DEPLOY_SUCCESS:
                 return finished(Severity.OK)
             if dep.status in _DEPLOY_FAILURE:
-                return finished(Severity.FAIL, dep.status_description)
+                failed_allocs = await collect_failed_allocs(
+                    client, allocs, job_version=dep.job_version, node_names=node_names
+                )
+                return finished(Severity.FAIL, dep.status_description, failed_allocs)
             update(deploy_phase(dep), children)
         elif deployments:  # service job whose new deployment has not appeared yet
             update("registering", children)

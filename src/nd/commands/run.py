@@ -12,9 +12,9 @@ from nclutils import pp
 
 from nd.binary import NomadBinary, NomadBinaryError
 from nd.commands._common import VerboseOption, command_app, configure_verbosity, dry_run_option
+from nd.commands._deploy_failure import render_deploy_failure
 from nd.commands._lifecycle import deploy_outcome, task_lifecycle, watch_deploy
 from nd.commands._orchestration import (
-    Outcome,
     Severity,
     confirm_jobs,
     request_all,
@@ -25,9 +25,11 @@ from nd.nodes import node_names_by_id
 from nd.nomad import NomadClient, NomadConfig
 from nd.nomad.errors import NomadError
 from nd.targets import job_file_label, select_targets
+from nd.ui.links import WebUi
 from nd.ui.prompts import NAME_JOB_REMEDY, can_prompt
 
 if TYPE_CHECKING:
+    from nd.commands._lifecycle import DeployOutcome
     from nd.jobfiles import JobCandidate
     from nd.ui.live_panel import PanelUpdate
 
@@ -200,6 +202,7 @@ async def _run(*, job_arg: str | None, detach: bool, dry_run: bool, clean: bool)
             running_title=f"Deploying {len(targets)} job(s)",
             done_verb="Deployed",
             fail_verb="deploy",
+            explain_failure=partial(render_deploy_failure, ui=WebUi(config.ui_base)),
         )
 
 
@@ -234,7 +237,7 @@ async def _deploy_one(
     *,
     node_names: dict[str, str],
     nomad: NomadBinary,
-) -> Outcome:
+) -> DeployOutcome:
     """Compile, register, and watch one job to a terminal deploy state.
 
     Service jobs are watched via their deployment; batch/system jobs (which create
@@ -249,7 +252,7 @@ async def _deploy_one(
         nomad: Configured `nomad` binary handle for the compile step.
 
     Returns:
-        Outcome: The terminal outcome for this candidate.
+        DeployOutcome: The terminal outcome for this candidate.
     """
     try:
         update("compiling")

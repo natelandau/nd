@@ -85,7 +85,7 @@ async def confirm_jobs(names: Sequence[str], *, verb: str, remedy: str) -> bool:
     return await confirm(f"{verb} {len(names)} job(s): {', '.join(names)}?", remedy=remedy)
 
 
-def final_panel_title(outcomes: list[Outcome], seconds: float, *, verb: str) -> str:
+def final_panel_title(outcomes: Sequence[Outcome], seconds: float, *, verb: str) -> str:
     """Build the live panel's final title from the ordered outcomes and elapsed time.
 
     Counts the clean outcomes so the title reads ``Deployed 2 jobs`` or the ``1 of 2
@@ -95,18 +95,28 @@ def final_panel_title(outcomes: list[Outcome], seconds: float, *, verb: str) -> 
     return summary_title(verb, done=ok, total=len(outcomes), seconds=seconds)
 
 
-def exit_code_for(outcomes: list[Outcome]) -> int:
+def exit_code_for(outcomes: Sequence[Outcome]) -> int:
     """Return 0 only when every target finished cleanly, otherwise 1."""
     return 0 if all(o.severity is Severity.OK for o in outcomes) else 1
 
 
-def report_outcomes(outcomes: list[Outcome], *, fail_verb: str) -> None:
+def report_outcomes[O: Outcome](
+    outcomes: list[O],
+    *,
+    fail_verb: str,
+    explain_failure: Callable[[O], None] | None = None,
+) -> None:
     """Emit a durable log line for every outcome that did not finish cleanly.
 
     The live panel is transient on a pipe or in CI, so each timed-out or failed
     outcome is echoed here: a warning reading the detail (or the row label when there
     is none) and an error reading ``<name> failed to <fail_verb>``. Any register
     warnings follow as their own line.
+
+    Args:
+        outcomes: The finished outcomes, in target order.
+        fail_verb: Verb for the ``<name> failed to <verb>`` error line.
+        explain_failure: Print why a failed outcome failed, right after its error line.
     """
     for outcome in outcomes:
         if outcome.severity is Severity.WARN:
@@ -116,19 +126,22 @@ def report_outcomes(outcomes: list[Outcome], *, fail_verb: str) -> None:
                 f"{outcome.name} failed to {fail_verb}",
                 details=[outcome.detail] if outcome.detail else None,
             )
+            if explain_failure is not None:
+                explain_failure(outcome)
         if outcome.warnings:
             pp.warning(f"{outcome.name}: {outcome.warnings}")
 
 
-async def run_outcome_rows[I](
+async def run_outcome_rows[I, O: Outcome](  # noqa: PLR0913
     items: list[I],
-    work: Callable[[I, PanelUpdate], Awaitable[Outcome]],
+    work: Callable[[I, PanelUpdate], Awaitable[O]],
     *,
     label_of: Callable[[I], str],
     initial_phase: str,
     running_title: str,
     done_verb: str,
     fail_verb: str,
+    explain_failure: Callable[[O], None] | None = None,
 ) -> int:
     """Run every target under one live panel, report what went wrong, and return the exit code.
 
@@ -144,11 +157,12 @@ async def run_outcome_rows[I](
         running_title: Panel title while work is in progress.
         done_verb: Past-tense verb for the final title, e.g. ``Deployed``.
         fail_verb: Verb for the ``<name> failed to <verb>`` error line.
+        explain_failure: Print why a failed outcome failed, after its error line.
 
     Returns:
         int: 0 when every target finished cleanly, otherwise 1.
     """
-    ordered = await run_rows(
+    ordered: list[O] = await run_rows(
         items,
         work,
         label_of=label_of,
@@ -157,7 +171,7 @@ async def run_outcome_rows[I](
         running_title=running_title,
         final_title=partial(final_panel_title, verb=done_verb),
     )
-    report_outcomes(ordered, fail_verb=fail_verb)
+    report_outcomes(ordered, fail_verb=fail_verb, explain_failure=explain_failure)
     return exit_code_for(ordered)
 
 

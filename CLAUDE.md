@@ -46,7 +46,7 @@ Discovered from directories in `$XDG_CONFIG_HOME/nd/config.toml`. Both kinds sha
 - Tables and panels: `pp.console().print(...)`.
 - Layout, so every command reads as one product (see `commands/status/render.py`, `commands/doctor/render.py`):
     - One `titled_panel` per kind of item, holding a `status_table`. Uppercase column headers named for the data (`IMAGE`, `SERVICE`, `FIX`), not generic (`DETAIL`).
-    - One line per item at 80 columns, with no wrapping and no `…` truncation. Shorten values (drop a registry host, a repeated job name) before adding a column. Set `overflow="fold"` so a rare long value wraps instead of truncating.
+    - One line per item at 80 columns, with no wrapping and no `…` truncation. Shorten values (drop a registry host, a repeated job name) before adding a column. Pass `status_table(..., overflow="fold")` so a rare long value wraps instead of truncating.
     - Link the visible text: jobs and nodes with `WebUi.job`/`WebUi.node`, local files with `links.file_link`. No separate "UI" label.
     - Glyphs and status colors from `ui/styles.py`.
 - `nclutils` API reference: the `natelandau-nclutils:nclutils` skill. Never patch `nclutils`; ask the user for a change to it.
@@ -62,7 +62,7 @@ Match the existing commands: optional `NAME` substring argument and `--dry-run /
 - `commands/_common.py`: `command_app`, `VerboseOption`, `ForceOption`, `dry_run_option`, `configure_verbosity`, `record_step`, `run_alloc_action`, `list_volumes_or_empty` (host volumes; empty when the endpoint fails).
 - `commands/_orchestration.py`: `Outcome`/`Severity` for multi-target results, `run_outcome_rows` (live rows, report, exit code), `request_all` (`--detach` fan-out), `confirm_jobs`.
 - `commands/_lifecycle.py`: `watch_deploy`, `stop_and_wait`, `poll_until` (deadline poll loop), `task_lifecycle`.
-- `ui/`: styles, panels, prompts (`confirm`, `select_one`, `select_many`), durations, `text.plural`, `live_panel.run_rows` (concurrent per-target rows), `links.WebUi` and `links.file_link` (clickable job, node, and file names).
+- `ui/`: styles, panels, prompts (`confirm`, `select_one`, `select_many`), durations, `text.plural`, `text.short_id`, `text.untrusted_markup` and `text.strip_terminal_controls` (required for task logs, events, and other workload text), `live_panel.run_rows` (concurrent per-target rows), `links.WebUi` and `links.file_link` (clickable job, node, and file names).
 - `targets/`: `select_targets` (substring match, multi-select, exits on no match), `job_file_label`; `alloc_target.py` for resolving one job/alloc/task.
 - `nodes.py`: `node_names_by_id`, `node_label` (name, or short ID when unknown).
 

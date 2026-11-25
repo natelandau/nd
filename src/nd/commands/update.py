@@ -18,13 +18,21 @@ from nd.commands._common import (
     configure_verbosity,
     dry_run_option,
 )
-from nd.commands._lifecycle import deploy_outcome, stop_and_wait, task_lifecycle, watch_deploy
-from nd.commands._orchestration import Outcome, Severity, confirm_jobs, run_outcome_rows
+from nd.commands._deploy_failure import render_deploy_failure
+from nd.commands._lifecycle import (
+    DeployOutcome,
+    deploy_outcome,
+    stop_and_wait,
+    task_lifecycle,
+    watch_deploy,
+)
+from nd.commands._orchestration import Severity, confirm_jobs, run_outcome_rows
 from nd.jobfiles import candidates_for, discover_job_files, load_job_directories
 from nd.nodes import node_names_by_id
 from nd.nomad import NomadClient, NomadConfig
 from nd.nomad.errors import NomadError
 from nd.targets import job_file_label, select_targets
+from nd.ui.links import WebUi
 from nd.ui.live_panel import LiveChild
 from nd.ui.prompts import FORCE_REMEDY, NAME_JOB_REMEDY
 from nd.ui.styles import muted
@@ -107,7 +115,7 @@ async def _update_one(
     node_names: dict[str, str],
     nomad: NomadBinary,
     purge: bool,
-) -> Outcome:
+) -> DeployOutcome:
     """Recreate one running job: compile, stop, re-register, and watch the rollout.
 
     The new spec is compiled (and thereby parsed) before the running job is stopped,
@@ -125,7 +133,7 @@ async def _update_one(
         purge: Whether to garbage-collect the job after it drains.
 
     Returns:
-        Outcome: The terminal outcome for this target.
+        DeployOutcome: The terminal outcome for this target.
     """
     failed = partial(deploy_outcome, target.name, Severity.FAIL, done_label=_DONE_LABEL)
     try:
@@ -143,7 +151,7 @@ async def _update_one(
         # The job is still draining or the stop errored; leaving it untouched is safer
         # than re-registering on top of a job that has not come down.
         reason = "timeout" if stopped.severity is Severity.WARN else "failed"
-        return Outcome(
+        return DeployOutcome(
             name=target.name,
             severity=stopped.severity,
             label=stopped.label,
@@ -271,6 +279,7 @@ async def _run(*, job_arg: str | None, no_purge: bool, force: bool, dry_run: boo
             running_title=f"Updating {len(targets)} job(s)",
             done_verb="Updated",
             fail_verb="update",
+            explain_failure=partial(render_deploy_failure, ui=WebUi(config.ui_base)),
         )
 
 

@@ -34,3 +34,28 @@ def test_signal_posts_signal_and_task(httpx2_mock: respx.Router):
     # Then the request carries both fields in Nomad's PascalCase form
     assert route.calls.last.request.url.path == "/v1/client/allocation/a1/signal"
     assert json.loads(route.calls.last.request.content) == {"Signal": "SIGUSR1", "Task": "server"}
+
+
+def test_log_tail_reads_plain_text_from_the_end(httpx2_mock: respx.Router):
+    """Verify allocations.log_tail asks for the stream's end as plain text and returns it."""
+    # Given a mocked logs endpoint returning plain text
+    route = httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/client/fs/logs/a1").respond(text="boom\n")
+
+    # When reading the end of a task's stderr
+    text = run_with_client(
+        lambda client: client.allocations.log_tail(
+            "a1", task="server", stream="stderr", max_bytes=1024
+        )
+    )
+
+    # Then the request reads the stream from the end without following, as plain text
+    params = route.calls.last.request.url.params
+    assert dict(params) == {
+        "task": "server",
+        "type": "stderr",
+        "origin": "end",
+        "offset": "1024",
+        "plain": "true",
+        "follow": "false",
+    }
+    assert text == "boom\n"

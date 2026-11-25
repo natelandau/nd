@@ -13,8 +13,16 @@ from nd.cli import app
 from nd.commands._orchestration import Outcome, Severity
 from nd.jobfiles import JobFile, candidates_for
 from nd.nomad.models.deployment import TaskGroupDeploymentState
-from tests.builders import deployment, job_stub, register_response, to_payload
-from tests.helpers import NOMAD_TEST_ADDR, discard_panel_update, run_with_client
+from tests.builders import (
+    alloc_stub,
+    deployment,
+    job_stub,
+    register_response,
+    task_event,
+    task_state,
+    to_payload,
+)
+from tests.helpers import NOMAD_TEST_ADDR, capture_output, discard_panel_update, run_with_client
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -114,6 +122,48 @@ def test_run_app_detach_skips_watch(
         call.request.url.path.endswith(("/deployments", "/allocations"))
         for call in httpx2_mock.calls
     )
+
+
+@pytest.mark.usefixtures("nomad_env")
+def test_run_app_explains_a_failed_deploy(
+    httpx2_mock: respx.Router,
+    job_files: Callable[..., Path],
+    fake_nomad_binary: MagicMock,
+    typer_runner,
+) -> None:
+    """Verify a failed deploy prints the failed allocation's task events and stderr."""
+    # Given a job whose deployment fails with one crashed allocation
+    job_files("web.hcl", "web")
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/jobs").respond(json=[])
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/nodes").respond(json=[])
+    fake_nomad_binary.compile_job.return_value = _WEB_BODY
+    httpx2_mock.post(f"{NOMAD_TEST_ADDR}/v1/jobs").respond(json=to_payload(register_response()))
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/deployments").respond(
+        json=[to_payload(deployment("web", status="failed"))]
+    )
+    crashed = task_state(
+        "dead",
+        failed=True,
+        started_at="2026-11-24T10:00:00Z",
+        events=[task_event("Terminated", "Exit Code: 1")],
+    )
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/allocations").respond(
+        json=[to_payload(alloc_stub("a1", client_status="failed", task_states={"app": crashed}))]
+    )
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/client/fs/logs/a1").respond(
+        text="panic: missing DATABASE_URL\n"
+    )
+    console = capture_output()
+
+    # When running the job
+    result = typer_runner.invoke(app, ["run", "web"])
+    text = console.export_text()
+
+    # Then it fails and shows why
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert "Exit Code: 1" in text
+    assert "panic: missing DATABASE_URL" in text
 
 
 def test_maybe_purge_dead_clean_purges_all(httpx2_mock: respx.Router) -> None:

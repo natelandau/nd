@@ -109,10 +109,7 @@ def _check_panel(findings: list[Finding], *, file_paths: dict[str, Path], ui: We
     if any(f.fix_hint for f in findings):
         columns.append(("FIX", lambda f: escape(f.fix_hint or "")))
 
-    table = status_table(*(header for header, _ in columns))
-    # Wrap a long value inside its cell rather than cutting it off with an ellipsis.
-    for column in table.columns:
-        column.overflow = "fold"
+    table = status_table(*(header for header, _ in columns), overflow="fold")
     for finding in findings:
         table.add_row(*(cell(finding) for _, cell in columns))
 

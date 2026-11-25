@@ -74,7 +74,7 @@ def test_exit_code_for_is_zero_only_when_all_clean(severities: list[Severity], e
 
 
 def test_report_outcomes_warns_fails_and_surfaces_warnings():
-    """Verify report_outcomes emits a warning, an error, and register warnings."""
+    """Verify report_outcomes emits a warning, an error, register warnings, and explanations."""
     # Given a clean, a timed-out, and a failed outcome (the failed one also warns)
     outcomes = [
         _outcome("clean", Severity.OK),
@@ -84,16 +84,21 @@ def test_report_outcomes_warns_fails_and_surfaces_warnings():
 
     console = capture_output()
 
+    explained: list[str] = []
+
     # When reporting them
-    report_outcomes(outcomes, fail_verb="deploy")
+    report_outcomes(
+        outcomes, fail_verb="deploy", explain_failure=lambda o: explained.append(o.name)
+    )
     text = console.export_text()
 
     # Then the clean outcome is silent, the detail-less warning falls back to its label,
-    # and the failure reports with its register warning
+    # the failure reports with its register warning, and only the failure is explained
     assert "clean" not in text
     assert "slow: still deploying" in text
     assert "broken failed to deploy" in text
     assert "broken: deprecated stanza" in text
+    assert explained == ["broken"]
 
 
 def test_report_outcomes_warning_prefers_detail_over_label():

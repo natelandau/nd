@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from nd.ui.text import short_id
+
 if TYPE_CHECKING:
     from nd.nomad import NomadClient
-
-# Enough of a node ID to tell nodes apart when the name is unknown.
-_NODE_ID_PREFIX_LENGTH = 8
 
 
 async def node_names_by_id(client: NomadClient) -> dict[str, str]:
@@ -39,4 +38,4 @@ def node_label(node_names: dict[str, str], node_id: str) -> str:
     Returns:
         str: The node's name, or the first characters of its ID.
     """
-    return node_names.get(node_id, node_id[:_NODE_ID_PREFIX_LENGTH])
+    return node_names.get(node_id, short_id(node_id))

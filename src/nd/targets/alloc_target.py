@@ -17,6 +17,7 @@ from nclutils import pp
 from nd.nomad import NomadClient
 from nd.targets.selection import pick_single, resolve_targets, select_one_candidate
 from nd.ui.prompts import PromptUnavailableError, require_prompt
+from nd.ui.text import short_id
 
 if TYPE_CHECKING:
     from nd.nomad.config import NomadConfig
@@ -71,7 +72,7 @@ class _TargetFilter:
 
 def _alloc_label(alloc: AllocListStub) -> str:
     """Render an allocation for a selection prompt (short id, group, client status)."""
-    return f"{alloc.id[:8]}  {alloc.task_group} ({alloc.client_status})"
+    return f"{short_id(alloc.id)}  {alloc.task_group} ({alloc.client_status})"
 
 
 def _task_label(alloc: AllocListStub, name: str) -> str:
@@ -138,11 +139,11 @@ async def resolve_alloc_task(
 
     task_names = target_filter.task_names(alloc)
     if not task_names:
-        msg = f"No {qualifier}tasks in allocation {alloc.id[:8]}"
+        msg = f"No {qualifier}tasks in allocation {short_id(alloc.id)}"
         raise SelectionError(msg)
     if task_arg is not None:
         if task_arg not in task_names:
-            msg = f"No {qualifier}task '{task_arg}' in allocation {alloc.id[:8]}"
+            msg = f"No {qualifier}task '{task_arg}' in allocation {short_id(alloc.id)}"
             raise SelectionError(msg)
         task = task_arg
     else:
