@@ -365,11 +365,11 @@ Add `--json` to `nd list`, `nd status`, or `nd status --hosts` to get the result
 one JSON document. Stdout holds only the JSON. Errors and `-v` output go to stderr,
 so you can pipe stdout to `jq`.
 
-| Command                    | Output                                                                                                                                                                         |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `nd list --json`           | An array of `{job, status, file}`. The status is the Nomad job status, or `not deployed`.                                                                                       |
-| `nd status --json`         | An object with `health`, `cluster`, `servers`, `nodes`, `jobs`, `allocations`, `volumes`, `deployments`, and `problem_evaluations`.                                             |
-| `nd status --hosts --json` | The same object, with a `hosts` array. Each host lists its jobs with a `started_at` time, or `null` when Nomad has none.                                                                                       |
+| Command                    | Output                                                                                                                                                   |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nd list --json`           | An array of `{job, status, file}`. The status is the Nomad job status, or `not deployed`. `job` is `null` when the job name in the file is not resolved. |
+| `nd status --json`         | An object with `health`, `cluster`, `servers`, `nodes`, `jobs`, `allocations`, `volumes`, `deployments`, and `problem_evaluations`.                      |
+| `nd status --hosts --json` | The same object, with a `hosts` array. Each host lists its jobs with a `started_at` time, or `null` when Nomad has none.                                 |
 
 Each job in `nd status --json` has two statuses. `status` is the status that `nd`
 shows, and it can be `degraded`. `nomad_status` is the status that Nomad reports.

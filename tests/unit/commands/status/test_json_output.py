@@ -102,7 +102,7 @@ def test_build_status_json_host_started_at(run_start_ns: int, expected: str | No
     hosts = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs)
 
     # When building the JSON document with host panels
-    document = _encoded(build_status_json(report, hosts))
+    document = _encoded(build_status_json(report=report, host_panels=hosts))
 
     # Then the host's job carries the expected start time
     assert document["hosts"][0]["jobs"][0]["started_at"] == expected

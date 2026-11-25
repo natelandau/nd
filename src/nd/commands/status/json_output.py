@@ -158,7 +158,7 @@ def build_status_json(
             # Server-only hosts run no client agent, so they hold no allocations.
             active_allocations=report.node_alloc_counts.get(row.link_id, 0) if row.link_id else 0,
         )
-        for row in correlate_nodes(report.nodes, report.servers)
+        for row in correlate_nodes(nodes=report.nodes, servers=report.servers)
     ]
     return StatusJson(
         health=report.health.value.lower(),

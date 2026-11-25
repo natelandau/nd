@@ -52,7 +52,7 @@ def status(
     verbose = configure_verbosity(ctx, verbose, json_output=json_output)
     report, host_panels = asyncio.run(_collect(verbose=verbose, hosts=hosts))
     if json_output:
-        print_json(build_status_json(report, host_panels if hosts else None))
+        print_json(build_status_json(report=report, host_panels=host_panels if hosts else None))
         return
     if verbose:  # separate the progress tree from the dashboard
         pp.console().print()

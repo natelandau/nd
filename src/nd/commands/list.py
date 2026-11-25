@@ -27,14 +27,15 @@ if TYPE_CHECKING:
     from nd.nomad.models.job import JobListStub
 
 # Cluster-status label for a job file whose name is not present in Nomad at all.
-_NOT_DEPLOYED = "not deployed"
+NOT_DEPLOYED = "not deployed"
 
 
 @dataclass(frozen=True)
 class ListRow:
     """One rendered row: a job file's name, path, and cluster status."""
 
-    job_name: str
+    # None when the file's job name is an unresolved interpolation.
+    job_name: str | None
     path: str
     cluster_status: str
     # Nomad job ID for the web UI link, or None when the job is not deployed.
@@ -44,7 +45,7 @@ class ListRow:
 class ListJsonRow(msgspec.Struct, frozen=True, kw_only=True):
     """One job file row in ``nd list --json`` output."""
 
-    job: str
+    job: str | None
     status: str
     file: str
 
@@ -66,7 +67,7 @@ def build_rows(
 ) -> list[ListRow]:
     """Join discovered job files to cluster jobs by name, classifying each.
 
-    A file with no resolved job name still appears (named ``?``) so unresolved
+    A file with no resolved job name still appears (with no name, shown as ``?``) so unresolved
     interpolated names are visible rather than silently dropped. A deployed job
     carries its Nomad ID so its name can be linked to the web UI.
 
@@ -82,17 +83,17 @@ def build_rows(
     jobs_by_name = {job.name: job for job in jobs}
     rows: list[ListRow] = []
     for jf in files:
-        names = jf.job_names or ["?"]
+        names: list[str | None] = [*jf.job_names] or [None]
         for name in names:
-            job = jobs_by_name.get(name)
-            status = job.status if job else _NOT_DEPLOYED
+            job = jobs_by_name.get(name) if name else None
+            status = job.status if job else NOT_DEPLOYED
             if hide_running and job is not None and job.is_running:
                 continue
             link_id = job.id if job else None
             rows.append(
                 ListRow(job_name=name, path=str(jf.path), cluster_status=status, link_id=link_id)
             )
-    return sorted(rows, key=lambda r: r.job_name)
+    return sorted(rows, key=lambda r: r.job_name or "")
 
 
 def _render(rows: list[ListRow], ui_base: str) -> None:
@@ -103,12 +104,13 @@ def _render(rows: list[ListRow], ui_base: str) -> None:
     web = WebUi(ui_base)
     table = status_table("JOB", "STATUS", "FILE")
     for row in rows:
-        name = web.job(row.link_id, row.job_name) if row.link_id else row.job_name
+        label = row.job_name or "?"
+        name = web.job(row.link_id, label) if row.link_id else label
         # "not deployed" is not a Nomad status, so style it muted rather than via status_cell.
         cell = (
             status_cell(row.cluster_status)
-            if row.cluster_status != _NOT_DEPLOYED
-            else "[dim]• not deployed[/]"
+            if row.cluster_status != NOT_DEPLOYED
+            else f"[dim]• {NOT_DEPLOYED}[/]"
         )
         table.add_row(name, cell, row.path)
     pp.console().print(titled_panel(table, "Job files"))

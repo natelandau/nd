@@ -10,7 +10,7 @@ import msgspec
 import pytest
 
 from nd.cli import app
-from nd.commands.list import build_rows
+from nd.commands.list import NOT_DEPLOYED, build_rows
 from nd.jobfiles import JobFile
 from nd.nomad import NomadError
 from tests.builders import job_stub, to_payload
@@ -25,8 +25,8 @@ if TYPE_CHECKING:
 @pytest.mark.parametrize(
     ("hide_running", "expected"),
     [
-        pytest.param(False, {"web": "running", "db": "dead", "new": "not deployed"}, id="all"),
-        pytest.param(True, {"db": "dead", "new": "not deployed"}, id="hide-running"),
+        pytest.param(False, {"web": "running", "db": "dead", "new": NOT_DEPLOYED}, id="all"),
+        pytest.param(True, {"db": "dead", "new": NOT_DEPLOYED}, id="hide-running"),
     ],
 )
 def test_build_rows_classifies_cluster_state(
@@ -65,17 +65,17 @@ def test_build_rows_sets_link_id_for_deployed_jobs() -> None:
 
 
 def test_build_rows_surfaces_unresolved_job_name() -> None:
-    """Verify a job file with no resolved name is surfaced as a '?' row, not dropped."""
+    """Verify a job file with no resolved name is surfaced as a nameless row, not dropped."""
     # Given a job file whose name could not be parsed (e.g. interpolated)
     files = [JobFile(path=Path("/j/tpl.hcl"), job_names=[])]
 
     # When building rows against an empty cluster
     rows = build_rows(files, [])
 
-    # Then the file still appears, named '?', classified not deployed with no link
+    # Then the file still appears with no name, classified not deployed with no link
     assert len(rows) == 1
-    assert rows[0].job_name == "?"
-    assert rows[0].cluster_status == "not deployed"
+    assert rows[0].job_name is None
+    assert rows[0].cluster_status == NOT_DEPLOYED
     assert rows[0].link_id is None
 
 
@@ -99,7 +99,7 @@ def test_list_command_shows_each_job_file_with_cluster_status(
     assert "web.hcl" in text
     assert "running" in text
     assert "new.hcl" in text
-    assert "not deployed" in text
+    assert NOT_DEPLOYED in text
 
 
 @pytest.mark.usefixtures("nomad_env")
@@ -116,7 +116,7 @@ def test_list_command_prints_json(
         new = job_files("new.hcl", "new")
         web = job_files("web.hcl", "web")
         expected = [
-            {"job": "new", "status": "not deployed", "file": str(new)},
+            {"job": "new", "status": NOT_DEPLOYED, "file": str(new)},
             {"job": "web", "status": "running", "file": str(web)},
         ]
     jobs = [to_payload(job_stub("web"))] if has_files else []
