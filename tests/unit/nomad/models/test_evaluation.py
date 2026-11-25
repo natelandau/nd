@@ -1,8 +1,10 @@
 """Tests for evaluation models."""
 
 import msgspec
+import pytest
 
 from nd.nomad.models.evaluation import EvalListStub
+from tests.builders import eval_stub
 
 
 def test_eval_list_stub_decodes():
@@ -39,3 +41,24 @@ def test_eval_list_stub_defaults_queued_allocations():
 
     # Then queued allocations is an empty dict
     assert stub.queued_allocations == {}
+
+
+@pytest.mark.parametrize(
+    ("status", "queued", "expected"),
+    [
+        ("blocked", {}, True),
+        ("pending", {}, True),
+        ("complete", {"web": 1}, False),
+        ("canceled", {"web": 1}, False),
+        ("failed", {"web": 1}, False),
+        ("running", {"web": 1}, True),
+        ("running", {"web": 0}, False),
+    ],
+)
+def test_eval_list_stub_is_problem(status: str, queued: dict[str, int], *, expected: bool) -> None:
+    """Verify an evaluation is a problem when stuck or still holding queued allocations."""
+    # Given an evaluation in the given status with the given queued counts
+    evaluation = eval_stub(status=status, queued=queued)
+
+    # When / Then only a live stuck evaluation is a problem
+    assert evaluation.is_problem is expected

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import msgspec
 
-from nd.constants import TERMINAL_ALLOC_STATUSES
+from nd.constants import FAILED_ALLOC_STATUSES, TERMINAL_ALLOC_STATUSES
 from nd.nomad.models import NomadModel
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
@@ -25,6 +25,9 @@ class TaskState(NomadModel, frozen=True, kw_only=True):
     # null (not an absent key) before the task has started, which a plain str default
     # would not tolerate, so coerce it via the `started_at` property below.
     started_at_raw: str | None = msgspec.field(name="StartedAt", default=None)
+    # RFC3339 timestamp of the task's most recent restart; null or a zero sentinel when
+    # the task never restarted.
+    last_restart_raw: str | None = msgspec.field(name="LastRestart", default=None)
 
     @property
     def started_at(self) -> str:
@@ -35,23 +38,38 @@ class TaskState(NomadModel, frozen=True, kw_only=True):
     def started_at_ns(self) -> int:
         """The task's start time in unix nanoseconds, or 0 when it is unusable.
 
-        Use this to anchor a task's run time. Nomad emits a zero sentinel
-        ("0001-01-01T00:00:00Z") before a task starts and 9 fractional digits once it
-        has. Blanks, unparsable input, the sentinel, and a timestamp carrying no UTC
-        offset (whose true instant is unknowable) all read as 0 so the caller can fall
-        back to another anchor. Integer date math keeps the result exact.
+        Use this to anchor a task's run time.
         """
-        if not self.started_at:
-            return 0
-        try:
-            parsed = datetime.fromisoformat(self.started_at)
-        except ValueError:
-            return 0
-        if parsed.tzinfo is None:
-            return 0
-        delta = parsed - _EPOCH
-        ns = (delta.days * 86_400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1_000
-        return max(0, ns)
+        return _rfc3339_to_ns(self.started_at)
+
+    @property
+    def last_restart_ns(self) -> int:
+        """The task's most recent restart in unix nanoseconds, or 0 when it never restarted.
+
+        Use this to tell a recent restart loop from restarts long ago.
+        """
+        return _rfc3339_to_ns(self.last_restart_raw or "")
+
+
+def _rfc3339_to_ns(value: str) -> int:
+    """Convert a Nomad RFC3339 timestamp to unix nanoseconds, or 0 when it is unusable.
+
+    Nomad emits a zero sentinel ("0001-01-01T00:00:00Z") for a time that has not happened
+    and 9 fractional digits otherwise. Blanks, unparsable input, the sentinel, and a
+    timestamp carrying no UTC offset (whose true instant is unknowable) all read as 0 so
+    the caller can fall back to another anchor. Integer date math keeps the result exact.
+    """
+    if not value:
+        return 0
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return 0
+    if parsed.tzinfo is None:
+        return 0
+    delta = parsed - _EPOCH
+    ns = (delta.days * 86_400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1_000
+    return max(0, ns)
 
 
 class AllocListStub(NomadModel, frozen=True, kw_only=True):
@@ -110,3 +128,21 @@ class AllocListStub(NomadModel, frozen=True, kw_only=True):
         A replaced corpse is not a live problem.
         """
         return bool(self.next_allocation)
+
+    @property
+    def is_current(self) -> bool:
+        """Whether the allocation reflects current health: neither retired nor replaced.
+
+        Use this before judging an allocation's client status, which is history once
+        Nomad has retired or replaced it.
+        """
+        return not self.is_retired and not self.is_replaced
+
+    @property
+    def is_stuck_failure(self) -> bool:
+        """Whether the allocation broke and Nomad has neither retired nor replaced it.
+
+        Use this so every view of cluster health counts the same failures. A failure that
+        a replacement already recovered from is not stuck.
+        """
+        return self.is_current and self.client_status in FAILED_ALLOC_STATUSES

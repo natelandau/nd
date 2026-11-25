@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import msgspec
 
-from nd.nomad.models.job import JobDeregisterResponse, JobListStub, JobRegisterResponse
+from nd.nomad.models.job import (
+    JobDeregisterResponse,
+    JobListStub,
+    JobRegisterResponse,
+    JobSpec,
+)
 
 
 def test_job_list_stub_decodes():
@@ -73,3 +78,70 @@ def test_job_register_response_tolerates_missing_fields() -> None:
     resp = msgspec.json.decode(b"{}", type=JobRegisterResponse)
     assert resp.eval_id == ""
     assert resp.warnings == ""
+
+
+def test_job_spec_decodes_full_api_job():
+    """Verify a full job from the API decodes the fields the health checks read."""
+    # Given a job shaped like the GET /v1/job/:job_id response
+    payload = b"""
+    {
+      "ID": "web", "Name": "web", "Type": "service", "Status": "running",
+      "TaskGroups": [{
+        "Name": "web",
+        "Services": [{"Name": "web", "Checks": [{"Name": "alive", "Type": "http"}]}],
+        "Volumes": {"data": {"Type": "host", "Source": "data"}},
+        "Tasks": [{
+          "Name": "app", "Driver": "docker",
+          "Config": {"image": "nginx:1.27", "ports": ["http"]},
+          "Resources": {"CPU": 500, "MemoryMB": 512}
+        }]
+      }]
+    }
+    """
+
+    # When
+    spec = msgspec.json.decode(payload, type=JobSpec)
+
+    # Then
+    group = spec.task_groups[0]
+    task = group.tasks[0]
+    assert spec.name == "web"
+    assert spec.status == "running"
+    assert group.volumes["data"].source == "data"
+    assert len(group.services[0].checks) == 1
+    assert task.config["image"] == "nginx:1.27"
+    assert task.resources is not None
+    assert task.resources.cpu == 500
+    assert task.resources.memory_mb == 512
+
+
+def test_job_spec_reads_nulls_as_empty():
+    """Verify Nomad's explicit nulls in a job spec decode as empty or unset."""
+    # Given a job whose nested collections and optional scalars are all null
+    payload = b"""
+    {
+      "ID": "web", "Name": "web", "Type": null, "Status": null, "ParentID": null,
+      "TaskGroups": [{
+        "Name": "web", "Services": null,
+        "Volumes": {"data": {"Type": null, "Source": null}},
+        "Tasks": [{"Name": "app", "Driver": null, "Config": null,
+                   "Resources": {"CPU": null, "MemoryMB": null},
+                   "Services": [{"Name": null, "Checks": null}]}]
+      }]
+    }
+    """
+
+    # When
+    spec = msgspec.json.decode(payload, type=JobSpec)
+
+    # Then
+    group = spec.task_groups[0]
+    task = group.tasks[0]
+    assert spec.status is None
+    assert group.services == []
+    assert group.volumes["data"].source is None
+    assert task.config == {}
+    assert task.resources is not None
+    assert task.resources.cpu is None
+    assert task.services[0].checks == []
+    assert msgspec.json.decode(b'{"TaskGroups": null}', type=JobSpec).task_groups == []

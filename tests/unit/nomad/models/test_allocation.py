@@ -4,6 +4,7 @@ import msgspec
 import pytest
 
 from nd.nomad.models.allocation import AllocListStub, TaskState
+from tests.builders import alloc_stub
 
 
 def test_alloc_list_stub_decodes_irregular_keys():
@@ -232,3 +233,51 @@ def test_task_state_started_at_ns(started_at: str, expected_ns: int) -> None:
 
     # When / Then the nanosecond anchor matches
     assert state.started_at_ns == expected_ns
+
+
+@pytest.mark.parametrize(
+    ("last_restart", "expected_ns"),
+    [
+        (None, 0),
+        ("", 0),
+        ("0001-01-01T00:00:00Z", 0),
+        ("garbage", 0),
+        ("2026-11-24T10:00:00", 0),
+        ("1970-01-01T00:00:02Z", 2_000_000_000),
+    ],
+)
+def test_task_state_last_restart_ns(last_restart: str | None, expected_ns: int) -> None:
+    """Verify a task's last restart reads as unix nanoseconds, or 0 when unusable."""
+    # Given a task state carrying the given LastRestart value
+    payload = {"State": "running", "Failed": False, "Restarts": 3, "LastRestart": last_restart}
+
+    # When decoding it
+    state = msgspec.convert(payload, type=TaskState)
+
+    # Then the restart time is exact, or 0 for a missing or unusable timestamp
+    assert state.last_restart_ns == expected_ns
+
+
+@pytest.mark.parametrize(
+    ("client_status", "desired_status", "next_allocation", "expected"),
+    [
+        ("failed", "run", "", True),
+        ("lost", "run", "", True),
+        ("failed", "run", "a2", False),
+        ("failed", "stop", "", False),
+        ("running", "run", "", False),
+    ],
+)
+def test_alloc_list_stub_is_stuck_failure(
+    client_status: str, desired_status: str, next_allocation: str, *, expected: bool
+) -> None:
+    """Verify only a broken allocation Nomad still wants and has not replaced is stuck."""
+    # Given an allocation in the given state
+    alloc = alloc_stub(
+        client_status=client_status,
+        desired_status=desired_status,
+        next_allocation=next_allocation,
+    )
+
+    # When / Then it is stuck only while broken, wanted, and unreplaced
+    assert alloc.is_stuck_failure is expected

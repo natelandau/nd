@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from nd.commands.volume.report import volume_node_labels
-from nd.constants import FAILED_ALLOC_STATUSES, HEALTHY_ALLOC_STATUSES
+from nd.constants import HEALTHY_ALLOC_STATUSES
 from nd.nodes import node_label
 
 if TYPE_CHECKING:
@@ -29,10 +29,6 @@ if TYPE_CHECKING:
 _ACTIVE_ALLOC_STATUSES = frozenset({"running", "pending"})
 # Deployment statuses that represent an in-progress (notable) rollout.
 _ACTIVE_DEPLOYMENT_STATUSES = frozenset({"running", "pending", "blocked", "paused", "unblocking"})
-# Evaluation statuses that indicate the scheduler is stuck.
-_PROBLEM_EVAL_STATUSES = frozenset({"blocked", "pending"})
-# Terminal evaluation statuses whose queued-allocation counts are historical, not live.
-_TERMINAL_EVAL_STATUSES = frozenset({"complete", "canceled", "cancelled", "failed"})
 
 
 def _alloc_run_start_ns(alloc: AllocListStub) -> int:
@@ -186,7 +182,7 @@ def build_report(  # noqa: PLR0913
         key=lambda d: d.job_id,
     )
     evals_problem = sorted(
-        (e for e in (evals or []) if _is_problem_eval(e)),
+        (e for e in (evals or []) if e.is_problem),
         key=lambda e: e.job_id,
     )
 
@@ -195,7 +191,9 @@ def build_report(  # noqa: PLR0913
     # keeps desired_status "run" and survives this filter; it is instead excluded per-check via
     # is_replaced, whose next_allocation points at the now-live replacement.
     live_allocs = [a for a in allocs if not a.is_retired]
-    allocs_failed = sum(1 for a in live_allocs if a.client_status == "failed" and not a.is_replaced)
+    allocs_failed = sum(
+        1 for a in live_allocs if a.is_stuck_failure and a.client_status == "failed"
+    )
     allocs_pending = sum(1 for a in live_allocs if a.client_status == "pending")
     allocs_unhealthy = any(
         a.client_status not in HEALTHY_ALLOC_STATUSES and not a.is_replaced for a in live_allocs
@@ -289,12 +287,9 @@ def _is_host_job_alloc(alloc: AllocListStub) -> bool:
     (desired_status stop/evict) or already replaced, then keep the active work
     (running/pending) plus a genuine failure (failed/lost) that has not recovered.
     """
-    if alloc.is_retired or alloc.is_replaced:
-        return False
-    return (
-        alloc.client_status in _ACTIVE_ALLOC_STATUSES
-        or alloc.client_status in FAILED_ALLOC_STATUSES
-    )
+    if alloc.is_stuck_failure:
+        return True
+    return alloc.is_current and alloc.client_status in _ACTIVE_ALLOC_STATUSES
 
 
 def _host_job_row(alloc: AllocListStub, job: JobListStub | None) -> HostJobRow:
@@ -343,11 +338,7 @@ def _job_display_statuses(
     NOT replaced (see ``AllocListStub.is_replaced``), so a failure that already recovered does not read as
     degraded.
     """
-    degraded_jobs = {
-        a.job_id
-        for a in live_allocs
-        if a.client_status in FAILED_ALLOC_STATUSES and not a.is_replaced
-    }
+    degraded_jobs = {a.job_id for a in live_allocs if a.is_stuck_failure}
     return {
         job.id: "degraded" if job.is_running and job.id in degraded_jobs else job.status
         for job in jobs
@@ -375,7 +366,7 @@ def _build_servers(members: list[AgentMember], leader: str) -> list[ServerInfo]:
     """Convert serf members into `ServerInfo`, resolving which one is the leader."""
     return [
         ServerInfo(
-            name=member.name.split(".")[0],
+            name=member.short_name,
             addr=member.addr,
             status=member.status,
             version=member.tags.get("build", ""),
@@ -399,18 +390,6 @@ def _member_is_leader(member: AgentMember, leader: str) -> bool:
     if rpc_addr and port and leader == f"{rpc_addr}:{port}":
         return True
     return member.addr == leader.split(":", maxsplit=1)[0]
-
-
-def _is_problem_eval(evaluation: EvalListStub) -> bool:
-    """Return True when an evaluation is actively stuck (blocked/pending or queued).
-
-    Queued allocations on a terminal evaluation are historical, not a live problem.
-    """
-    if evaluation.status in _PROBLEM_EVAL_STATUSES:
-        return True
-    if evaluation.status in _TERMINAL_EVAL_STATUSES:
-        return False
-    return any(count > 0 for count in evaluation.queued_allocations.values())
 
 
 def _assess_health(

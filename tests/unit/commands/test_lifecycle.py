@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx  # respx-bundled; used to build sequenced mock responses
@@ -116,6 +117,22 @@ def test_task_lifecycle_orders_tasks_and_excludes_poststop() -> None:
     assert group["create_filesystem"][1] == "prestart"
     assert group["cartlog"][1] == "main"
     assert group["cartlog_ezbak_sidecar"][1] == "sidecar"
+
+
+_COMPILED_JOBS = Path(__file__).parents[2] / "fixtures" / "compiled_jobs"
+
+
+@pytest.mark.parametrize("fixture", sorted(_COMPILED_JOBS.glob("*.json")), ids=lambda p: p.stem)
+def test_task_lifecycle_decodes_real_compiled_output(fixture: Path) -> None:
+    """Verify `nomad job run -output` bodies decode, including the nulls Nomad emits."""
+    # Given real compiled output, which sends null for unset Type, Status, and resources
+    body = fixture.read_bytes()
+
+    # When parsing it
+    lifecycle = task_lifecycle(body)
+
+    # Then every group is read
+    assert lifecycle
 
 
 @pytest.mark.parametrize(
