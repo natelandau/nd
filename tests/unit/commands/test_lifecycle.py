@@ -275,33 +275,40 @@ def test_watch_ignores_stale_successful_deployment_from_prior_run(
     assert outcome.severity is Severity.WARN
 
 
-def test_watch_follows_fresh_deployment_past_stale_one(httpx2_mock: respx.Router) -> None:
-    """Verify the watch follows this run's deployment, not an earlier one."""
-    # Given a stale failed deployment (index 1) alongside this run's successful deployment
-    # (index 11), returned in an order that puts the stale one first
-    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/deployments").respond(
-        json=[
-            to_payload(deployment("web", status="failed", create_index=1)),
-            to_payload(
-                deployment(
-                    "web",
-                    status="successful",
-                    status_description="Deployment completed successfully",
-                    create_index=11,
-                    task_groups={
-                        "app": TaskGroupDeploymentState(desired_total=1, healthy_allocs=1)
-                    },
-                )
-            ),
-        ]
-    )
+def _deployment_at(status: str, create_index: int) -> dict[str, object]:
+    """Build a deployment payload created at ``create_index``."""
+    return to_payload(deployment("web", status=status, create_index=create_index))
+
+
+@pytest.mark.parametrize(
+    ("deployments", "expected"),
+    [
+        pytest.param(
+            [_deployment_at("failed", 1), _deployment_at("successful", 11)],
+            Severity.OK,
+            id="stale-failed-before-this-run",
+        ),
+        pytest.param(
+            [_deployment_at("successful", 12), _deployment_at("failed", 11)],
+            Severity.FAIL,
+            id="rollback-after-this-run",
+        ),
+    ],
+)
+def test_watch_follows_this_runs_deployment(
+    httpx2_mock: respx.Router, deployments: list[dict[str, object]], expected: Severity
+) -> None:
+    """Verify the watch follows this run's deployment, not an earlier or a later one."""
+    # Given this run's deployment (index 11) beside an earlier stale one or a later
+    # auto-revert rollback, in an order that does not put this run's first
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/deployments").respond(json=deployments)
     httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/allocations").respond(json=[])
 
     # When watching with this registration's modify index as the floor
     outcome = _watch(since_index=10)
 
-    # Then it follows this run's deployment, not the stale failed one, and reports DEPLOYED
-    assert outcome.severity is Severity.OK
+    # Then the outcome reflects this run's deployment
+    assert outcome.severity is expected
 
 
 def test_watch_times_out_when_never_terminal(

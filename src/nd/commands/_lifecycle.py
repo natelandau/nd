@@ -209,9 +209,11 @@ async def watch_deploy(
         # by index rather than trusting position. A job that has ever run keeps its prior
         # deployments listed; ignoring those created before this registration is what
         # stops a stale "successful" record from ending the watch the instant a dead job
-        # is re-run.
+        # is re-run. The earliest remaining one is this registration's: a later one is an
+        # auto-revert rollback or another registration, whose success says nothing about
+        # the spec deployed here.
         mine = [d for d in deployments if d.create_index >= since_index]
-        dep = max(mine, key=lambda d: d.create_index) if mine else None
+        dep = min(mine, key=lambda d: d.create_index) if mine else None
         children = alloc_children(allocs, node_names, lifecycle)
         if dep is not None:  # service job: follow this run's deployment
             if dep.status == _DEPLOY_SUCCESS:
