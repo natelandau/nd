@@ -4,14 +4,20 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import msgspec
+
 if TYPE_CHECKING:
     import builtins
 
+from nd.nomad.errors import NomadDecodeError
+from nd.nomad.models import decode_json
 from nd.nomad.models.allocation import AllocListStub
 from nd.nomad.models.deployment import Deployment
 from nd.nomad.models.job import (
     JobDeregisterResponse,
     JobListStub,
+    JobPlanResponse,
+    JobRegisterPayload,
     JobRegisterResponse,
     JobSpec,
 )
@@ -75,3 +81,28 @@ class JobsResource(BaseResource):
         recent deployment must select it by ``CreateIndex`` rather than position.
         """
         return await self._paginate_list(path=f"/job/{job_id}/deployments", item_type=Deployment)
+
+    async def plan(self, body: bytes) -> JobPlanResponse:
+        """Preview what registering a compiled job would change (``POST /v1/job/:id/plan``).
+
+        Use this to compare a local job file with what runs, without changing the cluster.
+        Pass the ``{"Job": {...}}`` payload from ``nomad job run -output``. The request
+        path uses the compiled job's ID, which can differ from its name.
+
+        Raises:
+            NomadDecodeError: If ``body`` holds no job ID.
+        """
+        payload = decode_json(data=body, type_=JobRegisterPayload)
+        if payload.job is None or not payload.job.id:
+            msg = (
+                f'Compiled job has no job ID; expected {{"Job": {{"ID": ...}}}}, got {body[:200]!r}'
+            )
+            raise NomadDecodeError(msg)
+        # The compiled job is untyped Nomad JSON, passed through unchanged.
+        request = decode_json(data=body, type_=dict[str, object])
+        response = await self._transport.request(
+            method="POST",
+            path=f"/job/{payload.job.id}/plan",
+            content=msgspec.json.encode({**request, "Diff": True}),
+        )
+        return self._decode(response=response, type_=JobPlanResponse)
