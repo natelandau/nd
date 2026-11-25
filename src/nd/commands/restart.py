@@ -52,27 +52,39 @@ def restart(
     """Restart a running allocation's tasks, or one task, in place.
 
     Resolves a running job and allocation, prompting only where the choice is ambiguous,
-    then restarts its running tasks on the same node. Use it to bounce a hung process or
-    make a task re-read its config, without the reschedule that stop and run cause.
+    then restarts its running tasks on the same node. --task restarts one task instead,
+    and --all-tasks also re-runs tasks that already finished. Use it to bounce a hung
+    process or make a task re-read its config, without the reschedule that stop and run
+    cause.
 
     A success line means Nomad accepted the restart. Check `nd status` or `nd logs` to see
     the task come back.
     """
     verbose = configure_verbosity(ctx, verbose)
     if task is not None and all_tasks:
-        msg = "--all-tasks restarts every task, so it cannot be combined with --task"
-        raise typer.BadParameter(msg, param_hint="--all-tasks")
+        msg = (
+            f"--all-tasks restarts every task, so it cannot be combined with --task {task}; "
+            "pass only one of them"
+        )
+        raise typer.BadParameter(message=msg, param_hint="--all-tasks")
     config = NomadConfig.resolve()
     exit_code = asyncio.run(
-        _run(config, job=job, task=task, all_tasks=all_tasks, dry_run=dry_run, verbose=verbose)
+        _run(
+            config=config,
+            job=job,
+            task=task,
+            all_tasks=all_tasks,
+            dry_run=dry_run,
+            verbose=verbose,
+        )
     )
     if exit_code != 0:
         raise typer.Exit(exit_code)
 
 
 async def _run(
-    config: NomadConfig,
     *,
+    config: NomadConfig,
     job: str | None,
     task: str | None,
     all_tasks: bool,
@@ -81,17 +93,18 @@ async def _run(
 ) -> int:
     """Resolve a live target and restart it, sharing one client between both steps.
 
-    A named task resolves through the task picker so a typo fails before any request;
-    without one, only the job and allocation are resolved, since the restart covers them all.
+    A named task resolves through the task picker so a typo fails before the restart is
+    sent; without one, only the job and allocation are resolved, since the restart covers
+    them all.
 
     Returns:
         int: The exit code: the resolver's code when there is nothing to restart, else 0.
     """
     async with NomadClient(config) as client:
         exit_code, target = await (
-            resolve_with_client(client, job_arg=job, task_arg=task, running_only=True)
+            resolve_with_client(client=client, job_arg=job, task_arg=task, running_only=True)
             if task is not None
-            else resolve_allocation_with_client(client, job_arg=job)
+            else resolve_allocation_with_client(client=client, job_arg=job)
         )
         if target is None:
             return exit_code
@@ -105,7 +118,7 @@ async def _run(
 
         with pp.step(f"Restarting {where}") as step:
             await record_step(
-                client.allocations.restart(alloc_id, task=task, all_tasks=all_tasks),
+                coro=client.allocations.restart(alloc_id=alloc_id, task=task, all_tasks=all_tasks),
                 step=step,
                 verbose=verbose,
                 method="POST",
@@ -113,7 +126,7 @@ async def _run(
             )
 
     pp.success(
-        f"Restart requested for {where}",
+        message=f"Restart requested for {where}",
         details=[f"run `nd status` or `nd logs {job_name}` to watch it come back"],
     )
     return 0

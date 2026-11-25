@@ -3,8 +3,9 @@
 Shared by every command that acts on a single task: each picks a job (by optional name
 substring), then its allocation (auto when one, prompt when several), then a task
 (auto when one, prompt when several, or a ``--task`` override). A command that acts on
-a whole allocation stops before the task stage. Commands that need a live target resolve running jobs/allocations/tasks only; ``nd logs`` passes
-``running_only=False`` so a dead or completed task's logs stay reachable.
+a whole allocation stops before the task stage. Commands that need a live target resolve
+running jobs/allocations/tasks only; ``nd logs`` passes ``running_only=False`` so a dead
+or completed task's logs stay reachable.
 """
 
 from __future__ import annotations
@@ -158,7 +159,7 @@ async def resolve_allocation(
             caller exits 1).
     """
     resolved = await _resolve_job_and_alloc(
-        client, job_arg=job_arg, target_filter=_TargetFilter(running_only=True)
+        client=client, job_arg=job_arg, target_filter=_TargetFilter(running_only=True)
     )
     if resolved is None:
         return None
@@ -183,7 +184,9 @@ async def resolve_alloc_task(
             caller exits 1).
     """
     target_filter = _TargetFilter(running_only=running_only)
-    resolved = await _resolve_job_and_alloc(client, job_arg=job_arg, target_filter=target_filter)
+    resolved = await _resolve_job_and_alloc(
+        client=client, job_arg=job_arg, target_filter=target_filter
+    )
     if resolved is None:
         return None
     job, alloc = resolved
@@ -233,7 +236,9 @@ async def resolve_with_client(
     shown.
     """
     return await _exit_code_for(
-        resolve_alloc_task(client, job_arg=job_arg, task_arg=task_arg, running_only=running_only)
+        resolve_alloc_task(
+            client=client, job_arg=job_arg, task_arg=task_arg, running_only=running_only
+        )
     )
 
 
@@ -245,7 +250,7 @@ async def resolve_allocation_with_client(
     The allocation-only counterpart of :func:`resolve_with_client`, with the same
     ``(exit_code, target)`` contract.
     """
-    return await _exit_code_for(resolve_allocation(client, job_arg=job_arg))
+    return await _exit_code_for(resolve_allocation(client=client, job_arg=job_arg))
 
 
 async def resolve_target(
