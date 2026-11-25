@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import msgspec
 
-from nd.commands.doctor.findings import DoctorSnapshot
+from nd.commands.doctor.findings import DoctorSnapshot, JobDrift
 from nd.nomad.models.agent import AgentMember
 from nd.nomad.models.allocation import AllocListStub, TaskState
 from nd.nomad.models.deployment import Deployment, TaskGroupDeploymentState
@@ -377,6 +377,8 @@ def doctor_snapshot(
     job_directories_configured: bool = True,
     unnamed_job_files: list[Path] | None = None,
     volume_spec_names: frozenset[str] = frozenset(),
+    job_drift: dict[str, JobDrift] | None = None,
+    nomad_binary_found: bool = True,
     now_ns: int = 0,
 ) -> DoctorSnapshot:
     """Build a cluster snapshot for nd doctor checks; every listing defaults to empty.
@@ -396,5 +398,7 @@ def doctor_snapshot(
         job_directories_configured=job_directories_configured,
         unnamed_job_files=unnamed_job_files or [],
         volume_spec_names=volume_spec_names,
+        job_drift=job_drift or {},
+        nomad_binary_found=nomad_binary_found,
         now_ns=now_ns,
     )

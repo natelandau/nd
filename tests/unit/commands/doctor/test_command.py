@@ -6,8 +6,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from nd.binary.env import NomadBinaryError
 from nd.commands import doctor
 from nd.commands.doctor.snapshot import collect_snapshot
+from nd.nomad import NomadConfig
 from tests.builders import (
     agent_member,
     job_spec,
@@ -19,8 +21,13 @@ from tests.builders import (
 from tests.helpers import run_with_client
 
 if TYPE_CHECKING:
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
     import respx
 
+    from nd.commands.doctor.findings import DoctorSnapshot
+    from nd.nomad import NomadClient
     from nd.nomad.models.job import JobSpec
 
 
@@ -49,6 +56,23 @@ def _deploy(cluster: respx.Router, nomad_env: str, *specs: JobSpec) -> None:
     )
     for spec in specs:
         cluster.get(f"{nomad_env}/v1/job/{spec.name}").respond(json=to_payload(spec))
+
+
+async def _collect(client: NomadClient) -> DoctorSnapshot:
+    """Collect a snapshot with the test's resolved config."""
+    return await collect_snapshot(client, NomadConfig.resolve())
+
+
+def _compiled(path: Path) -> bytes:
+    """Return a compiled job body whose ID is the file's stem."""
+    return f'{{"Job": {{"ID": "{path.stem}"}}}}'.encode()
+
+
+def _plan(cluster: respx.Router, nomad_env: str, job_id: str, diff_type: str) -> respx.Route:
+    """Serve a plan for one job whose diff has the given type."""
+    return cluster.post(f"{nomad_env}/v1/job/{job_id}/plan").respond(
+        json={"Diff": {"Type": diff_type, "TaskGroups": None}}
+    )
 
 
 _DEFAULT_RESOURCES = task_spec(image=None, cpu=100, memory_mb=300)
@@ -143,7 +167,7 @@ def test_collect_snapshot_without_volumes_endpoint(cluster: respx.Router) -> Non
     cluster.routes["volumes"].respond(403, text="Permission denied")
 
     # When collecting the snapshot
-    snapshot = run_with_client(collect_snapshot)
+    snapshot = run_with_client(_collect)
 
     # Then the snapshot holds no volumes and the rest of the cluster
     assert snapshot.volumes == []
@@ -160,7 +184,7 @@ def test_collect_snapshot_reads_local_files(
     _deploy(cluster, nomad_env, job_spec("web", tasks=[task_spec()]))
 
     # When collecting the snapshot
-    snapshot = run_with_client(collect_snapshot)
+    snapshot = run_with_client(_collect)
 
     # Then local files and specs are available to the checks
     assert snapshot.job_file_paths == {"web": path}
@@ -182,7 +206,7 @@ def test_collect_snapshot_skips_child_job_specs(cluster: respx.Router, nomad_env
     cluster.get(f"{nomad_env}/v1/job/backup").respond(json=to_payload(parent))
 
     # When collecting the snapshot
-    snapshot = run_with_client(collect_snapshot)
+    snapshot = run_with_client(_collect)
 
     # Then only the parent's spec is fetched
     assert [spec.name for spec in snapshot.job_specs] == ["backup"]
@@ -196,7 +220,102 @@ def test_collect_snapshot_records_files_with_unreadable_job_names(
     path = job_files("templated.hcl", "${var.name}")
 
     # When collecting the snapshot
-    snapshot = run_with_client(collect_snapshot)
+    snapshot = run_with_client(_collect)
 
     # Then the file is recorded so checks know a job may come from it
     assert snapshot.unnamed_job_files == [path]
+
+
+def test_collect_snapshot_plans_running_jobs_with_files(
+    cluster: respx.Router, nomad_env: str, job_files, fake_nomad_binary: MagicMock
+) -> None:
+    """Verify only running, file-backed, non-child jobs are planned against their files."""
+    # Given files for web, old (dead), and backup (with a periodic child), plus an orphan
+    job_files("web.hcl", "web")
+    old_file = job_files("old.hcl", "old")
+    job_files("backup.hcl", "backup")
+    specs = [
+        job_spec("web", tasks=[task_spec()]),
+        job_spec("old", status="dead", tasks=[task_spec()]),
+        job_spec("backup", tasks=[task_spec()]),
+        job_spec("orphan", tasks=[task_spec()]),
+    ]
+    cluster.routes["jobs"].respond(
+        json=[
+            *(to_payload(job_stub(s.name, status=s.status or "running")) for s in specs),
+            to_payload(job_stub("backup/periodic-1", parent_id="backup")),
+        ]
+    )
+    for spec in specs:
+        cluster.get(f"{nomad_env}/v1/job/{spec.name}").respond(json=to_payload(spec))
+    fake_nomad_binary.compile_job.side_effect = _compiled
+    _plan(cluster, nomad_env, "web", "Edited")
+    _plan(cluster, nomad_env, "backup", "None")
+
+    # When collecting the snapshot
+    snapshot = run_with_client(_collect)
+
+    # Then web and backup are planned and the dead job's file is never compiled
+    assert set(snapshot.job_drift) == {"web", "backup"}
+    web_diff = snapshot.job_drift["web"].diff
+    assert web_diff is not None
+    assert web_diff.is_changed
+    assert all(call.args[0] != old_file for call in fake_nomad_binary.compile_job.call_args_list)
+
+
+@pytest.mark.parametrize("failure", ["compile", "plan"])
+def test_collect_snapshot_records_drift_errors(
+    cluster: respx.Router, nomad_env: str, job_files, fake_nomad_binary: MagicMock, failure: str
+) -> None:
+    """Verify a file that fails to compile or that Nomad rejects is recorded, not fatal."""
+    # Given a running web whose file fails to compile or whose plan is rejected
+    job_files("web.hcl", "web")
+    _deploy(cluster, nomad_env, job_spec("web", tasks=[task_spec()]))
+    if failure == "compile":
+        fake_nomad_binary.compile_job.side_effect = NomadBinaryError(
+            "Error parsing job file\nline 3"
+        )
+    else:
+        fake_nomad_binary.compile_job.side_effect = _compiled
+        cluster.post(f"{nomad_env}/v1/job/web/plan").respond(400, text="invalid job")
+
+    # When collecting the snapshot
+    snapshot = run_with_client(_collect)
+
+    # Then the job's drift holds the error and no diff
+    drift = snapshot.job_drift["web"]
+    assert drift.diff is None
+    assert drift.error
+    if failure == "compile":
+        assert drift.error == "Error parsing job file"
+
+
+def test_collect_snapshot_without_nomad_binary(
+    cluster: respx.Router, nomad_env: str, job_files
+) -> None:
+    """Verify a missing nomad binary skips drift instead of failing the snapshot."""
+    # Given a running web with a file and no nomad binary
+    job_files("web.hcl", "web")
+    _deploy(cluster, nomad_env, job_spec("web", tasks=[task_spec()]))
+
+    # When collecting the snapshot
+    snapshot = run_with_client(_collect)
+
+    # Then drift is skipped and the binary is recorded as missing
+    assert snapshot.nomad_binary_found is False
+    assert snapshot.job_drift == {}
+
+
+def test_collect_snapshot_skips_binary_when_nothing_to_plan(
+    cluster: respx.Router, nomad_env: str
+) -> None:
+    """Verify the binary is not needed when no running job has a local file."""
+    # Given a running job, no job directories, and no nomad binary
+    _deploy(cluster, nomad_env, job_spec("web", tasks=[task_spec()]))
+
+    # When collecting the snapshot
+    snapshot = run_with_client(_collect)
+
+    # Then the missing binary is not reported
+    assert snapshot.nomad_binary_found is True
+    assert snapshot.job_drift == {}

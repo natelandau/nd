@@ -35,7 +35,7 @@ def doctor(
 
     async def collect() -> tuple[DoctorSnapshot, list[Finding]]:
         async with NomadClient(config) as client:
-            snapshot = await collect_snapshot(client)
+            snapshot = await collect_snapshot(client, config)
         return snapshot, run_checks(snapshot)
 
     snapshot, findings = asyncio.run(collect())
