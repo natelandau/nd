@@ -6,6 +6,7 @@ mocked routes.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import msgspec
@@ -14,9 +15,10 @@ from nd.nomad.models.agent import AgentMember
 from nd.nomad.models.allocation import AllocListStub, TaskState
 from nd.nomad.models.deployment import Deployment, TaskGroupDeploymentState
 from nd.nomad.models.evaluation import EvalListStub
-from nd.nomad.models.job import JobListStub
+from nd.nomad.models.job import JobListStub, JobRegisterResponse
 from nd.nomad.models.node import Node, NodeListStub
 from nd.nomad.models.volume import HostVolumeListStub
+from nd.volumefiles import VolumeSpec
 
 if TYPE_CHECKING:
     from nd.nomad.models import NomadModel
@@ -40,7 +42,6 @@ def job_stub(
     *,
     status: str = "running",
     job_type: str = "service",
-    submit_time: int = 0,
 ) -> JobListStub:
     """Build a job list entry whose ID equals its name.
 
@@ -53,21 +54,18 @@ def job_stub(
         type=job_type,
         status=status,
         priority=50,
-        submit_time=submit_time,
         create_index=1,
         modify_index=2,
     )
 
 
-def task_state(
-    state: str = "running", *, failed: bool = False, restarts: int = 0, started_at: str = ""
-) -> TaskState:
+def task_state(state: str = "running", *, started_at: str = "") -> TaskState:
     """Build one task's state within an allocation.
 
     Returns:
         TaskState: The task state.
     """
-    return TaskState(state=state, failed=failed, restarts=restarts, started_at_raw=started_at)
+    return TaskState(state=state, failed=False, restarts=0, started_at_raw=started_at)
 
 
 def alloc_stub(
@@ -231,3 +229,30 @@ def agent_member(
         AgentMember: The member.
     """
     return AgentMember(name=name, addr=addr, status=status, tags={"build": build, "port": "4647"})
+
+
+def register_response(
+    *, eval_id: str = "e1", job_modify_index: int = 1, warnings: str = ""
+) -> JobRegisterResponse:
+    """Build the response Nomad returns for `POST /v1/jobs`.
+
+    Returns:
+        JobRegisterResponse: The response.
+    """
+    return JobRegisterResponse(
+        eval_id=eval_id, job_modify_index=job_modify_index, warnings=warnings
+    )
+
+
+def volume_spec(name: str = "data", *, relative_path: str | None = None) -> VolumeSpec:
+    """Build a host volume spec read from `/v/<name>.hcl`; the relative path defaults to the name.
+
+    Returns:
+        VolumeSpec: The spec.
+    """
+    return VolumeSpec(
+        path=Path(f"/v/{name}.hcl"),
+        name=name,
+        capabilities=[{"access_mode": "single-node-writer", "attachment_mode": "file-system"}],
+        relative_path=name if relative_path is None else relative_path,
+    )

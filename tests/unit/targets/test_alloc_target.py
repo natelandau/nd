@@ -73,63 +73,64 @@ def test_resolve_auto_selects_single_alloc_and_task(httpx2_mock: respx.Router):
 
 
 @pytest.mark.parametrize(
-    ("jobs", "allocs", "job_arg", "task_arg", "match"),
+    ("job", "job_arg", "match"),
     [
-        pytest.param([job_stub("web")], None, "zzz", None, None, id="unmatched-job"),
+        pytest.param(job_stub("web"), "zzz", "No running job matching 'zzz'", id="unmatched-job"),
         pytest.param(
-            [job_stub("web")],
-            [
-                alloc_stub(
-                    "alloc-1", client_status="complete", task_states={"server": task_state("dead")}
-                )
-            ],
+            job_stub("web", status="dead"),
             "web",
-            None,
-            None,
-            id="no-running-allocs",
-        ),
-        pytest.param(
-            [job_stub("web")],
-            [alloc_stub("alloc-1", task_states={"server": task_state()})],
-            "web",
-            "nope",
-            None,
-            id="bad-task",
-        ),
-        pytest.param(
-            [job_stub("web")],
-            [alloc_stub("alloc-1", task_states={"server": task_state("dead")})],
-            "web",
-            None,
-            "No running tasks in allocation",
-            id="no-running-tasks",
-        ),
-        pytest.param(
-            [job_stub("web", status="dead")],
-            None,
-            "web",
-            None,
             "No running job matching 'web'",
             id="named-job-not-running",
         ),
     ],
 )
-def test_resolve_unresolvable_target_raises(
-    httpx2_mock: respx.Router,
-    *,
-    jobs: list[JobListStub],
-    allocs: list[AllocListStub] | None,
-    job_arg: str,
-    task_arg: str | None,
-    match: str | None,
+def test_resolve_unresolvable_job_raises(
+    httpx2_mock: respx.Router, *, job: JobListStub, job_arg: str, match: str
 ):
-    """Verify a job, allocation, or task that cannot be resolved raises SelectionError."""
-    # Given a cluster with nothing running that matches the arguments
-    _mock_cluster(httpx2_mock, jobs=jobs, allocs=allocs)
+    """Verify a named job that matches no running job raises SelectionError."""
+    # Given a cluster whose only job does not run under the given name
+    _mock_cluster(httpx2_mock, jobs=[job], allocs=None)
 
     # When resolving, Then it is a hard error, not a silent no-op
     with pytest.raises(SelectionError, match=match):
-        _resolve(job_arg=job_arg, task_arg=task_arg)
+        _resolve(job_arg=job_arg, task_arg=None)
+
+
+@pytest.mark.parametrize(
+    ("alloc", "task_arg", "match"),
+    [
+        pytest.param(
+            alloc_stub(
+                "alloc-1", client_status="complete", task_states={"server": task_state("dead")}
+            ),
+            None,
+            "No running allocations for 'web'",
+            id="no-running-allocs",
+        ),
+        pytest.param(
+            alloc_stub("alloc-1", task_states={"server": task_state()}),
+            "nope",
+            "No running task 'nope' in allocation alloc-1",
+            id="bad-task",
+        ),
+        pytest.param(
+            alloc_stub("alloc-1", task_states={"server": task_state("dead")}),
+            None,
+            "No running tasks in allocation alloc-1",
+            id="no-running-tasks",
+        ),
+    ],
+)
+def test_resolve_unresolvable_alloc_or_task_raises(
+    httpx2_mock: respx.Router, *, alloc: AllocListStub, task_arg: str | None, match: str
+):
+    """Verify a running job whose allocation or task cannot be resolved raises SelectionError."""
+    # Given a running `web` job whose only allocation has no running match
+    _mock_cluster(httpx2_mock, jobs=[job_stub("web")], allocs=[alloc])
+
+    # When resolving the job, Then it is a hard error, not a silent no-op
+    with pytest.raises(SelectionError, match=match):
+        _resolve(job_arg="web", task_arg=task_arg)
 
 
 def test_resolve_no_running_jobs_without_a_name_returns_none(httpx2_mock: respx.Router):

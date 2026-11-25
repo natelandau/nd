@@ -1,14 +1,22 @@
 """Tests for the stop command."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import pytest
-import respx
 from nclutils import pp
 from rich.console import Console
 
 from nd.commands import stop as stop_module
 from nd.commands.stop import _build_dry_run_panel, stopping_title
 from tests.builders import job_stub, to_payload
-from tests.helpers import NOMAD_TEST_ADDR, async_return
+from tests.helpers import NOMAD_TEST_ADDR
+
+if TYPE_CHECKING:
+    import respx
+
+    from tests.conftest import PromptAnswers
 
 
 @pytest.mark.usefixtures("nomad_env")
@@ -165,13 +173,12 @@ def test_build_dry_run_panel_names_targets():
 
 @pytest.mark.usefixtures("nomad_env")
 def test_stop_app_confirm_decline_stops_nothing(
-    monkeypatch, httpx2_mock: respx.Router, typer_runner
+    interactive_session: PromptAnswers, httpx2_mock: respx.Router, typer_runner
 ):
     """Verify declining the confirmation prompt exits cleanly without stopping any job."""
     # Given one running job, and a user who answers no at the confirmation prompt
     httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/jobs").respond(json=[to_payload(job_stub("web"))])
-    monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: True)
-    monkeypatch.setattr("nd.ui.prompts.select_one", async_return(value=False))
+    interactive_session.choice = False
 
     # When invoking stop on the job without --force
     result = typer_runner.invoke(stop_module.app, ["web"])

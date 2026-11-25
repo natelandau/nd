@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from nd.jobfiles import (
-    JobCandidate,
     JobFile,
     candidates_for,
     discover_job_files,
@@ -136,7 +135,6 @@ def test_candidates_for_flattens_names() -> None:
         ("worker", "a.hcl"),
         ("db", "b.hcl"),
     ]
-    assert all(isinstance(c, JobCandidate) for c in cands)
 
 
 def test_candidates_for_excludes_running() -> None:

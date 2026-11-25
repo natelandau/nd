@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -18,6 +19,9 @@ from nd.commands._orchestration import (
 from nd.nomad import NomadError
 from nd.ui.styles import OUTCOME_GLYPH
 from tests.helpers import capture_output
+
+if TYPE_CHECKING:
+    from tests.conftest import PromptAnswers
 
 
 def _outcome(name: str, severity: Severity, *, detail: str = "", warnings: str = "") -> Outcome:
@@ -138,25 +142,16 @@ def test_request_all_reports_each_target_and_fails_on_any_error():
     assert "web: deprecated stanza" in text
 
 
-def test_confirm_jobs_builds_prompt_and_coerces_answer(monkeypatch):
-    """Verify confirm_jobs renders the verb and names and returns a bool."""
-    # Given a stubbed prompt that records its message and returns the chosen value
-    seen: dict[str, str] = {}
-
-    def fake_select_one(choices, message):  # noqa: ANN202
-        seen["message"] = message
-
-        async def _answer():  # noqa: ANN202
-            return True
-
-        return _answer()
-
-    monkeypatch.setattr("nd.ui.prompts.select_one", fake_select_one)
-    monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: True)
+@pytest.mark.parametrize("answer", [True, False])
+def test_confirm_jobs_returns_the_users_answer(
+    interactive_session: PromptAnswers, *, answer: bool
+) -> None:
+    """Verify confirm_jobs proceeds only when the user answers yes."""
+    # Given an interactive session whose user answers the confirmation
+    interactive_session.choice = answer
 
     # When confirming two jobs
     result = asyncio.run(confirm_jobs(["web", "api"], verb="Stop and PURGE", remedy="pass --force"))
 
-    # Then the prompt reads the shared wording and the answer is a bool
-    assert result is True
-    assert seen["message"] == "Stop and PURGE 2 job(s): web, api?"
+    # Then the user's answer is returned
+    assert result is answer

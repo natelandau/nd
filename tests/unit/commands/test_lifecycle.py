@@ -363,10 +363,8 @@ def test_stop_and_wait_times_out_when_never_terminal(httpx2_mock: respx.Router, 
     httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/allocations").respond(
         json=[to_payload(alloc_stub(client_status="running"))]
     )
-    # And a tiny timeout budget plus a no-op sleep so the loop ends quickly
-    mocker.patch("nd.commands._lifecycle.asyncio.sleep", autospec=True)
-    mocker.patch("nd.commands._lifecycle.STOP_TIMEOUT_SECONDS", 0.03)
-    mocker.patch("nd.commands._lifecycle.POLL_INTERVAL_SECONDS", 0.01)
+    # And a zero timeout budget so the loop gives up after one poll
+    mocker.patch("nd.commands._lifecycle.STOP_TIMEOUT_SECONDS", 0.0)
 
     # When stopping and waiting
     outcome = _stop_web(purge=False)
@@ -455,14 +453,12 @@ def test_stop_and_wait_reports_drained_alloc_count(
 
 def test_stop_and_wait_does_not_purge_on_timeout(httpx2_mock: respx.Router, mocker):
     """Verify a purge stop that never drains times out without purging the job."""
-    # Given a job whose allocations stay running past a tiny timeout budget
+    # Given a job whose allocations stay running past a zero timeout budget
     stop_route = httpx2_mock.delete(f"{NOMAD_TEST_ADDR}/v1/job/web").respond(json={"EvalID": "e1"})
     httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/allocations").respond(
         json=[to_payload(alloc_stub(client_status="running"))]
     )
-    mocker.patch("nd.commands._lifecycle.asyncio.sleep", autospec=True)
-    mocker.patch("nd.commands._lifecycle.STOP_TIMEOUT_SECONDS", 0.03)
-    mocker.patch("nd.commands._lifecycle.POLL_INTERVAL_SECONDS", 0.01)
+    mocker.patch("nd.commands._lifecycle.STOP_TIMEOUT_SECONDS", 0.0)
 
     # When stopping with purge=True
     outcome = _stop_web(purge=True)

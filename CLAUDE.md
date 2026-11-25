@@ -66,8 +66,12 @@ Match the existing commands: optional `NAME` substring argument and `--dry-run /
 - `tests/unit/` mirrors `src/nd/`.
 - Invoke CLI commands with the `typer_runner` fixture, not `typer.testing.CliRunner`. Typer colors output when `GITHUB_ACTIONS`/`FORCE_COLOR` is set, and only `typer_runner` strips the ANSI, so raw substring asserts pass locally and fail in CI.
 - Assert on `exit_code`; `pp` output is not reliably captured. To assert rendered output, call `capture_output()` from `tests/helpers.py` and read the returned console's `export_text()`.
-- Autouse fixtures in `tests/conftest.py` give each test a fresh `pp` emitter, fail any real socket connection, and hide the `nomad` binary, so an unmocked request or `NomadBinary.create` fails instead of reaching a real cluster. Patch `NomadBinary.create` (or pass a mock `NomadBinary`) where a test needs the binary.
-- `nomad_env` fixture: sets `NOMAD_ADDR` to `NOMAD_TEST_ADDR` for code that calls `NomadConfig.resolve()`.
+- Autouse fixtures in `tests/conftest.py` give each test a fresh `pp` emitter, fail any real DNS lookup or socket connection, and hide the `nomad` binary, so an unmocked request or `NomadBinary.create` fails instead of reaching a real cluster.
+- Fixtures in `tests/conftest.py` (prefer them over patching module internals):
+    - `nomad_env`: sets `NOMAD_ADDR` to `NOMAD_TEST_ADDR` for code that calls `NomadConfig.resolve()`.
+    - `job_files` / `volume_files`: write real spec files into a directory listed in the test's nd config, so discovery runs for real.
+    - `fake_nomad_binary`: makes `NomadBinary.create` return a `MagicMock(spec=NomadBinary)`.
+    - `interactive_session`: acts as a terminal; set the returned `PromptAnswers` (`choice=False` declines a confirmation).
 - `tests/helpers.py`: `NOMAD_TEST_ADDR`, `run_with_client` (drive client-backed async code), `async_return`, `discard_panel_update`, `capture_output`.
 - `tests/builders.py`: model builders with valid defaults (`job_stub`, `alloc_stub`, `node_stub`, ...). Mock a response body with `to_payload(job_stub("web"))`. Add a builder here instead of a file-local one. Keep literal JSON only in tests of decoding.
 - Mock Nomad with respx through the `httpx2_mock` fixture (`pytest-httpx2`). Full-URL routes; pagination via `side_effect=[httpx.Response(...), ...]`, using the `httpx` that respx bundles, not `httpx2`.

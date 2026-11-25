@@ -20,23 +20,20 @@ if TYPE_CHECKING:
 NOMAD_TEST_ADDR = "http://nomad.test:4646"
 
 
-def run_with_client[T](
-    call: Callable[[NomadClient], Awaitable[T]], *, config: NomadConfig | None = None
-) -> T:
+def run_with_client[T](call: Callable[[NomadClient], Awaitable[T]]) -> T:
     """Run an async call against a client for the mock cluster, then close the client.
 
     Use this to drive client-backed async code from a sync test.
 
     Args:
         call: Receives the open client and returns the awaitable under test.
-        config: Connection settings. Defaults to the mock cluster address.
 
     Returns:
         T: What the awaitable returned.
     """
 
     async def _run() -> T:
-        async with NomadClient(config or NomadConfig(address=NOMAD_TEST_ADDR)) as client:
+        async with NomadClient(NomadConfig(address=NOMAD_TEST_ADDR)) as client:
             return await call(client)
 
     return asyncio.run(_run())

@@ -1,7 +1,5 @@
 """Tests for volume command rendering."""
 
-from pathlib import Path
-
 import pytest
 
 from nd.commands.volume.render import (
@@ -18,8 +16,7 @@ from nd.commands.volume.report import (
     Registration,
     VolumeRow,
 )
-from nd.volumefiles import VolumeSpec
-from tests.builders import host_volume_stub
+from tests.builders import host_volume_stub, volume_spec
 from tests.helpers import capture_output
 
 
@@ -35,14 +32,12 @@ def _registration(
     Returns:
         Registration: The registration; skipped when `host_path` is None.
     """
-    spec = VolumeSpec(
-        path=Path(f"/v/{spec_name}.hcl"),
-        name=spec_name,
-        capabilities=[{"access_mode": "x", "attachment_mode": "file-system"}],
-        relative_path="data",
-    )
     return Registration(
-        spec=spec, node_id="n1", node_name=node_name, host_path=host_path, reason=reason
+        spec=volume_spec(spec_name),
+        node_id="n1",
+        node_name=node_name,
+        host_path=host_path,
+        reason=reason,
     )
 
 

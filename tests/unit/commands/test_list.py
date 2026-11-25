@@ -9,7 +9,7 @@ import msgspec
 import pytest
 
 from nd.cli import app
-from nd.commands.list import ListRow, build_rows
+from nd.commands.list import build_rows
 from nd.jobfiles import JobFile
 from tests.builders import job_stub, to_payload
 from tests.helpers import NOMAD_TEST_ADDR, capture_output
@@ -44,7 +44,6 @@ def test_build_rows_classifies_cluster_state(
 
     # Then each remaining row carries its cluster status
     assert {r.job_name: r.cluster_status for r in rows} == expected
-    assert all(isinstance(r, ListRow) for r in rows)
 
 
 def test_build_rows_sets_link_id_for_deployed_jobs() -> None:

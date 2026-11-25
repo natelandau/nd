@@ -4,18 +4,25 @@ from __future__ import annotations
 
 import os
 import socket
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import pytest
 from nclutils import pp
 
+import nd.commands.run as run_module
+from nd.binary import NomadBinary
 from nd.binary import env as binary_env_module
 from nd.nomad.config import default_config_path
+from nd.ui import prompts as prompts_module
 from tests.helpers import NOMAD_TEST_ADDR
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from pytest_mock import MockerFixture
 
 
 @pytest.fixture(autouse=True)
@@ -37,23 +44,81 @@ def isolate_console_output() -> Iterator[None]:
 
 @pytest.fixture(autouse=True)
 def block_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Fail any real socket connection, so an unmocked request cannot reach a live cluster.
+    """Fail any real DNS lookup or socket connection, so a test cannot reach a live cluster.
 
     respx intercepts mocked requests above the socket layer, so mocked tests never get here.
     """
 
-    def _refuse(_sock: socket.socket, address: object) -> None:
-        msg = f"Test opened a real network connection to {address!r}; mock it with httpx2_mock"
+    def _refuse(*args: object, **_kwargs: object) -> None:
+        msg = f"Test made a real network call with {args!r}; mock it with httpx2_mock"
         raise RuntimeError(msg)
 
     monkeypatch.setattr(socket.socket, "connect", _refuse)
     monkeypatch.setattr(socket.socket, "connect_ex", _refuse)
+    monkeypatch.setattr(socket, "getaddrinfo", _refuse)
 
 
 @pytest.fixture(autouse=True)
 def hide_nomad_binary(monkeypatch: pytest.MonkeyPatch) -> None:
     """Hide the developer's `nomad` binary, so a test that forgot to mock it fails cleanly."""
     monkeypatch.setattr(binary_env_module, "which", lambda _name: None)
+
+
+@pytest.fixture
+def fake_nomad_binary(monkeypatch: pytest.MonkeyPatch, mocker: MockerFixture) -> MagicMock:
+    """Make `NomadBinary.create` return a mock, for commands that shell out to `nomad`.
+
+    Returns:
+        MagicMock: The binary every command receives; set return values and assert calls on it.
+    """
+    nomad = mocker.MagicMock(spec=NomadBinary)
+    monkeypatch.setattr(NomadBinary, "create", classmethod(lambda _cls, _config: nomad))
+    return nomad
+
+
+@dataclass
+class PromptAnswers:
+    """What the prompt widgets answer in an interactive test session.
+
+    `choice` is what a single-choice prompt returns, so `False` declines a confirmation.
+    `choices` is what a multi-select returns; None selects every offered option.
+    """
+
+    choice: object = True
+    choices: list[object] | None = None
+
+
+@pytest.fixture
+def interactive_session(monkeypatch: pytest.MonkeyPatch) -> PromptAnswers:
+    """Act as an interactive terminal whose prompts answer with the returned `PromptAnswers`.
+
+    Only the terminal check and the questionary widgets are replaced, so the prompt gating
+    and the confirm and select logic under test run for real.
+
+    Returns:
+        PromptAnswers: The answers to give; set its fields before invoking the command.
+    """
+    answers = PromptAnswers()
+
+    def _choose_many(choices: list[tuple[str, object]], _message: str) -> list[object]:
+        if answers.choices is None:
+            return [value for _label, value in choices]
+        return answers.choices
+
+    monkeypatch.setattr(prompts_module, "can_prompt", lambda: True)
+    monkeypatch.setattr(run_module, "can_prompt", lambda: True)
+    monkeypatch.setattr(prompts_module, "choose_one_from_list", lambda *_: answers.choice)
+    monkeypatch.setattr(prompts_module, "choose_multiple_from_list", _choose_many)
+    return answers
+
+
+def _configure_directory(section: str, directory: Path) -> None:
+    """Add a `[<section>] directories` entry for `directory` to the test's nd config file."""
+    config_path = default_config_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = config_path.read_text(encoding="utf-8") if config_path.is_file() else ""
+    entry = f'[{section}]\ndirectories = ["{directory}"]\n'
+    config_path.write_text(existing + entry, encoding="utf-8")
 
 
 @pytest.fixture
@@ -68,13 +133,39 @@ def job_files(tmp_path: Path) -> Callable[..., Path]:
     """
     directory = tmp_path / "jobs"
     directory.mkdir()
-    config_path = default_config_path()
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(f'[jobs]\ndirectories = ["{directory}"]\n', encoding="utf-8")
+    _configure_directory("jobs", directory)
 
     def _write(filename: str, *job_names: str) -> Path:
         path = directory / filename
         path.write_text("".join(f'job "{name}" {{\n}}\n' for name in job_names), encoding="utf-8")
+        return path
+
+    return _write
+
+
+@pytest.fixture
+def volume_files(tmp_path: Path) -> Callable[[str], Path]:
+    """Configure a host volume directory in the nd config and return a spec-file writer.
+
+    Call the writer as `write("data")` to create `data.hcl`, a host volume spec named `data`
+    whose relative path is also `data`; it returns the file's path.
+
+    Returns:
+        Callable[[str], Path]: The volume-spec writer.
+    """
+    directory = tmp_path / "volumes"
+    directory.mkdir()
+    _configure_directory("volumes", directory)
+
+    def _write(name: str) -> Path:
+        path = directory / f"{name}.hcl"
+        path.write_text(
+            f'name = "{name}"\ntype = "host"\n'
+            'capability {\n  access_mode = "single-node-writer"\n'
+            '  attachment_mode = "file-system"\n}\n'
+            f'parameters {{\n  relative_path = "{name}"\n}}\n',
+            encoding="utf-8",
+        )
         return path
 
     return _write
