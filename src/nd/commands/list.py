@@ -6,12 +6,20 @@ import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated
 
+import msgspec
 import typer
 from nclutils import pp
 
-from nd.commands._common import VerboseOption, command_app, configure_verbosity
+from nd.commands._common import (
+    JsonOption,
+    VerboseOption,
+    command_app,
+    configure_verbosity,
+    use_json_output,
+)
 from nd.jobfiles import discover_job_files, load_job_directories
 from nd.nomad import NomadClient, NomadConfig
+from nd.ui.json_output import print_json
 from nd.ui.links import WebUi
 from nd.ui.panels import status_table, titled_panel
 from nd.ui.styles import status_cell
@@ -33,6 +41,26 @@ class ListRow:
     cluster_status: str
     # Nomad job ID for the web UI link, or None when the job is not deployed.
     link_id: str | None
+
+
+class ListJsonRow(msgspec.Struct, frozen=True, kw_only=True):
+    """One job file row in ``nd list --json`` output."""
+
+    job: str
+    status: str
+    file: str
+
+
+def list_json_rows(rows: list[ListRow]) -> list[ListJsonRow]:
+    """Convert table rows into the documented JSON shape for scripts and agents.
+
+    Args:
+        rows: Rows from `build_rows`.
+
+    Returns:
+        list[ListJsonRow]: One JSON row per table row, in the same order.
+    """
+    return [ListJsonRow(job=r.job_name, status=r.cluster_status, file=r.path) for r in rows]
 
 
 def build_rows(
@@ -103,13 +131,16 @@ def list_(
         ),
     ] = False,
     verbose: VerboseOption = 0,
+    json_output: JsonOption = False,  # noqa: FBT002
 ) -> None:
     """List known job files and whether each is running, dead, or not deployed."""
     configure_verbosity(ctx, verbose)
-    asyncio.run(_run(hide_running=hide_running))
+    if json_output:
+        use_json_output()
+    asyncio.run(_run(hide_running=hide_running, json_output=json_output))
 
 
-async def _run(*, hide_running: bool = False) -> None:
+async def _run(*, hide_running: bool = False, json_output: bool = False) -> None:
     """Discover job files, fetch cluster jobs, and render the joined table."""
     directories = load_job_directories()
     files = discover_job_files(directories)
@@ -117,4 +148,8 @@ async def _run(*, hide_running: bool = False) -> None:
     config = NomadConfig.resolve()
     async with NomadClient(config) as client:
         jobs = await client.jobs.list()
-    _render(build_rows(files, jobs, hide_running=hide_running), config.ui_base)
+    rows = build_rows(files, jobs, hide_running=hide_running)
+    if json_output:
+        print_json(list_json_rows(rows))
+    else:
+        _render(rows, config.ui_base)
