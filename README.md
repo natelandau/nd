@@ -296,7 +296,8 @@ worth checking against your ACL policy before you suspect the token itself.
 `nd restart` restarts tasks in place, on the same node and in the same allocation.
 Use it when a process hangs or must read its config again. It is faster than
 `nd update` because Nomad does not schedule a new allocation. The job, allocation,
-and task are selected the same way as for `nd signal`.
+and task are selected the same way as for `nd signal`, but `nd restart` has no
+`--alloc` or `--all-allocs` option.
 
 ```bash
 nd restart web               # restart every running task in the allocation
@@ -355,15 +356,15 @@ nd stop                    # fails: nothing named a job to stop
 nd stop web                # fails: nothing answered the confirmation
 ```
 
-`nd signal` takes no confirmation, so naming the job (and the task, when the job has
-more than one) is all it needs to run from cron, provided the job has a single running
-allocation. Nothing names an allocation, so a job running several always needs a
-terminal:
+`nd signal` takes no confirmation. To run it from cron, name the job, and name the task
+when the job has more than one. If the job has more than one running allocation, also
+pass `--all-allocs`:
 
 ```bash
-nd signal ezbak -s SIGUSR1        # works unattended
-nd signal ezbak -s SIGUSR1 -t db  # name the task too when the job runs several
-nd signal web -s SIGHUP           # fails when "web" has more than one allocation
+nd signal ezbak -s SIGUSR1                   # works unattended
+nd signal ezbak -s SIGUSR1 -t db             # name the task too when the job runs several
+nd signal web -s SIGHUP -t api --all-allocs  # works with several allocations
+nd signal web -s SIGHUP                      # fails when "web" has more than one allocation
 ```
 
 A named job that is not running is an error, not a no-op, so a scheduled trigger fails
