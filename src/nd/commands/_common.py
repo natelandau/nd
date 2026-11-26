@@ -136,11 +136,11 @@ def run_alloc_action(
     exit 1; otherwise the command exits with the action's own return code, with a
     signal death translated to the shell's ``128 + signal`` convention.
     """
-    exit_code, target = asyncio.run(
+    target = asyncio.run(
         resolve_target(config, job_arg=job, task_arg=task, running_only=running_only)
     )
     if target is None:
-        raise typer.Exit(exit_code)
+        raise typer.Exit
     try:
         nomad = NomadBinary.create(config)
         code = action(nomad, target.alloc_id, target.task)

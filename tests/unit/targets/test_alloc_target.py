@@ -11,9 +11,8 @@ from nd.targets.alloc_target import (
     ResolvedTarget,
     SelectionError,
     resolve_alloc_task,
-    resolve_allocation_with_client,
+    resolve_allocation,
     resolve_task_in_every_alloc,
-    resolve_with_client,
 )
 from nd.ui.prompts import PromptUnavailableError
 from tests.builders import alloc_stub, job_stub, task_state, to_payload
@@ -49,7 +48,7 @@ def _resolve(
     """Resolve a target against the mocked cluster."""
     return run_with_client(
         lambda client: resolve_alloc_task(
-            client,
+            client=client,
             job_arg=job_arg,
             task_arg=task_arg,
             alloc_arg=alloc_arg,
@@ -61,7 +60,7 @@ def _resolve(
 def _resolve_every_alloc(*, task_arg: str | None) -> list[ResolvedTarget] | None:
     """Resolve the `web` job's task in every running allocation against the mocked cluster."""
     return run_with_client(
-        lambda client: resolve_task_in_every_alloc(client, job_arg="web", task_arg=task_arg)
+        lambda client: resolve_task_in_every_alloc(client=client, job_arg="web", task_arg=task_arg)
     )
 
 
@@ -71,15 +70,6 @@ def _two_running_allocs() -> list[AllocListStub]:
         alloc_stub("alloc-1", task_states={"server": task_state()}),
         alloc_stub("alloc-2", task_states={"server": task_state()}),
     ]
-
-
-def _resolve_with_client(
-    *, job_arg: str | None, task_arg: str | None
-) -> tuple[int, ResolvedTarget | None]:
-    """Resolve a target against the mocked cluster, mapping failures to an exit code."""
-    return run_with_client(
-        lambda client: resolve_with_client(client, job_arg=job_arg, task_arg=task_arg)
-    )
 
 
 def test_resolve_auto_selects_single_alloc_and_task(httpx2_mock: respx.Router):
@@ -250,62 +240,6 @@ def test_resolve_unambiguous_target_needs_no_terminal(monkeypatch, httpx2_mock: 
     assert target == _WEB_TARGET
 
 
-def test_resolve_with_client_returns_the_target_and_zero(httpx2_mock: respx.Router):
-    """Verify a resolved target comes back paired with a zero exit code."""
-    # Given exactly one running job, allocation, and task
-    _mock_cluster(
-        httpx2_mock,
-        jobs=[job_stub("web")],
-        allocs=[alloc_stub("alloc-1", task_states={"server": task_state()})],
-    )
-
-    # When resolving through an open client
-    exit_code, target = _resolve_with_client(job_arg="web", task_arg=None)
-
-    # Then the caller gets the target and a success code
-    assert exit_code == 0
-    assert target == _WEB_TARGET
-
-
-def test_resolve_with_client_maps_a_selection_failure_to_one(httpx2_mock: respx.Router):
-    """Verify a SelectionError becomes a (1, None) result instead of propagating."""
-    # Given a running job that does not match the argument
-    _mock_cluster(httpx2_mock, jobs=[job_stub("web")], allocs=None)
-
-    # When resolving with a non-matching arg
-    result = _resolve_with_client(job_arg="zzz", task_arg=None)
-
-    # Then the failure is reported as an exit code, not raised at the caller
-    assert result == (1, None)
-
-
-def test_resolve_with_client_maps_an_unavailable_prompt_to_one(
-    monkeypatch, httpx2_mock: respx.Router
-):
-    """Verify a PromptUnavailableError becomes a (1, None) result instead of propagating."""
-    # Given two running jobs matching the argument and a session that cannot prompt
-    _mock_cluster(httpx2_mock, jobs=[job_stub("web-api"), job_stub("web-ui")], allocs=None)
-    monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: False)
-
-    # When resolving an ambiguous name
-    result = _resolve_with_client(job_arg="web", task_arg=None)
-
-    # Then the failure is reported as an exit code, not raised at the caller
-    assert result == (1, None)
-
-
-def test_resolve_with_client_passes_through_a_soft_exit(httpx2_mock: respx.Router):
-    """Verify nothing selectable and no job argument yields a zero code and no target."""
-    # Given only dead jobs
-    _mock_cluster(httpx2_mock, jobs=[job_stub("web", status="dead")], allocs=None)
-
-    # When resolving with no job arg
-    result = _resolve_with_client(job_arg=None, task_arg=None)
-
-    # Then the caller is told to exit zero with nothing to act on
-    assert result == (0, None)
-
-
 def test_resolve_allocation_skips_the_task_choice(monkeypatch, httpx2_mock: respx.Router):
     """Verify resolving an allocation never asks for a task, even when it runs several."""
     # Given one running allocation with two running tasks and a session that cannot prompt
@@ -319,10 +253,10 @@ def test_resolve_allocation_skips_the_task_choice(monkeypatch, httpx2_mock: resp
     monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: False)
 
     # When resolving only the allocation
-    result = run_with_client(lambda client: resolve_allocation_with_client(client, job_arg="web"))
+    result = run_with_client(lambda client: resolve_allocation(client=client, job_arg="web"))
 
     # Then the allocation resolves without the task prompt a task resolver would need
-    assert result == (0, ResolvedAllocation(job_name="web", alloc_id="alloc-1"))
+    assert result == ResolvedAllocation(job_name="web", alloc_id="alloc-1")
 
 
 def test_resolve_alloc_arg_picks_by_id_prefix_without_a_prompt(

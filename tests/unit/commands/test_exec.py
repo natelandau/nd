@@ -12,16 +12,21 @@ from nd.cli import app
 from nd.commands import _common
 from nd.commands import exec as exec_mod
 from nd.constants import DEFAULT_EXEC_SHELL, EXEC_SHELL_PROBE
-from nd.targets import ResolvedTarget
+from nd.targets import ResolvedTarget, SelectionError
 
 if TYPE_CHECKING:
     from unittest.mock import MagicMock
 
 
 def _patch_resolver(
-    monkeypatch: pytest.MonkeyPatch, *, target: ResolvedTarget | None, exit_code: int = 0
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    target: ResolvedTarget | None,
+    error: SelectionError | None = None,
 ) -> dict[str, object]:
     """Patch the target resolver so tests exercise the command, not the picker.
+
+    A given ``error`` is raised instead of returning ``target``, as a failed resolution does.
 
     Returns:
         dict[str, object]: The arguments of the resolver call, filled in when the command runs.
@@ -30,9 +35,11 @@ def _patch_resolver(
 
     async def _fake_resolve(
         config, *, job_arg, task_arg, running_only=True
-    ) -> tuple[int, ResolvedTarget | None]:
+    ) -> ResolvedTarget | None:
         calls.update(job_arg=job_arg, task_arg=task_arg, running_only=running_only)
-        return (exit_code, target)
+        if error is not None:
+            raise error
+        return target
 
     monkeypatch.setattr(_common, "resolve_target", _fake_resolve)
     return calls
@@ -79,19 +86,19 @@ def test_exec_honors_shell_option(monkeypatch, typer_runner, exec_command: Magic
     assert exec_command.call_args.args[2] == ["/bin/bash"]
 
 
-def test_exec_no_target_exits_with_resolver_code(
-    monkeypatch, typer_runner, exec_command: MagicMock
-):
-    """Verify a resolver hard-failure exit code is propagated and nothing execs."""
+def test_exec_unresolvable_target_exits_one(monkeypatch, typer_runner, exec_command: MagicMock):
+    """Verify a selection failure ends the command with exit 1 and nothing execs."""
     # Given a resolver that reports a selection failure
-    _patch_resolver(monkeypatch, target=None, exit_code=1)
+    _patch_resolver(
+        monkeypatch, target=None, error=SelectionError("No running job matching 'nope'")
+    )
 
     # When invoking exec
     result = typer_runner.invoke(app, ["exec", "nope"])
 
     # Then the command exits 1 and never calls the binary layer
     assert result.exit_code == 1
-    assert isinstance(result.exception, SystemExit)
+    assert isinstance(result.exception, SelectionError)
     exec_command.assert_not_called()
 
 
