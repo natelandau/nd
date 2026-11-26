@@ -45,8 +45,8 @@ def render_hosts(report: StatusReport, host_panels: list[HostPanel]) -> None:
     """Print the host-focused dashboard: banner, one panel per host, then activity.
 
     The banner is identical to the default view; the per-resource panels are replaced by
-    a panel per client node (laid out in two columns on wide terminals), and the Activity
-    panel still trails when there is in-progress work.
+    a panel per machine, client or server (laid out in two columns on wide terminals), and
+    the Activity panel still trails when there is in-progress work.
     """
     console = pp.console()
     console.print(_banner(report))
@@ -56,7 +56,7 @@ def render_hosts(report: StatusReport, host_panels: list[HostPanel]) -> None:
         panels = [_host_panel(host, web, now_s) for host in host_panels]
         console.print(_host_grid(panels, console.width))
     else:
-        console.print(titled_panel("[dim]No client nodes[/]", "Hosts", expand=True))
+        console.print(titled_panel("[dim]No hosts[/]", "Hosts", expand=True))
     if report.deployments_active or report.evals_problem:
         console.print(_activity_panel(report))
 
@@ -65,10 +65,14 @@ def _host_styles(host: HostPanel) -> tuple[str, str]:
     """Return the (glyph, border) styles for a host, reserving color for problems.
 
     A healthy host keeps the calm cyan border shared with the other panels and a green
-    status dot; a draining/ineligible or unreachable host escalates both to yellow or red.
+    status dot; a draining/ineligible or unreachable host, or a failed server agent,
+    escalates both to yellow or red. A server-only host has no client eligibility, so only
+    its agent health counts.
     """
-    if host.status in {"down", "disconnected"}:
+    if host.status in {"down", "disconnected"} or not host.role_healthy:
         return "red", "red"
+    if host.link_id is None:
+        return "green", "cyan"
     if not host.eligible or host.status != "ready":
         return "yellow", "yellow"
     return "green", "cyan"
@@ -77,13 +81,17 @@ def _host_styles(host: HostPanel) -> tuple[str, str]:
 def _host_panel(host: HostPanel, web: WebUi, now_s: float) -> Panel:
     """Build one host's panel: a linked title over the jobs running on that host."""
     glyph_style, border_style = _host_styles(host)
-    eligibility = "eligible" if host.eligible else "ineligible"
+    name = web.node(node_id=host.link_id, label=host.name) if host.link_id else host.name
+    role = "" if host.role == "client" else f" · {_role_cell(host)}"
+    eligibility = (
+        "" if host.link_id is None else (" · eligible" if host.eligible else " · ineligible")
+    )
     # Address pairs with the name as the host's identity, and sits early enough that a
     # half-width panel truncates version and eligibility first; those two are recoverable
     # from the dot and border colors, while the address appears nowhere else in this view.
     title = (
-        f"[{glyph_style}]●[/] {web.node(host.link_id, host.name)} · [dim]{host.address}[/]"
-        f" · {host.status} · {eligibility} · {host.version}"
+        f"[{glyph_style}]●[/] {name} · [dim]{host.address}[/]{role}"
+        f" · {host.status}{eligibility} · {host.version}"
     )
 
     if host.jobs:
@@ -95,6 +103,8 @@ def _host_panel(host: HostPanel, web: WebUi, now_s: float) -> Panel:
                 status_cell(row.status),
                 fmt_uptime(row.run_start_ns, now_s),
             )
+    elif host.link_id is None:
+        body = "[dim]Server only, runs no jobs[/]"
     else:
         body = "[dim]No jobs[/]"
 
@@ -118,7 +128,7 @@ def _host_grid(panels: list[Panel], width: int) -> RenderableType:
     return grid
 
 
-def _role_cell(row: NodeRow) -> str:
+def _role_cell(row: NodeRow | HostPanel) -> str:
     """Render a node's cluster role, flagging an unhealthy server agent."""
     if row.role == "client":
         return "[dim]client[/]"
@@ -212,13 +222,13 @@ def _banner(report: StatusReport) -> Panel:
 
 def _nodes_panel(report: StatusReport) -> Panel:
     """Build the combined nodes panel (clients + servers, role-annotated)."""
-    rows = correlate_nodes(report.nodes, report.servers)
+    rows = correlate_nodes(nodes=report.nodes, servers=report.servers)
     if not rows:
         return titled_panel("[dim]No nodes[/]", "Nodes", expand=True)
     web = WebUi(report.ui_url)
     table = _table("NAME", "ADDRESS", "ROLE", "ALLOCS", "STATUS", "ELIGIBLE", "VERSION")
     for row in rows:
-        name = web.node(row.link_id, row.name) if row.link_id else row.name
+        name = web.node(node_id=row.link_id, label=row.name) if row.link_id else row.name
         eligible = (
             "[green]✓[/]" if row.eligible else ("[dim]-[/]" if row.link_id is None else "[red]✗[/]")
         )

@@ -97,12 +97,14 @@ class HostJobRow:
 
 @dataclass(frozen=True)
 class HostPanel:
-    """A single client node's slice of cluster state for the ``--hosts`` view."""
+    """One machine's slice of cluster state for the ``--hosts`` view: a client, a server, or both."""
 
     name: str
-    link_id: str  # node id for the web UI link
+    link_id: str | None  # node id for the web UI link; None for server-only hosts
     address: str
-    status: str
+    role: str  # "leader" | "server" | "client"
+    role_healthy: bool  # serf status alive (always True for plain clients)
+    status: str  # client node status, or the serf status for server-only hosts
     eligible: bool  # scheduling-eligible and not draining
     version: str
     jobs: list[HostJobRow]
@@ -243,13 +245,16 @@ def build_host_report(
     nodes: list[NodeListStub],
     jobs: list[JobListStub],
     allocs: list[AllocListStub],
+    servers: list[ServerInfo],
 ) -> list[HostPanel]:
-    """Compute one `HostPanel` per client node for the ``--hosts`` view.
+    """Compute one `HostPanel` per machine for the ``--hosts`` view.
 
     Pivots the cluster snapshot to focus on machines: each panel carries the notable
     allocations placed on its node (running/pending plus genuine unreplaced failures, the
-    same allocs the default view treats as live). Kept pure and Rich-free so the grouping
-    logic is unit-testable on its own.
+    same allocs the default view treats as live). Servers fold into their client node's
+    panel as a role, and a server with no client agent gets a panel of its own so the
+    view hides no machine. Kept pure and Rich-free so the grouping logic is unit-testable
+    on its own.
     """
     jobs_by_id = {job.id: job for job in jobs}
     allocs_by_node: dict[str, list[AllocListStub]] = {}
@@ -257,27 +262,26 @@ def build_host_report(
         if _is_host_job_alloc(alloc):
             allocs_by_node.setdefault(alloc.node_id, []).append(alloc)
 
-    panels: list[HostPanel] = []
-    for node in sorted(nodes, key=lambda n: n.name):
-        job_rows = sorted(
-            (
-                _host_job_row(alloc, jobs_by_id.get(alloc.job_id))
-                for alloc in allocs_by_node.get(node.id, [])
+    return [
+        HostPanel(
+            name=row.name,
+            link_id=row.link_id,
+            address=row.address,
+            role=row.role,
+            role_healthy=row.role_healthy,
+            status=row.status,
+            eligible=row.eligible,
+            version=row.version,
+            jobs=sorted(
+                (
+                    _host_job_row(alloc, jobs_by_id.get(alloc.job_id))
+                    for alloc in allocs_by_node.get(row.link_id or "", [])
+                ),
+                key=lambda r: (r.name, r.group),
             ),
-            key=lambda r: (r.name, r.group),
         )
-        panels.append(
-            HostPanel(
-                name=node.name,
-                link_id=node.id,
-                address=node.address,
-                status=node.status,
-                eligible=node.is_eligible,
-                version=node.version,
-                jobs=job_rows,
-            )
-        )
-    return panels
+        for row in correlate_nodes(nodes=nodes, servers=servers)
+    ]
 
 
 def _is_host_job_alloc(alloc: AllocListStub) -> bool:

@@ -68,7 +68,7 @@ def test_collect_renders_without_volumes_when_the_endpoint_fails(
 
 @pytest.mark.usefixtures("mocked_cluster")
 def test_collect_returns_report_and_host_panels() -> None:
-    """Verify _collect returns both the status report and one host panel per client node."""
+    """Verify _collect returns both the status report and one host panel per machine."""
     # Given a fully mocked cluster
     # When collecting status for the host view
     report, panels = asyncio.run(_collect(verbose=0, hosts=True))

@@ -67,13 +67,37 @@ def test_build_host_report_one_panel_per_node_sorted() -> None:
     ]
 
     # When building the host report
-    panels = build_host_report(nodes=nodes, jobs=[], allocs=[])
+    panels = build_host_report(nodes=nodes, jobs=[], allocs=[], servers=[])
 
     # Then there is one panel per node, alphabetical, carrying node identity
     assert [p.name for p in panels] == ["alpha", "mid", "zeta"]
     assert panels[0].address == "10.0.0.1"
     assert panels[0].link_id == "alpha"
     assert panels[0].jobs == []
+
+
+def test_build_host_report_includes_server_only_hosts_with_roles() -> None:
+    """Verify servers without a client agent get a panel and co-located servers carry a role."""
+    # Given a leader that also runs a client with a job, and a server with no client agent
+    nodes = [node_stub("mf1", address="10.0.0.1")]
+    jobs = [job_stub("web")]
+    allocs = [alloc_stub("w1", job_id="web", node_id="mf1")]
+    servers = [
+        ServerInfo(name="mf1", addr="10.0.0.1", status="alive", version="2.0.3", is_leader=True),
+        ServerInfo(name="ctl", addr="10.0.0.5", status="alive", version="2.0.3", is_leader=False),
+    ]
+
+    # When building the host report with the server members
+    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs, servers=servers)
+
+    # Then both machines appear: the leader keeps its jobs, the server-only host has none
+    by_name = {p.name: p for p in panels}
+    assert [p.name for p in panels] == ["ctl", "mf1"]
+    assert by_name["mf1"].role == "leader"
+    assert [r.name for r in by_name["mf1"].jobs] == ["web"]
+    assert by_name["ctl"].role == "server"
+    assert by_name["ctl"].link_id is None
+    assert by_name["ctl"].jobs == []
 
 
 def test_build_host_report_groups_jobs_by_node_with_type_and_group() -> None:
@@ -87,7 +111,7 @@ def test_build_host_report_groups_jobs_by_node_with_type_and_group() -> None:
     ]
 
     # When building the host report
-    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs)
+    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs, servers=[])
 
     # Then each node's panel carries the job rows placed on it, with type resolved from the job
     by_name = {p.name: p for p in panels}
@@ -117,7 +141,7 @@ def test_build_host_report_filters_allocs_like_default_view() -> None:
     ]
 
     # When building the host report
-    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs)
+    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs, servers=[])
 
     # Then only running, pending, and the unreplaced failure remain
     statuses = sorted(r.status for r in panels[0].jobs)
@@ -139,7 +163,7 @@ def test_build_host_report_uses_run_start_anchor() -> None:
     ]
 
     # When building the host report
-    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs)
+    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs, servers=[])
 
     # Then the row carries the task start (not the earlier create time) as its anchor
     assert panels[0].jobs[0].run_start_ns == 9_000_000_000
@@ -151,7 +175,7 @@ def test_build_host_report_reflects_node_health_metadata() -> None:
     nodes = [node_stub("srv1", status="ready", drain=True, eligibility="ineligible")]
 
     # When building the host report
-    panels = build_host_report(nodes=nodes, jobs=[], allocs=[])
+    panels = build_host_report(nodes=nodes, jobs=[], allocs=[], servers=[])
 
     # Then the panel reports the node status/version and marks it not eligible
     assert panels[0].status == "ready"

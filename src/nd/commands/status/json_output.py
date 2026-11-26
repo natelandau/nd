@@ -108,11 +108,12 @@ class HostJobJson(msgspec.Struct, frozen=True, kw_only=True):
 
 
 class HostJson(msgspec.Struct, frozen=True, kw_only=True):
-    """A client node and the jobs placed on it."""
+    """A machine and the jobs placed on it. ``id`` is null for a server-only host."""
 
-    id: str
+    id: str | None
     name: str
     address: str
+    role: str
     status: str
     eligible: bool
     version: str
@@ -217,6 +218,7 @@ def _host_json(host: HostPanel) -> HostJson:
         id=host.link_id,
         name=host.name,
         address=host.address,
+        role=host.role,
         status=host.status,
         eligible=host.eligible,
         version=host.version,

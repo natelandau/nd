@@ -233,7 +233,7 @@ def test_render_hosts_shows_banner_and_per_host_jobs() -> None:
     jobs = [job_stub("web")]
     allocs = [alloc_stub("w1", node_id="alpha", task_group="frontend", create_time=1_000_000_000)]
     report = build_report(nodes=nodes, jobs=jobs, allocs=allocs, config=_CONFIG)
-    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs)
+    panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs, servers=[])
     console = capture_output()
 
     # When rendering the host view
@@ -259,7 +259,7 @@ def test_render_hosts_shows_placeholder_for_empty_host() -> None:
     # Given a node with nothing placed on it
     nodes = [node_stub("alpha")]
     report = build_report(nodes=nodes, jobs=[], allocs=[], config=_CONFIG)
-    panels = build_host_report(nodes=nodes, jobs=[], allocs=[])
+    panels = build_host_report(nodes=nodes, jobs=[], allocs=[], servers=[])
     console = capture_output()
 
     # When rendering the host view
@@ -270,6 +270,25 @@ def test_render_hosts_shows_placeholder_for_empty_host() -> None:
     assert "alpha" in text
     assert "No jobs" in text
     assert "No volumes" not in text
+
+
+def test_render_hosts_shows_server_only_host() -> None:
+    """Verify a server with no client agent renders as its own host panel."""
+    # Given a client node and a server member with no client agent
+    nodes = [node_stub("alpha")]
+    members = [agent_member("ctl", addr="10.0.0.5")]
+    report = build_report(nodes=nodes, jobs=[], allocs=[], config=_CONFIG, members=members)
+    panels = build_host_report(nodes=nodes, jobs=[], allocs=[], servers=report.servers)
+    console = capture_output()
+
+    # When rendering the host view
+    render_hosts(report=report, host_panels=panels)
+
+    # Then both machines render, the server-only one with its address
+    text = console.export_text()
+    assert "alpha" in text
+    assert "ctl" in text
+    assert "10.0.0.5" in text
 
 
 def test_render_hosts_shows_activity_panel_when_present() -> None:
@@ -284,7 +303,7 @@ def test_render_hosts_shows_activity_panel_when_present() -> None:
         deployments=[deployment("web", status="running")],
         evals=[eval_stub("api", status="blocked")],
     )
-    panels = build_host_report(nodes=nodes, jobs=[], allocs=[])
+    panels = build_host_report(nodes=nodes, jobs=[], allocs=[], servers=[])
     console = capture_output()
 
     # When rendering the host view
@@ -305,7 +324,7 @@ def test_render_hosts_lays_out_panels_by_width(width: int, *, side_by_side: bool
     # Given two nodes
     nodes = [node_stub("alpha"), node_stub("beta")]
     report = build_report(nodes=nodes, jobs=[], allocs=[], config=_CONFIG)
-    panels = build_host_report(nodes=nodes, jobs=[], allocs=[])
+    panels = build_host_report(nodes=nodes, jobs=[], allocs=[], servers=[])
     console = capture_output(width=width)
 
     # When rendering at a width above or below the two-column threshold
