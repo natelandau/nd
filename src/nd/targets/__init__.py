@@ -12,7 +12,9 @@ from nd.targets.alloc_target import (
     SelectionError,
     resolve_alloc_task,
     resolve_allocation_with_client,
+    resolve_every_alloc_with_client,
     resolve_target,
+    resolve_task_in_every_alloc,
     resolve_with_client,
 )
 from nd.targets.selection import (
@@ -34,8 +36,10 @@ __all__ = [
     "pick_single",
     "resolve_alloc_task",
     "resolve_allocation_with_client",
+    "resolve_every_alloc_with_client",
     "resolve_target",
     "resolve_targets",
+    "resolve_task_in_every_alloc",
     "resolve_with_client",
     "select_candidates",
     "select_one_candidate",

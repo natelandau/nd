@@ -15,9 +15,10 @@ from nd.commands._common import (
     dry_run_option,
     record_step,
 )
+from nd.commands._orchestration import request_all
 from nd.nomad import NomadClient, NomadConfig
-from nd.targets import resolve_with_client
-from nd.ui.text import short_id
+from nd.targets import ResolvedTarget, resolve_every_alloc_with_client, resolve_with_client
+from nd.ui.text import plural, short_id
 
 # The names every Nomad driver's SignalTask parses (consul-template's SignalLookup).
 # Deriving this from the local libc instead diverges both ways: it drops SIGNULL and
@@ -56,6 +57,9 @@ _VALID_SIGNALS = frozenset(
     }
 )
 
+# Named when the allocation prompt cannot be shown, such as from cron
+_ALLOC_PROMPT_REMEDY = "pass --all-allocs, or --alloc with an allocation ID"
+
 app = command_app()
 
 
@@ -84,7 +88,7 @@ def _normalize_signal(value: str) -> str:
 
 
 @app.callback(invoke_without_command=True)
-def signal(
+def signal(  # noqa: PLR0913
     ctx: typer.Context,
     # Declared before JOB only because a required parameter cannot follow a defaulted
     # one; JOB is still the sole positional.
@@ -103,6 +107,21 @@ def signal(
         str | None,
         typer.Option("--task", "-t", help="Target task; skips the task prompt."),
     ] = None,
+    alloc: Annotated[
+        str | None,
+        typer.Option(
+            "--alloc",
+            help="Allocation whose ID starts with this; skips the allocation prompt.",
+        ),
+    ] = None,
+    all_allocs: Annotated[  # noqa: FBT002
+        bool,
+        typer.Option(
+            "--all-allocs",
+            help="Signal the task in every running allocation of the job; skips the "
+            "allocation prompt.",
+        ),
+    ] = False,
     dry_run: Annotated[  # noqa: FBT002
         bool, dry_run_option("Show the target that would be signaled.")
     ] = False,
@@ -112,26 +131,49 @@ def signal(
 
     Resolves a running job, allocation, and task, prompting only where the choice is
     ambiguous, then delivers the signal. Use it to trigger an action a task exposes
-    out of band, such as making a scheduled backup run now.
+    out of band, such as making a scheduled backup run now. When the job has several
+    running allocations, --all-allocs signals every one, which suits scripts and cron
+    because it does not depend on allocation IDs that change on each deploy.
 
     A success line means Nomad delivered the signal, not that the process acted on it.
     Check the task's logs to see what it did.
     """
     verbose = configure_verbosity(ctx, verbose)
     sig = _normalize_signal(signal_name)
+    if alloc is not None and all_allocs:
+        msg = (
+            f"--all-allocs signals every allocation, so it cannot be combined with --alloc {alloc}"
+        )
+        raise typer.BadParameter(message=msg, param_hint="--all-allocs")
     config = NomadConfig.resolve()
     exit_code = asyncio.run(
-        _run(config, job=job, task=task, sig=sig, dry_run=dry_run, verbose=verbose)
+        _run_every_alloc(config=config, job=job, task=task, sig=sig, dry_run=dry_run)
+        if all_allocs
+        else _run(
+            config=config,
+            job=job,
+            task=task,
+            alloc=alloc,
+            sig=sig,
+            dry_run=dry_run,
+            verbose=verbose,
+        )
     )
     if exit_code != 0:
         raise typer.Exit(exit_code)
 
 
+def _describe(target: ResolvedTarget) -> str:
+    """Name a signal target for output lines."""
+    return f"task {target.task} in alloc {short_id(target.alloc_id)} ({target.job_name})"
+
+
 async def _run(
-    config: NomadConfig,
     *,
+    config: NomadConfig,
     job: str | None,
     task: str | None,
+    alloc: str | None,
     sig: str,
     dry_run: bool,
     verbose: int,
@@ -143,12 +185,17 @@ async def _run(
     """
     async with NomadClient(config) as client:
         exit_code, target = await resolve_with_client(
-            client, job_arg=job, task_arg=task, running_only=True
+            client=client,
+            job_arg=job,
+            task_arg=task,
+            alloc_arg=alloc,
+            alloc_remedy=_ALLOC_PROMPT_REMEDY,
+            running_only=True,
         )
         if target is None:
             return exit_code
 
-        where = f"task {target.task} in alloc {short_id(target.alloc_id)} ({target.job_name})"
+        where = _describe(target)
         if dry_run:
             pp.dryrun(f"Would send {sig} to {where}")
             return 0
@@ -167,3 +214,46 @@ async def _run(
         details=[f"run `nd logs {target.job_name}` to see what the task did"],
     )
     return 0
+
+
+async def _run_every_alloc(
+    *, config: NomadConfig, job: str | None, task: str | None, sig: str, dry_run: bool
+) -> int:
+    """Signal one task in every running allocation of a job, reporting each delivery.
+
+    A failed delivery to one allocation does not stop the others.
+
+    Returns:
+        int: The exit code: the resolver's code when there is nothing to signal, 1 when
+            any delivery failed, else 0.
+    """
+    async with NomadClient(config) as client:
+        exit_code, targets = await resolve_every_alloc_with_client(
+            client=client, job_arg=job, task_arg=task
+        )
+        if targets is None:
+            return exit_code
+
+        if dry_run:
+            pp.dryrun(
+                f"Would send {sig} to {plural(len(targets), 'task')}",
+                details=[_describe(t) for t in targets],
+            )
+            return 0
+
+        async def send(target: ResolvedTarget) -> str:
+            await client.allocations.signal(target.alloc_id, signal=sig, task=target.task)
+            pp.debug(f"POST /v1/client/allocation/{target.alloc_id}/signal")
+            return ""
+
+        exit_code = await request_all(
+            items=targets,
+            request=send,
+            name_of=_describe,
+            summary_of=lambda count: f"Sent {sig} to {plural(count, 'task')}",
+            fail_verb=f"receive {sig}",
+        )
+
+    if exit_code == 0:
+        pp.info(f"run `nd logs {targets[0].job_name}` to see what the tasks did")
+    return exit_code

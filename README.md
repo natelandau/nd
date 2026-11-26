@@ -268,6 +268,19 @@ A success line means Nomad delivered the signal to the task. Whether the process
 on it is up to the process: it can be busy, or it can ignore that signal. Check
 with `nd logs ezbak`.
 
+If a job has more than one running allocation, `nd signal` asks which one to signal.
+A script or cron job cannot answer that prompt, so the command exits with an error.
+Use `--all-allocs` to signal the task in every running allocation. Use `--alloc` to
+pick one allocation by the start of its ID:
+
+```bash
+nd signal web -s SIGHUP -t api --all-allocs  # signal "api" in every allocation
+nd signal web -s SIGHUP --alloc 3f9a         # signal the allocation whose ID starts with 3f9a
+```
+
+Allocation IDs change on each deploy. For a script that runs on a schedule, use
+`--all-allocs`.
+
 The name is checked against the fixed set Nomad's task drivers accept, which is not the
 same as your machine's signal list: `SIGCHLD` and `SIGURG` are refused even though your
 libc has them, and `SIGNULL` and `SIGIOT` are accepted even when your libc lacks them. A name
