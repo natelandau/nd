@@ -367,7 +367,11 @@ def _job_node_names(
 
 
 def _build_servers(members: list[AgentMember], leader: str) -> list[ServerInfo]:
-    """Convert serf members into `ServerInfo`, resolving which one is the leader."""
+    """Convert serf members into `ServerInfo`, resolving which one is the leader.
+
+    A member that left the cluster on purpose is dropped: it is no longer part of the
+    control plane, and Nomad keeps listing it only until serf reaps it.
+    """
     return [
         ServerInfo(
             name=member.short_name,
@@ -377,6 +381,7 @@ def _build_servers(members: list[AgentMember], leader: str) -> list[ServerInfo]:
             is_leader=_member_is_leader(member, leader),
         )
         for member in members
+        if member.status != "left"
     ]
 
 

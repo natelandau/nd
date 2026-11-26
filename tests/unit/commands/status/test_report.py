@@ -427,12 +427,21 @@ def test_build_report_critical_when_no_leader() -> None:
     assert report.health is Health.CRITICAL
 
 
-def test_build_report_degraded_when_server_not_alive() -> None:
-    """Verify a non-alive server degrades the cluster."""
-    # Given a failed follower alongside the alive leader
+@pytest.mark.parametrize(
+    ("follower_status", "expected_servers", "expected_health"),
+    [
+        pytest.param("failed", ["mf1", "rpi1"], Health.DEGRADED, id="failed-degrades"),
+        pytest.param("left", ["mf1"], Health.HEALTHY, id="left-is-hidden"),
+    ],
+)
+def test_build_report_server_not_alive(
+    follower_status: str, expected_servers: list[str], expected_health: Health
+) -> None:
+    """Verify a failed server degrades the cluster and a server that left is dropped."""
+    # Given a follower in the given serf status alongside the alive leader
     members = [
         agent_member("mf1.global", addr="10.0.0.1"),
-        agent_member("rpi1.global", addr="10.0.0.2", status="failed"),
+        agent_member("rpi1.global", addr="10.0.0.2", status=follower_status),
     ]
 
     # When building the report
@@ -440,9 +449,10 @@ def test_build_report_degraded_when_server_not_alive() -> None:
         nodes=[], jobs=[], allocs=[], config=_CONFIG, members=members, leader="10.0.0.1:4647"
     )
 
-    # Then the cluster is degraded
+    # Then only current servers are listed, and the health verdict follows
+    assert [s.name for s in report.servers] == expected_servers
     assert report.servers_alive == 1
-    assert report.health is Health.DEGRADED
+    assert report.health is expected_health
 
 
 def test_build_report_flags_active_deployments_and_problem_evals() -> None:
