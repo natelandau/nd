@@ -145,7 +145,7 @@ Run `nd --help`, or `nd <command> --help`, for the full option list at any time.
 | Command                     | What it does                                                                      |
 | --------------------------- | --------------------------------------------------------------------------------- |
 | `nd status`                 | Show an at-a-glance overview of the cluster. Also runs when you type `nd` alone.  |
-| `nd status --hosts`         | Pivot the same overview to one panel per host, listing the jobs each is running.  |
+| `nd status --hosts`         | Pivot the same overview to one panel per machine, with its server role and jobs.  |
 | `nd doctor [NAME]`          | List job and cluster problems, worst first. Exits 1 on any warning.               |
 | `nd list`                   | List discovered job files and whether each is running, dead, or not deployed.     |
 | `nd plan [JOB]`             | Preview the changes one or more job files would apply, including to running jobs. |
@@ -365,11 +365,11 @@ Add `--json` to `nd list`, `nd status`, or `nd status --hosts` to get the result
 one JSON document. Stdout holds only the JSON. Errors and `-v` output go to stderr,
 so you can pipe stdout to `jq`.
 
-| Command                    | Output                                                                                                                                                   |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `nd list --json`           | An array of `{job, status, file}`. The status is the Nomad job status, or `not deployed`. `job` is `null` when the job name in the file is not resolved. |
-| `nd status --json`         | An object with `health`, `cluster`, `servers`, `nodes`, `jobs`, `allocations`, `volumes`, `deployments`, and `problem_evaluations`.                      |
-| `nd status --hosts --json` | The same object, with a `hosts` array. Each host lists its jobs with a `started_at` time, or `null` when Nomad has none.                                 |
+| Command                    | Output                                                                                                                                                                                                                        |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nd list --json`           | An array of `{job, status, file}`. The status is the Nomad job status, or `not deployed`. `job` is `null` when the job name in the file is not resolved.                                                                      |
+| `nd status --json`         | An object with `health`, `cluster`, `servers`, `nodes`, `jobs`, `allocations`, `volumes`, `deployments`, and `problem_evaluations`.                                                                                           |
+| `nd status --hosts --json` | The same object, with a `hosts` array. Each host has a `role` (`client`, `server`, or `leader`) and lists its jobs with a `started_at` time, or `null` when Nomad has none. `id` is `null` for a server with no client agent. |
 
 Each job in `nd status --json` has two statuses. `status` is the status that `nd`
 shows, and it can be `degraded`. `nomad_status` is the status that Nomad reports.

@@ -50,7 +50,7 @@ def test_build_status_json_reports_effective_and_raw_job_status() -> None:
 
 
 def test_build_status_json_lists_server_only_host_with_null_id() -> None:
-    """Verify a server with no client node appears as a node with a null ID."""
+    """Verify a server with no client node appears as a node and a host with a null ID."""
     # Given a leader server that runs no client agent
     report = build_report(
         nodes=[],
@@ -60,12 +60,16 @@ def test_build_status_json_lists_server_only_host_with_null_id() -> None:
         members=[agent_member("srv1.global", addr="10.0.0.9")],
         leader="10.0.0.9:4647",
     )
+    hosts = build_host_report(nodes=[], jobs=[], allocs=[], servers=report.servers)
 
-    # When building the JSON document
-    document = _encoded(build_status_json(report))
+    # When building the JSON document with host panels
+    document = _encoded(build_status_json(report=report, host_panels=hosts))
 
-    # Then the server is a node row with no ID, and the cluster names it leader
+    # Then the server is a node row and a host with no ID, and the cluster names it leader
     assert [(n["name"], n["id"], n["role"]) for n in document["nodes"]] == [
+        ("srv1", None, "leader")
+    ]
+    assert [(h["name"], h["id"], h["role"]) for h in document["hosts"]] == [
         ("srv1", None, "leader")
     ]
     assert document["cluster"]["leader"] == "srv1"
@@ -99,7 +103,7 @@ def test_build_status_json_host_started_at(run_start_ns: int, expected: str | No
     jobs = [job_stub("web")]
     allocs = [alloc_stub("a1", job_id="web", node_id="n1", create_time=run_start_ns)]
     report = build_report(nodes=nodes, jobs=jobs, allocs=allocs, config=_CONFIG)
-    hosts = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs)
+    hosts = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs, servers=[])
 
     # When building the JSON document with host panels
     document = _encoded(build_status_json(report=report, host_panels=hosts))

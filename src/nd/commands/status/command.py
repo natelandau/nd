@@ -120,5 +120,9 @@ async def _collect(*, verbose: int, hosts: bool = False) -> tuple[StatusReport, 
         evals=evals,
         volumes=volumes,
     )
-    host_panels = build_host_report(nodes=nodes, jobs=jobs, allocs=allocs) if hosts else []
+    host_panels = (
+        build_host_report(nodes=nodes, jobs=jobs, allocs=allocs, servers=report.servers)
+        if hosts
+        else []
+    )
     return report, host_panels
