@@ -1,3 +1,28 @@
+## v0.8.0 (2026-11-26)
+
+### Feat
+
+- **signal**: signal every allocation, or one by ID (#20)
+- **status**: show server-only hosts in --hosts (#19)
+- **output**: add --json to list and status (#18)
+- **restart**: add a command to restart tasks in place (#17)
+- **run**: show why a deploy failed (#16)
+- **doctor**: flag jobs that differ from their local files (#15)
+- **doctor**: add a cluster health check command (#14)
+
+### Fix
+
+- accept nd --hosts and stop early deploy success (#21)
+- **run**: show registering before a service job is placed
+- **config**: let env vars override the config file (#9)
+
+### Refactor
+
+- **targets**: report selection failures from main (#22)
+- **jobfiles**: share spec-file discovery with volumes (#12)
+- **commands**: share command helpers and outcomes (#11)
+- **nomad**: simplify the API client and models (#10)
+
 ## v0.7.0 (2026-10-12)
 
 ### Feat
