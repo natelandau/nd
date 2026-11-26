@@ -7,6 +7,8 @@ from typing import Annotated
 
 import typer
 from nclutils import pp
+from typer import _click as click  # Typer vendors Click; TyperGroup overrides take its Context
+from typer.core import TyperGroup
 
 from nd import __version__
 from nd.commands import (
@@ -32,7 +34,60 @@ from nd.nomad import (
 )
 from nd.ui.prompts import PromptUnavailableError
 
+DEFAULT_SUBCOMMAND = "status"
+
+
+class DefaultStatusGroup(TyperGroup):
+    """Route options that no root flag claims to the default ``status`` subcommand.
+
+    Bare ``nd`` already shows the status dashboard, so ``nd --hosts`` and ``nd --json``
+    should too. Declaring those flags on the root would list them in global help and let
+    ``nd run --hosts`` accept and ignore them, so they are forwarded here instead.
+    """
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        """Insert ``status`` before the first argument that is an option the root lacks.
+
+        Args:
+            ctx: The root command's context.
+            args: The raw command-line arguments after ``nd``.
+
+        Returns:
+            list[str]: The arguments left for the subcommand, as Typer returns them.
+        """
+        root_long_options: set[str] = set()
+        root_short_flags: set[str] = set()
+        for param in self.get_params(ctx):
+            for option in (*param.opts, *param.secondary_opts):
+                if option.startswith("--"):
+                    root_long_options.add(option)
+                elif option.startswith("-"):
+                    root_short_flags.add(option[1:])
+
+        def is_root_option(token: str) -> bool:
+            if token.startswith("--"):
+                return token in root_long_options
+            # A bundled short flag such as -vv
+            return (
+                token.startswith("-")
+                and len(token) > 1
+                and all(flag in root_short_flags for flag in token[1:])
+            )
+
+        first_unclaimed = next(
+            (index for index, token in enumerate(args) if not is_root_option(token)), None
+        )
+        if (
+            first_unclaimed is not None
+            and args[first_unclaimed].startswith("-")
+            and args[first_unclaimed] != "--"
+        ):
+            args = [*args[:first_unclaimed], DEFAULT_SUBCOMMAND, *args[first_unclaimed:]]
+        return super().parse_args(ctx, args)
+
+
 app = typer.Typer(
+    cls=DefaultStatusGroup,
     add_completion=False,
     context_settings={"help_option_names": ["-h", "--help"]},
 )
@@ -84,7 +139,11 @@ def root(
         ),
     ] = False,
 ) -> None:
-    """Manage Nomad jobs, allocations, and host volumes from the command line."""
+    """Manage Nomad jobs, allocations, and host volumes from the command line.
+
+    With no command, show the status dashboard. Status options such as --hosts and
+    --json work here too.
+    """
     pp.configure(verbosity=verbose)
     ctx.obj = AppState(verbose=verbose)
 

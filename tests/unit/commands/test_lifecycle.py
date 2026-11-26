@@ -27,11 +27,13 @@ from tests.builders import alloc_stub, deployment, job_stub, task_state, to_payl
 from tests.helpers import NOMAD_TEST_ADDR, discard_panel_update, run_with_client
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     import respx
 
     from nd.commands._lifecycle import DeployOutcome
     from nd.nomad.models.allocation import AllocListStub
-    from nd.ui.live_panel import PanelUpdate
+    from nd.ui.live_panel import LiveChild, PanelUpdate
 
 
 def _watch(
@@ -217,16 +219,45 @@ def test_watch_service_failure_reports_failed(httpx2_mock: respx.Router) -> None
     assert [a.alloc_id for a in outcome.failed_allocs] == ["a1"]
 
 
-def test_watch_batch_all_allocs_complete_reports_deployed(httpx2_mock: respx.Router) -> None:
-    """Verify a batch job with no deployments and all allocs complete returns DEPLOYED."""
-    # Given a batch job with no deployments and one allocation in complete status
+@pytest.mark.parametrize(
+    "allocs",
+    [
+        pytest.param(
+            [alloc_stub(job_id="batch", client_status="complete", create_index=11)],
+            id="placed-and-complete",
+        ),
+        pytest.param(
+            [alloc_stub(job_id="batch", client_status="running", create_index=1, modify_index=12)],
+            id="updated-in-place",
+        ),
+        pytest.param(
+            [
+                alloc_stub(
+                    "a1",
+                    job_id="batch",
+                    client_status="failed",
+                    create_index=11,
+                    next_allocation="a2",
+                ),
+                alloc_stub("a2", job_id="batch", client_status="running", create_index=12),
+            ],
+            id="failure-replaced",
+        ),
+    ],
+)
+def test_watch_batch_all_allocs_complete_reports_deployed(
+    httpx2_mock: respx.Router, allocs: list[AllocListStub]
+) -> None:
+    """Verify a batch job finishes once every allocation this run placed or updated is healthy."""
+    # Given a batch job registered at index 10 with no deployments, whose current
+    # allocations from this run are all running or complete
     httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/batch/deployments").respond(json=[])
     httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/batch/allocations").respond(
-        json=[to_payload(alloc_stub(job_id="batch", task_group="batch", client_status="complete"))]
+        json=[to_payload(a) for a in allocs]
     )
 
     # When watching the job allocations to completion
-    outcome = _watch("batch", is_service=False)
+    outcome = _watch("batch", since_index=10, is_service=False)
 
     # Then the outcome status is DEPLOYED
     assert outcome.severity is Severity.OK
@@ -234,10 +265,22 @@ def test_watch_batch_all_allocs_complete_reports_deployed(httpx2_mock: respx.Rou
 
 
 @pytest.mark.parametrize(
-    ("is_service", "expected_phase"),
+    ("is_service", "prior_run_allocs", "expected_phase"),
     [
-        pytest.param(True, "registering", id="service-awaits-deployment"),
-        pytest.param(False, "placing 0/? allocs", id="batch-awaits-allocs"),
+        pytest.param(True, [], "registering", id="service-awaits-deployment"),
+        pytest.param(False, [], "placing 0/? allocs", id="batch-awaits-allocs"),
+        pytest.param(
+            True,
+            [alloc_stub(client_status="complete", create_index=1)],
+            "registering",
+            id="service-ignores-prior-run-allocs",
+        ),
+        pytest.param(
+            False,
+            [alloc_stub(client_status="complete", create_index=1)],
+            "placing 0/? allocs",
+            id="batch-ignores-prior-run-allocs",
+        ),
     ],
 )
 def test_watch_phase_before_first_placement(
@@ -245,23 +288,56 @@ def test_watch_phase_before_first_placement(
     monkeypatch: pytest.MonkeyPatch,
     *,
     is_service: bool,
+    prior_run_allocs: list[AllocListStub],
     expected_phase: str,
 ) -> None:
-    """Verify a never-run job's phase before Nomad places anything depends on its type."""
+    """Verify a job's phase before this run places anything depends on its type alone."""
     # Given zero-duration timeout and poll interval so the watch polls once
     monkeypatch.setattr(lifecycle_mod, "DEPLOY_TIMEOUT_SECONDS", 0.0)
     monkeypatch.setattr(lifecycle_mod, "POLL_INTERVAL_SECONDS", 0.0)
 
-    # Given a job that has never run: no deployments and no allocations yet
+    # Given no deployments and no allocations from this registration (index 10), only
+    # any finished allocations a prior run left behind
     httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/deployments").respond(json=[])
-    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/allocations").respond(json=[])
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/allocations").respond(
+        json=[to_payload(a) for a in prior_run_allocs]
+    )
     phases: list[str] = []
+    rows: list[list[LiveChild]] = []
+
+    def record(phase: str, children: Sequence[LiveChild] = ()) -> None:
+        phases.append(phase)
+        rows.append(list(children))
 
     # When watching the deploy
-    _watch(is_service=is_service, update=lambda phase, children=(): phases.append(phase))
+    outcome = _watch(since_index=10, is_service=is_service, update=record)
 
-    # Then the row shows the phase that matches what the job is waiting on
+    # Then the row shows the phase that matches what the job is waiting on, lists none
+    # of the prior run's allocations, and the watch does not report success before
+    # this run places anything
     assert phases == [expected_phase]
+    assert rows == [[]]
+    assert outcome.severity is Severity.WARN
+
+
+def test_watch_service_without_own_deployment_follows_allocs(
+    httpx2_mock: respx.Router,
+) -> None:
+    """Verify a service job that gets no deployment of its own finishes on its allocations."""
+    # Given only a prior run's deployment (updates since disabled) and this run's
+    # running allocation, created after the registration at index 10
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/deployments").respond(
+        json=[to_payload(deployment("web", status="successful", create_index=1))]
+    )
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/allocations").respond(
+        json=[to_payload(alloc_stub(client_status="running", create_index=11))]
+    )
+
+    # When watching the deploy
+    outcome = _watch(since_index=10)
+
+    # Then the watch finishes from the allocations instead of waiting out the timeout
+    assert outcome.severity is Severity.OK
 
 
 @pytest.mark.parametrize(

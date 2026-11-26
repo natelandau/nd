@@ -164,7 +164,7 @@ class JobSpec(NomadModel, frozen=True, kw_only=True):
 
     @property
     def is_service(self) -> bool:
-        """Whether the job is a service job, the only type Nomad tracks with deployments."""
+        """Whether the job is a service job, including one whose spec leaves the type unset."""
         return self.type in {None, "service"}
 
     @property

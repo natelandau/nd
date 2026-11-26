@@ -144,7 +144,7 @@ Run `nd --help`, or `nd <command> --help`, for the full option list at any time.
 
 | Command                     | What it does                                                                      |
 | --------------------------- | --------------------------------------------------------------------------------- |
-| `nd status`                 | Show an at-a-glance overview of the cluster. Also runs when you type `nd` alone.  |
+| `nd status`                 | Show a cluster overview. Also runs for `nd` alone, with any of its options.       |
 | `nd status --hosts`         | Pivot the same overview to one panel per machine, with its server role and jobs.  |
 | `nd doctor [NAME]`          | List job and cluster problems, worst first. Exits 1 on any warning.               |
 | `nd list`                   | List discovered job files and whether each is running, dead, or not deployed.     |

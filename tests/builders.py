@@ -252,6 +252,7 @@ def alloc_stub(
     next_allocation: str = "",
     create_time: int = 0,
     create_index: int = 1,
+    modify_index: int = 2,
     job_version: int = 0,
     healthy: bool | None = None,
     task_states: dict[str, TaskState] | None = None,
@@ -275,7 +276,7 @@ def alloc_stub(
         job_version=job_version,
         deployment_status=AllocDeploymentStatus(healthy=healthy),
         create_index=create_index,
-        modify_index=2,
+        modify_index=modify_index,
     )
 
 
