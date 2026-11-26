@@ -231,9 +231,10 @@ async def watch_deploy(  # noqa: PLR0913
         update: Callback to update the live panel phase text and detail rows.
         done_label: The row label for a clean finish, e.g. ``deployed``.
         is_service: Whether the job is a service job, which waits for a deployment.
-        since_index: The ``JobModifyIndex`` from this registration. Deployments
-            created before it belong to a previous run and are ignored so a re-run
-            of a dead job is not reported as instantly deployed off a stale record.
+        since_index: The ``JobModifyIndex`` from this registration. Deployments and
+            allocations from before it belong to a previous run and are ignored so a
+            re-run of a dead job is not reported as instantly deployed off a stale
+            record.
 
     Returns:
         DeployOutcome: The terminal deploy outcome for this job.
@@ -259,7 +260,10 @@ async def watch_deploy(  # noqa: PLR0913
         # the spec deployed here.
         mine = [d for d in deployments if d.create_index >= since_index]
         dep = min(mine, key=lambda d: d.create_index) if mine else None
-        children = alloc_children(allocs, node_names, lifecycle)
+        placed = [a for a in allocs if _placed_by_this_run(a, since_index=since_index)]
+        # A previous run's finished allocations are history, not part of this deploy.
+        shown = [a for a in allocs if a.create_index >= since_index or not a.is_terminal]
+        children = alloc_children(shown, node_names, lifecycle)
         if dep is not None:  # service job: follow this run's deployment
             if dep.status == _DEPLOY_SUCCESS:
                 return finished(Severity.OK)
@@ -269,16 +273,16 @@ async def watch_deploy(  # noqa: PLR0913
                 )
                 return finished(Severity.FAIL, dep.status_description, failed_allocs)
             update(deploy_phase(dep), children)
-        elif deployments or (is_service and not allocs):
-            # Service job whose new deployment has not appeared yet. A service job with
-            # allocations but no deployment (updates disabled) falls through to alloc
-            # counting so it can still finish.
+        elif is_service and not placed:
+            # Service job whose deployment and allocations have not appeared yet. One
+            # with allocations but no deployment of its own (updates disabled) falls
+            # through to alloc counting so it can still finish.
             update("registering", children)
-        else:  # batch/system job: follow allocations
-            running = sum(1 for a in allocs if a.client_status in HEALTHY_ALLOC_STATUSES)
-            if allocs and running == len(allocs):
+        else:  # batch/system job, or a service job with no deployment: follow allocations
+            running = sum(1 for a in placed if a.client_status in HEALTHY_ALLOC_STATUSES)
+            if placed and running == len(placed):
                 return finished(Severity.OK)
-            update(f"placing {running}/{len(allocs) or '?'} allocs", children)
+            update(f"placing {running}/{len(placed) or '?'} allocs", children)
         return None
 
     return await poll_until(
@@ -287,6 +291,23 @@ async def watch_deploy(  # noqa: PLR0913
         timed_out=finished(Severity.WARN, "deploy still in progress"),
         subject=job_id,
     )
+
+
+def _placed_by_this_run(alloc: AllocListStub, *, since_index: int) -> bool:
+    """Report whether an allocation belongs to the registration at ``since_index``.
+
+    A stopped job keeps its old allocations listed as "complete", which would read as
+    this run's healthy placements and end the watch before anything is placed. An
+    in-place update keeps the allocation's original create index, so a live
+    allocation the scheduler touched after the registration also counts. A
+    reschedule chain's replaced attempts are left out so a recovered failure does not
+    hold the count below its total.
+    """
+    if alloc.is_replaced:
+        return False
+    if alloc.create_index >= since_index:
+        return True
+    return alloc.modify_index >= since_index and not alloc.is_retired
 
 
 def running_task_names(allocs: list[AllocListStub]) -> list[str]:
