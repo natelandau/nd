@@ -1,6 +1,7 @@
 """Tests for the status command wiring and cluster collection."""
 
 import asyncio
+import json
 
 import pytest
 import respx
@@ -126,3 +127,37 @@ def test_status_command_accepts_verbose_before_or_after_command(
 
     # Then it exits cleanly
     assert result.exit_code == 0
+
+
+_STATUS_KEYS = {
+    "health",
+    "cluster",
+    "servers",
+    "nodes",
+    "jobs",
+    "allocations",
+    "volumes",
+    "deployments",
+    "problem_evaluations",
+}
+
+
+@pytest.mark.usefixtures("mocked_cluster")
+@pytest.mark.parametrize(
+    ("args", "expected_keys"),
+    [
+        pytest.param(["status", "--json", "-vv"], _STATUS_KEYS, id="default"),
+        pytest.param(["status", "--hosts", "--json", "-vv"], _STATUS_KEYS | {"hosts"}, id="hosts"),
+    ],
+)
+def test_status_command_prints_json(args: list[str], expected_keys: set[str], typer_runner) -> None:
+    """Verify `nd status --json` prints only the JSON document on stdout, even at -vv."""
+    # Given a fully mocked healthy cluster
+    # When running status as JSON with trace output enabled
+    result = typer_runner.invoke(cli.app, args)
+
+    # Then stdout parses as one document with the documented top-level keys
+    assert result.exit_code == 0
+    document = json.loads(result.stdout)
+    assert set(document) == expected_keys
+    assert document["health"] == "healthy"

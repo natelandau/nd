@@ -6,12 +6,18 @@ import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated
 
+import msgspec
 import typer
 from nclutils import pp
 
-from nd.commands._common import VerboseOption, command_app, configure_verbosity
+from nd.commands._common import (
+    VerboseOption,
+    command_app,
+    configure_verbosity,
+)
 from nd.jobfiles import discover_job_files, load_job_directories
 from nd.nomad import NomadClient, NomadConfig
+from nd.ui.json_output import print_json
 from nd.ui.links import WebUi
 from nd.ui.panels import status_table, titled_panel
 from nd.ui.styles import status_cell
@@ -21,18 +27,39 @@ if TYPE_CHECKING:
     from nd.nomad.models.job import JobListStub
 
 # Cluster-status label for a job file whose name is not present in Nomad at all.
-_NOT_DEPLOYED = "not deployed"
+NOT_DEPLOYED = "not deployed"
 
 
 @dataclass(frozen=True)
 class ListRow:
     """One rendered row: a job file's name, path, and cluster status."""
 
-    job_name: str
+    # None when the file's job name is an unresolved interpolation.
+    job_name: str | None
     path: str
     cluster_status: str
     # Nomad job ID for the web UI link, or None when the job is not deployed.
     link_id: str | None
+
+
+class ListJsonRow(msgspec.Struct, frozen=True, kw_only=True):
+    """One job file row in ``nd list --json`` output."""
+
+    job: str | None
+    status: str
+    file: str
+
+
+def list_json_rows(rows: list[ListRow]) -> list[ListJsonRow]:
+    """Convert table rows into the documented JSON shape for scripts and agents.
+
+    Args:
+        rows: Rows from `build_rows`.
+
+    Returns:
+        list[ListJsonRow]: One JSON row per table row, in the same order.
+    """
+    return [ListJsonRow(job=r.job_name, status=r.cluster_status, file=r.path) for r in rows]
 
 
 def build_rows(
@@ -40,7 +67,7 @@ def build_rows(
 ) -> list[ListRow]:
     """Join discovered job files to cluster jobs by name, classifying each.
 
-    A file with no resolved job name still appears (named ``?``) so unresolved
+    A file with no resolved job name still appears (with no name, shown as ``?``) so unresolved
     interpolated names are visible rather than silently dropped. A deployed job
     carries its Nomad ID so its name can be linked to the web UI.
 
@@ -56,17 +83,17 @@ def build_rows(
     jobs_by_name = {job.name: job for job in jobs}
     rows: list[ListRow] = []
     for jf in files:
-        names = jf.job_names or ["?"]
+        names: list[str | None] = [*jf.job_names] or [None]
         for name in names:
-            job = jobs_by_name.get(name)
-            status = job.status if job else _NOT_DEPLOYED
+            job = jobs_by_name.get(name) if name else None
+            status = job.status if job else NOT_DEPLOYED
             if hide_running and job is not None and job.is_running:
                 continue
             link_id = job.id if job else None
             rows.append(
                 ListRow(job_name=name, path=str(jf.path), cluster_status=status, link_id=link_id)
             )
-    return sorted(rows, key=lambda r: r.job_name)
+    return sorted(rows, key=lambda r: r.job_name or "")
 
 
 def _render(rows: list[ListRow], ui_base: str) -> None:
@@ -77,12 +104,13 @@ def _render(rows: list[ListRow], ui_base: str) -> None:
     web = WebUi(ui_base)
     table = status_table("JOB", "STATUS", "FILE")
     for row in rows:
-        name = web.job(row.link_id, row.job_name) if row.link_id else row.job_name
+        label = row.job_name or "?"
+        name = web.job(row.link_id, label) if row.link_id else label
         # "not deployed" is not a Nomad status, so style it muted rather than via status_cell.
         cell = (
             status_cell(row.cluster_status)
-            if row.cluster_status != _NOT_DEPLOYED
-            else "[dim]• not deployed[/]"
+            if row.cluster_status != NOT_DEPLOYED
+            else f"[dim]• {NOT_DEPLOYED}[/]"
         )
         table.add_row(name, cell, row.path)
     pp.console().print(titled_panel(table, "Job files"))
@@ -103,18 +131,34 @@ def list_(
         ),
     ] = False,
     verbose: VerboseOption = 0,
+    json_output: Annotated[  # noqa: FBT002
+        bool,
+        typer.Option(
+            "--json",
+            help="Print a JSON array of {job, status, file} on stdout instead of the table. "
+            'Status is the Nomad job status, or "not deployed".',
+        ),
+    ] = False,
 ) -> None:
     """List known job files and whether each is running, dead, or not deployed."""
-    configure_verbosity(ctx, verbose)
-    asyncio.run(_run(hide_running=hide_running))
+    configure_verbosity(ctx, verbose, json_output=json_output)
+    rows, ui_base = asyncio.run(_collect(hide_running=hide_running))
+    if json_output:
+        print_json(list_json_rows(rows))
+    else:
+        _render(rows, ui_base)
 
 
-async def _run(*, hide_running: bool = False) -> None:
-    """Discover job files, fetch cluster jobs, and render the joined table."""
+async def _collect(*, hide_running: bool = False) -> tuple[list[ListRow], str]:
+    """Discover job files and join them to cluster jobs.
+
+    Returns:
+        tuple[list[ListRow], str]: The joined rows and the web UI base URL for links.
+    """
     directories = load_job_directories()
     files = discover_job_files(directories)
     pp.debug(f"Discovered {len(files)} job file(s) in {len(directories)} dir(s)")
     config = NomadConfig.resolve()
     async with NomadClient(config) as client:
         jobs = await client.jobs.list()
-    _render(build_rows(files, jobs, hide_running=hide_running), config.ui_base)
+    return build_rows(files, jobs, hide_running=hide_running), config.ui_base

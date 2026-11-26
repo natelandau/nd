@@ -62,15 +62,26 @@ def command_app(*, cls: type[TyperGroup] | None = None) -> typer.Typer:
     return typer.Typer(cls=cls, context_settings={"allow_interspersed_args": True})
 
 
-def configure_verbosity(ctx: typer.Context, verbose: int) -> int:
+def configure_verbosity(ctx: typer.Context, verbose: int, *, json_output: bool = False) -> int:
     """Apply the effective verbosity and return it.
 
     A subcommand accepts ``-v``/``-vv`` either before it (the root callback, which
     stores its count on ``ctx.obj``) or after it; take the louder of the two so
     either position works, then configure ``pp`` with the result.
+
+    Args:
+        ctx: The command's Typer context.
+        verbose: The ``-v`` count given after the subcommand.
+        json_output: Reserve stdout for a ``--json`` document: hide info and success
+            lines and send every other ``pp`` line, including ``-v`` progress, to stderr.
+
+    Returns:
+        int: The effective verbosity.
     """
     verbose = max(getattr(ctx.obj, "verbose", 0), verbose)
     pp.configure(verbosity=verbose)
+    if json_output:
+        pp.configure(quiet=True, console=pp.err_console())
     return verbose
 
 

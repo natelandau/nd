@@ -41,7 +41,7 @@ Discovered from directories in `$XDG_CONFIG_HOME/nd/config.toml`. Both kinds sha
 
 ## Console output
 
-- All output through `from nclutils import pp`. No `print()` and no `rich.Console()` in `src/`.
+- All output through `from nclutils import pp`. No `print()` and no `rich.Console()` in `src/`. Exception: a `--json` document goes to stdout through `nd.ui.json_output.print_json`; pass `json_output=` to `configure_verbosity` so `pp` writes to stderr.
 - `pp.step(...)` (context manager, `s.sub(...)`), `pp.success/info/debug/trace/dryrun/warning/error`. `debug` shows at `-v`, `trace` at `-vv`. `warning`/`error` go to stderr and take `details=[...]`.
 - Tables and panels: `pp.console().print(...)`.
 - Layout, so every command reads as one product (see `commands/status/render.py`, `commands/doctor/render.py`):
