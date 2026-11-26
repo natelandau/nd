@@ -22,6 +22,7 @@ from nd.commands._deploy_failure import render_deploy_failure
 from nd.commands._lifecycle import (
     DeployOutcome,
     deploy_outcome,
+    is_service_job,
     stop_and_wait,
     task_lifecycle,
     watch_deploy,
@@ -140,6 +141,7 @@ async def _update_one(
         update("compiling")
         body = await nomad.compile_job(target.file.path)
         lifecycle = task_lifecycle(body)
+        is_service = is_service_job(body)
     except (NomadBinaryError, NomadError) as exc:
         return failed(detail=f"compile failed: {exc}")
 
@@ -177,6 +179,7 @@ async def _update_one(
             lifecycle=lifecycle,
             update=deploy_update,
             done_label=_DONE_LABEL,
+            is_service=is_service,
             since_index=resp.job_modify_index,
         )
     except NomadError as exc:

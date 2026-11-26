@@ -158,7 +158,14 @@ class JobSpec(NomadModel, frozen=True, kw_only=True):
     name: str = ""
     # Null in compiled output, which has no run state yet.
     status: str | None = None
+    # Null in compiled output when the file omits it; Nomad then registers a service job.
+    type: str | None = None
     task_groups_raw: list[TaskGroupSpec] | None = msgspec.field(name="TaskGroups", default=None)
+
+    @property
+    def is_service(self) -> bool:
+        """Whether the job is a service job, the only type Nomad tracks with deployments."""
+        return self.type in {None, "service"}
 
     @property
     def task_groups(self) -> list[TaskGroupSpec]:

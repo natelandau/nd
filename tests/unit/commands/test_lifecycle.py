@@ -13,6 +13,7 @@ import nd.commands._lifecycle as lifecycle_mod
 from nd.commands._lifecycle import (
     StopOutcome,
     deploy_phase,
+    is_service_job,
     phase_text,
     running_task_names,
     stop_and_wait,
@@ -33,16 +34,23 @@ if TYPE_CHECKING:
     from nd.ui.live_panel import PanelUpdate
 
 
-def _watch(job_id: str = "web", *, since_index: int = 0) -> DeployOutcome:
-    """Watch a job's deploy against the mocked cluster, discarding panel updates."""
+def _watch(
+    job_id: str = "web",
+    *,
+    since_index: int = 0,
+    is_service: bool = True,
+    update: PanelUpdate = discard_panel_update,
+) -> DeployOutcome:
+    """Watch a job's deploy against the mocked cluster, discarding panel updates by default."""
     return run_with_client(
         lambda client: watch_deploy(
             client,
             job_id,
             node_names={},
             lifecycle={},
-            update=discard_panel_update,
+            update=update,
             done_label="deployed",
+            is_service=is_service,
             since_index=since_index,
         )
     )
@@ -218,11 +226,60 @@ def test_watch_batch_all_allocs_complete_reports_deployed(httpx2_mock: respx.Rou
     )
 
     # When watching the job allocations to completion
-    outcome = _watch("batch")
+    outcome = _watch("batch", is_service=False)
 
     # Then the outcome status is DEPLOYED
     assert outcome.severity is Severity.OK
     assert outcome.name == "batch"
+
+
+@pytest.mark.parametrize(
+    ("is_service", "expected_phase"),
+    [
+        pytest.param(True, "registering", id="service-awaits-deployment"),
+        pytest.param(False, "placing 0/? allocs", id="batch-awaits-allocs"),
+    ],
+)
+def test_watch_phase_before_first_placement(
+    httpx2_mock: respx.Router,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    is_service: bool,
+    expected_phase: str,
+) -> None:
+    """Verify a never-run job's phase before Nomad places anything depends on its type."""
+    # Given zero-duration timeout and poll interval so the watch polls once
+    monkeypatch.setattr(lifecycle_mod, "DEPLOY_TIMEOUT_SECONDS", 0.0)
+    monkeypatch.setattr(lifecycle_mod, "POLL_INTERVAL_SECONDS", 0.0)
+
+    # Given a job that has never run: no deployments and no allocations yet
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/deployments").respond(json=[])
+    httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/allocations").respond(json=[])
+    phases: list[str] = []
+
+    # When watching the deploy
+    _watch(is_service=is_service, update=lambda phase, children=(): phases.append(phase))
+
+    # Then the row shows the phase that matches what the job is waiting on
+    assert phases == [expected_phase]
+
+
+@pytest.mark.parametrize(
+    ("job", "expected"),
+    [
+        pytest.param({"Type": "service"}, True, id="service"),
+        pytest.param({"Type": None}, True, id="unset-defaults-to-service"),
+        pytest.param({"Type": "batch"}, False, id="batch"),
+        pytest.param({"Type": "system"}, False, id="system"),
+    ],
+)
+def test_is_service_job_reads_compiled_type(*, job: dict[str, object], expected: bool) -> None:
+    """Verify the compiled job's type decides whether it is a service job."""
+    # Given a compiled job body with the given type
+    body = msgspec.json.encode({"Job": job})
+
+    # When / Then the type is classified as service or not
+    assert is_service_job(body) is expected
 
 
 def test_watch_skips_transient_alloc_decode_error(httpx2_mock: respx.Router, mocker) -> None:

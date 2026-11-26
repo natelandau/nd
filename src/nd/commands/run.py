@@ -13,7 +13,7 @@ from nclutils import pp
 from nd.binary import NomadBinary, NomadBinaryError
 from nd.commands._common import VerboseOption, command_app, configure_verbosity, dry_run_option
 from nd.commands._deploy_failure import render_deploy_failure
-from nd.commands._lifecycle import deploy_outcome, task_lifecycle, watch_deploy
+from nd.commands._lifecycle import deploy_outcome, is_service_job, task_lifecycle, watch_deploy
 from nd.commands._orchestration import (
     Severity,
     confirm_jobs,
@@ -258,6 +258,7 @@ async def _deploy_one(
         update("compiling")
         body = await nomad.compile_job(candidate.file.path)
         lifecycle = task_lifecycle(body)
+        is_service = is_service_job(body)
         update("registering")
         resp = await client.jobs.register(body)
         outcome = await watch_deploy(
@@ -267,6 +268,7 @@ async def _deploy_one(
             lifecycle=lifecycle,
             update=update,
             done_label=_DONE_LABEL,
+            is_service=is_service,
             since_index=resp.job_modify_index,
         )
         # Attach any register warnings so they are reported after the panel closes.

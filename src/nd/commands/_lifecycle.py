@@ -176,6 +176,19 @@ def task_lifecycle(body: bytes) -> TaskLifecycle:
     return lifecycle
 
 
+def is_service_job(body: bytes) -> bool:
+    """Report whether a compiled job spec is a service job, to pick how its deploy is watched.
+
+    Args:
+        body: The compiled ``{"Job": {...}}`` JSON from ``nomad job run -output``.
+
+    Returns:
+        bool: True for a service job, including one whose file leaves ``type`` unset.
+    """
+    payload = decode_json(data=body, type_=JobRegisterPayload)
+    return payload.job is None or payload.job.is_service
+
+
 def _task_role(lifecycle: TaskLifecycleSpec | None, index: int) -> tuple[int, str] | None:
     """Return a task's (sort order, label) from its lifecycle block, or None to skip.
 
@@ -192,7 +205,7 @@ def _task_role(lifecycle: TaskLifecycleSpec | None, index: int) -> tuple[int, st
     return (1_000 + index, "main")
 
 
-async def watch_deploy(
+async def watch_deploy(  # noqa: PLR0913
     client: NomadClient,
     job_id: str,
     *,
@@ -200,6 +213,7 @@ async def watch_deploy(
     lifecycle: TaskLifecycle,
     update: PanelUpdate,
     done_label: str,
+    is_service: bool,
     since_index: int = 0,
 ) -> DeployOutcome:
     """Poll a registered job until its deployment (or allocations) settle or time out.
@@ -216,6 +230,7 @@ async def watch_deploy(
         lifecycle: Task ordering and labels from the compiled job spec.
         update: Callback to update the live panel phase text and detail rows.
         done_label: The row label for a clean finish, e.g. ``deployed``.
+        is_service: Whether the job is a service job, which waits for a deployment.
         since_index: The ``JobModifyIndex`` from this registration. Deployments
             created before it belong to a previous run and are ignored so a re-run
             of a dead job is not reported as instantly deployed off a stale record.
@@ -254,7 +269,10 @@ async def watch_deploy(
                 )
                 return finished(Severity.FAIL, dep.status_description, failed_allocs)
             update(deploy_phase(dep), children)
-        elif deployments:  # service job whose new deployment has not appeared yet
+        elif deployments or (is_service and not allocs):
+            # Service job whose new deployment has not appeared yet. A service job with
+            # allocations but no deployment (updates disabled) falls through to alloc
+            # counting so it can still finish.
             update("registering", children)
         else:  # batch/system job: follow allocations
             running = sum(1 for a in allocs if a.client_status in HEALTHY_ALLOC_STATUSES)
