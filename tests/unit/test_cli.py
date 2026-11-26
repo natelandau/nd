@@ -35,20 +35,41 @@ def test_cli_dash_h_shows_help(typer_runner):
     assert "Usage:" in result.output
 
 
-def test_cli_no_subcommand_runs_status(mocker, typer_runner):
-    """Verify invoking nd with no subcommand defaults to the status dashboard."""
+@pytest.mark.parametrize(
+    ("args", "renderer"),
+    [
+        pytest.param([], "render_report", id="bare"),
+        pytest.param(["-v"], "render_report", id="root-verbose"),
+        pytest.param(["--hosts"], "render_hosts", id="status-option"),
+        pytest.param(["-vv", "--hosts"], "render_hosts", id="root-verbose-then-status-option"),
+        pytest.param(["--hosts", "-v"], "render_hosts", id="status-option-then-verbose"),
+    ],
+)
+def test_cli_no_subcommand_runs_status(mocker, typer_runner, args: list[str], renderer: str):
+    """Verify nd without a subcommand runs the status dashboard, accepting status options."""
     # Given the real status callback runs but its cluster query and rendering are stubbed
     collect_mock = mocker.patch("nd.commands.status.command._collect")
     collect_mock.return_value = (mocker.MagicMock(), [])
-    render_mock = mocker.patch("nd.commands.status.command.render_report")
+    render_mock = mocker.patch(f"nd.commands.status.command.{renderer}")
 
-    # When invoking the root app with no subcommand
-    result = typer_runner.invoke(app, [])
+    # When invoking the root app without naming a subcommand
+    result = typer_runner.invoke(app, args)
 
-    # Then the status dashboard is collected and rendered
+    # Then the matching status view is collected and rendered
     assert result.exit_code == 0, result.output
     assert collect_mock.called
     assert render_mock.called
+
+
+def test_cli_status_option_on_other_subcommand_is_rejected(typer_runner):
+    """Verify a status-only option after another subcommand fails instead of being ignored."""
+    # Given the root app
+    # When passing --hosts to a subcommand that does not declare it
+    result = typer_runner.invoke(app, ["list", "--hosts"])
+
+    # Then the CLI reports a usage error
+    assert result.exit_code == 2
+    assert "--hosts" in result.output
 
 
 def test_stop_command_is_registered():
