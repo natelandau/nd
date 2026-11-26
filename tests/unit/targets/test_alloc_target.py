@@ -12,11 +12,12 @@ from nd.targets.alloc_target import (
     SelectionError,
     resolve_alloc_task,
     resolve_allocation_with_client,
+    resolve_task_in_every_alloc,
     resolve_with_client,
 )
 from nd.ui.prompts import PromptUnavailableError
 from tests.builders import alloc_stub, job_stub, task_state, to_payload
-from tests.helpers import NOMAD_TEST_ADDR, run_with_client
+from tests.helpers import NOMAD_TEST_ADDR, capture_output, run_with_client
 
 if TYPE_CHECKING:
     import respx
@@ -39,14 +40,37 @@ def _mock_cluster(
 
 
 def _resolve(
-    *, job_arg: str | None, task_arg: str | None, running_only: bool = True
+    *,
+    job_arg: str | None,
+    task_arg: str | None,
+    alloc_arg: str | None = None,
+    running_only: bool = True,
 ) -> ResolvedTarget | None:
     """Resolve a target against the mocked cluster."""
     return run_with_client(
         lambda client: resolve_alloc_task(
-            client, job_arg=job_arg, task_arg=task_arg, running_only=running_only
+            client,
+            job_arg=job_arg,
+            task_arg=task_arg,
+            alloc_arg=alloc_arg,
+            running_only=running_only,
         )
     )
+
+
+def _resolve_every_alloc(*, task_arg: str | None) -> list[ResolvedTarget] | None:
+    """Resolve the `web` job's task in every running allocation against the mocked cluster."""
+    return run_with_client(
+        lambda client: resolve_task_in_every_alloc(client, job_arg="web", task_arg=task_arg)
+    )
+
+
+def _two_running_allocs() -> list[AllocListStub]:
+    """Build two running `web` allocations, each running one `server` task."""
+    return [
+        alloc_stub("alloc-1", task_states={"server": task_state()}),
+        alloc_stub("alloc-2", task_states={"server": task_state()}),
+    ]
 
 
 def _resolve_with_client(
@@ -299,3 +323,96 @@ def test_resolve_allocation_skips_the_task_choice(monkeypatch, httpx2_mock: resp
 
     # Then the allocation resolves without the task prompt a task resolver would need
     assert result == (0, ResolvedAllocation(job_name="web", alloc_id="alloc-1"))
+
+
+def test_resolve_alloc_arg_picks_by_id_prefix_without_a_prompt(
+    monkeypatch, httpx2_mock: respx.Router
+):
+    """Verify an allocation ID prefix chooses among several allocations with no picker."""
+    # Given two running allocations and a session that cannot prompt
+    _mock_cluster(httpx2_mock, jobs=[job_stub("web")], allocs=_two_running_allocs())
+    monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: False)
+
+    # When resolving with the start of the first allocation's ID
+    target = _resolve(job_arg="web", task_arg=None, alloc_arg="alloc-1")
+
+    # Then that allocation is chosen
+    assert target == _WEB_TARGET
+
+
+@pytest.mark.parametrize("alloc_arg", ["zzz", "alloc-", ""])
+def test_resolve_alloc_arg_matching_other_than_one_raises(
+    monkeypatch, httpx2_mock: respx.Router, alloc_arg: str
+):
+    """Verify an allocation ID prefix matching no allocation, or several, is a hard error."""
+    # Given two running allocations and a terminal that could show a prompt
+    _mock_cluster(httpx2_mock, jobs=[job_stub("web")], allocs=_two_running_allocs())
+    monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: True)
+
+    # When resolving with a prefix that does not pick exactly one, Then it is a hard error
+    with pytest.raises(SelectionError, match=f"ID starting '{alloc_arg}'"):
+        _resolve(job_arg="web", task_arg=None, alloc_arg=alloc_arg)
+
+
+def test_resolve_every_alloc_targets_each_alloc_running_the_task(httpx2_mock: respx.Router):
+    """Verify every running allocation with the task is targeted, and others are left out."""
+    # Given two allocations running `server` and one running only `sidecar`
+    allocs = [
+        *_two_running_allocs(),
+        alloc_stub("alloc-3", task_states={"sidecar": task_state()}),
+    ]
+    _mock_cluster(httpx2_mock, jobs=[job_stub("web")], allocs=allocs)
+
+    # When resolving `server` in every allocation
+    targets = _resolve_every_alloc(task_arg="server")
+
+    # Then both allocations running `server` are targeted
+    assert targets == [
+        _WEB_TARGET,
+        ResolvedTarget(job_name="web", alloc_id="alloc-2", task="server"),
+    ]
+
+
+def test_resolve_every_alloc_warns_about_a_copy_that_is_not_running(httpx2_mock: respx.Router):
+    """Verify an allocation whose copy of the task is not running is skipped with a warning."""
+    # Given one allocation running `server` and one where `server` is pending
+    allocs = [
+        alloc_stub("alloc-1", task_states={"server": task_state()}),
+        alloc_stub("alloc-2", task_states={"server": task_state("pending")}),
+    ]
+    _mock_cluster(httpx2_mock, jobs=[job_stub("web")], allocs=allocs)
+    console = capture_output()
+
+    # When resolving `server` in every allocation
+    targets = _resolve_every_alloc(task_arg="server")
+
+    # Then only the running copy is targeted, and the skipped allocation is named
+    assert targets == [_WEB_TARGET]
+    assert "alloc-2" in console.export_text()
+
+
+def test_resolve_every_alloc_unknown_task_raises(httpx2_mock: respx.Router):
+    """Verify a task that runs in no allocation is a hard error."""
+    # Given two allocations running only `server`
+    _mock_cluster(httpx2_mock, jobs=[job_stub("web")], allocs=_two_running_allocs())
+
+    # When resolving a task name none of them run, Then it is a hard error
+    with pytest.raises(SelectionError, match="No running task 'nope' in any allocation"):
+        _resolve_every_alloc(task_arg="nope")
+
+
+def test_resolve_every_alloc_ambiguous_task_off_a_terminal_raises(
+    monkeypatch, httpx2_mock: respx.Router
+):
+    """Verify several task names with no --task refuse to prompt when no picker is available."""
+    # Given allocations running different tasks and a session that cannot prompt
+    allocs = [
+        alloc_stub("alloc-1", task_states={"server": task_state()}),
+        alloc_stub("alloc-2", task_states={"sidecar": task_state()}),
+    ]
+    _mock_cluster(httpx2_mock, jobs=[job_stub("web")], allocs=allocs)
+    monkeypatch.setattr("nd.ui.prompts.can_prompt", lambda: False)
+
+    # When resolving with no task, Then it is a hard error instead of a prompt into a pipe
+    with pytest.raises(PromptUnavailableError, match="Task selection requires"):
+        _resolve_every_alloc(task_arg=None)

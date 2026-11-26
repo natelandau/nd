@@ -47,8 +47,8 @@ def test_select_many_returns_choices(monkeypatch) -> None:
 @pytest.mark.parametrize(
     ("remedy_kwargs", "expected_remedy"),
     [
-        ({}, "run in an interactive terminal"),
-        ({"remedy": "name a job explicitly"}, "name a job explicitly"),
+        ({}, prompts.INTERACTIVE_REMEDY),
+        ({"remedy": prompts.NAME_JOB_REMEDY}, prompts.NAME_JOB_REMEDY),
     ],
 )
 def test_selector_off_a_terminal_raises_with_remedy(

@@ -268,6 +268,19 @@ A success line means Nomad delivered the signal to the task. Whether the process
 on it is up to the process: it can be busy, or it can ignore that signal. Check
 with `nd logs ezbak`.
 
+If a job has more than one running allocation, `nd signal` asks which one to signal.
+A script or cron job cannot answer that prompt, so the command exits with an error.
+Use `--all-allocs` to signal the task in every running allocation. Use `--alloc` to
+pick one allocation by the start of its ID:
+
+```bash
+nd signal web -s SIGHUP -t api --all-allocs  # signal "api" in every allocation
+nd signal web -s SIGHUP --alloc 3f9a         # signal the allocation whose ID starts with 3f9a
+```
+
+Allocation IDs change on each deploy. For a script that runs on a schedule, use
+`--all-allocs`.
+
 The name is checked against the fixed set Nomad's task drivers accept, which is not the
 same as your machine's signal list: `SIGCHLD` and `SIGURG` are refused even though your
 libc has them, and `SIGNULL` and `SIGIOT` are accepted even when your libc lacks them. A name
@@ -283,7 +296,8 @@ worth checking against your ACL policy before you suspect the token itself.
 `nd restart` restarts tasks in place, on the same node and in the same allocation.
 Use it when a process hangs or must read its config again. It is faster than
 `nd update` because Nomad does not schedule a new allocation. The job, allocation,
-and task are selected the same way as for `nd signal`.
+and task are selected the same way as for `nd signal`, but `nd restart` has no
+`--alloc` or `--all-allocs` option.
 
 ```bash
 nd restart web               # restart every running task in the allocation
@@ -342,15 +356,15 @@ nd stop                    # fails: nothing named a job to stop
 nd stop web                # fails: nothing answered the confirmation
 ```
 
-`nd signal` takes no confirmation, so naming the job (and the task, when the job has
-more than one) is all it needs to run from cron, provided the job has a single running
-allocation. Nothing names an allocation, so a job running several always needs a
-terminal:
+`nd signal` takes no confirmation. To run it from cron, name the job, and name the task
+when the job has more than one. If the job has more than one running allocation, also
+pass `--all-allocs`:
 
 ```bash
-nd signal ezbak -s SIGUSR1        # works unattended
-nd signal ezbak -s SIGUSR1 -t db  # name the task too when the job runs several
-nd signal web -s SIGHUP           # fails when "web" has more than one allocation
+nd signal ezbak -s SIGUSR1                   # works unattended
+nd signal ezbak -s SIGUSR1 -t db             # name the task too when the job runs several
+nd signal web -s SIGHUP -t api --all-allocs  # works with several allocations
+nd signal web -s SIGHUP                      # fails when "web" has more than one allocation
 ```
 
 A named job that is not running is an error, not a no-op, so a scheduled trigger fails

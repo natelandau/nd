@@ -66,14 +66,14 @@ def clear_prompt_line(lines: int = 1) -> None:
     console.file.flush()
 
 
-_DEFAULT_PROMPT_REMEDY = "run in an interactive terminal"
 # Remedies the commands report when a prompt they need cannot be shown
+INTERACTIVE_REMEDY = "run in an interactive terminal"
 FORCE_REMEDY = "pass --force"
 NAME_JOB_REMEDY = "name a job explicitly"
 
 
 async def select_one[T](
-    choices: list[tuple[str, T]], message: str, *, remedy: str = _DEFAULT_PROMPT_REMEDY
+    choices: list[tuple[str, T]], message: str, *, remedy: str = INTERACTIVE_REMEDY
 ) -> T | None:
     """Prompt for a single choice, returning the value or None when cancelled.
 
@@ -96,7 +96,7 @@ async def select_one[T](
 
 
 async def select_many[T](
-    choices: list[tuple[str, T]], message: str, *, remedy: str = _DEFAULT_PROMPT_REMEDY
+    choices: list[tuple[str, T]], message: str, *, remedy: str = INTERACTIVE_REMEDY
 ) -> list[T] | None:
     """Prompt for multiple choices, returning the values or None when cancelled.
 
