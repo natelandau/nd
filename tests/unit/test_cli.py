@@ -9,6 +9,7 @@ import respx
 from nd import __version__
 from nd.cli import app, main
 from nd.nomad import NomadAuthError, NomadConfigError, NomadError, NomadServerError
+from nd.targets import SelectionError
 from nd.ui.prompts import PromptUnavailableError
 from tests.helpers import NOMAD_TEST_ADDR
 
@@ -123,6 +124,7 @@ def test_main_maps_connection_error_to_clean_exit(httpx2_mock: respx.Router, mon
     "error",
     [
         pytest.param(PromptUnavailableError("Selection requires a terminal"), id="no-terminal"),
+        pytest.param(SelectionError("No running job matching 'zzz'"), id="no-match"),
         pytest.param(
             NomadAuthError("denied", status_code=403, method="GET", path="/jobs", body=""),
             id="auth",

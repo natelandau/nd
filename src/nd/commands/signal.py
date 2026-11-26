@@ -17,7 +17,7 @@ from nd.commands._common import (
 )
 from nd.commands._orchestration import request_all
 from nd.nomad import NomadClient, NomadConfig
-from nd.targets import ResolvedTarget, resolve_every_alloc_with_client, resolve_with_client
+from nd.targets import ResolvedTarget, resolve_alloc_task, resolve_task_in_every_alloc
 from nd.ui.text import plural, short_id
 
 # The names every Nomad driver's SignalTask parses (consul-template's SignalLookup).
@@ -146,18 +146,21 @@ def signal(  # noqa: PLR0913
         )
         raise typer.BadParameter(message=msg, param_hint="--all-allocs")
     config = NomadConfig.resolve()
+    if not all_allocs:
+        asyncio.run(
+            _run(
+                config=config,
+                job=job,
+                task=task,
+                alloc=alloc,
+                sig=sig,
+                dry_run=dry_run,
+                verbose=verbose,
+            )
+        )
+        return
     exit_code = asyncio.run(
         _run_every_alloc(config=config, job=job, task=task, sig=sig, dry_run=dry_run)
-        if all_allocs
-        else _run(
-            config=config,
-            job=job,
-            task=task,
-            alloc=alloc,
-            sig=sig,
-            dry_run=dry_run,
-            verbose=verbose,
-        )
     )
     if exit_code != 0:
         raise typer.Exit(exit_code)
@@ -177,14 +180,10 @@ async def _run(
     sig: str,
     dry_run: bool,
     verbose: int,
-) -> int:
-    """Resolve a live target and signal it, sharing one client between both steps.
-
-    Returns:
-        int: The exit code: the resolver's code when there is nothing to signal, else 0.
-    """
+) -> None:
+    """Resolve a live target and signal it, sharing one client between both steps."""
     async with NomadClient(config) as client:
-        exit_code, target = await resolve_with_client(
+        target = await resolve_alloc_task(
             client=client,
             job_arg=job,
             task_arg=task,
@@ -193,12 +192,12 @@ async def _run(
             running_only=True,
         )
         if target is None:
-            return exit_code
+            return
 
         where = _describe(target)
         if dry_run:
             pp.dryrun(f"Would send {sig} to {where}")
-            return 0
+            return
 
         with pp.step(f"Sending {sig} to {target.task}") as step:
             await record_step(
@@ -213,7 +212,6 @@ async def _run(
         f"Sent {sig} to {where}",
         details=[f"run `nd logs {target.job_name}` to see what the task did"],
     )
-    return 0
 
 
 async def _run_every_alloc(
@@ -224,15 +222,12 @@ async def _run_every_alloc(
     A failed delivery to one allocation does not stop the others.
 
     Returns:
-        int: The exit code: the resolver's code when there is nothing to signal, 1 when
-            any delivery failed, else 0.
+        int: The exit code: 1 when any delivery failed, else 0.
     """
     async with NomadClient(config) as client:
-        exit_code, targets = await resolve_every_alloc_with_client(
-            client=client, job_arg=job, task_arg=task
-        )
+        targets = await resolve_task_in_every_alloc(client=client, job_arg=job, task_arg=task)
         if targets is None:
-            return exit_code
+            return 0
 
         if dry_run:
             pp.dryrun(

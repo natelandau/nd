@@ -16,7 +16,7 @@ from nd.commands._common import (
     record_step,
 )
 from nd.nomad import NomadClient, NomadConfig
-from nd.targets import resolve_allocation_with_client, resolve_with_client
+from nd.targets import resolve_alloc_task, resolve_allocation
 from nd.ui.text import short_id
 
 app = command_app()
@@ -68,7 +68,7 @@ def restart(
         )
         raise typer.BadParameter(message=msg, param_hint="--all-tasks")
     config = NomadConfig.resolve()
-    exit_code = asyncio.run(
+    asyncio.run(
         _run(
             config=config,
             job=job,
@@ -78,8 +78,6 @@ def restart(
             verbose=verbose,
         )
     )
-    if exit_code != 0:
-        raise typer.Exit(exit_code)
 
 
 async def _run(
@@ -90,31 +88,28 @@ async def _run(
     all_tasks: bool,
     dry_run: bool,
     verbose: int,
-) -> int:
+) -> None:
     """Resolve a live target and restart it, sharing one client between both steps.
 
     A named task resolves through the task picker so a typo fails before the restart is
     sent; without one, only the job and allocation are resolved, since the restart covers
     them all.
-
-    Returns:
-        int: The exit code: the resolver's code when there is nothing to restart, else 0.
     """
     async with NomadClient(config) as client:
-        exit_code, target = await (
-            resolve_with_client(client=client, job_arg=job, task_arg=task, running_only=True)
+        target = await (
+            resolve_alloc_task(client=client, job_arg=job, task_arg=task, running_only=True)
             if task is not None
-            else resolve_allocation_with_client(client=client, job_arg=job)
+            else resolve_allocation(client=client, job_arg=job)
         )
         if target is None:
-            return exit_code
+            return
         job_name, alloc_id = target.job_name, target.alloc_id
         what = f"task {task}" if task is not None else "all tasks" if all_tasks else "running tasks"
 
         where = f"{what} in alloc {short_id(alloc_id)} ({job_name})"
         if dry_run:
             pp.dryrun(f"Would restart {where}")
-            return 0
+            return
 
         with pp.step(f"Restarting {where}") as step:
             await record_step(
@@ -129,4 +124,3 @@ async def _run(
         message=f"Restart requested for {where}",
         details=[f"run `nd status` or `nd logs {job_name}` to watch it come back"],
     )
-    return 0

@@ -10,33 +10,33 @@ import typer
 from nd.cli import app
 from nd.commands import signal as signal_mod
 from nd.commands.signal import _normalize_signal
-from nd.targets import ResolvedTarget
+from nd.targets import ResolvedTarget, SelectionError
 from tests.builders import alloc_stub, job_stub, task_state, to_payload
 from tests.helpers import NOMAD_TEST_ADDR, capture_output
 
 
 def _patch_resolver(
-    monkeypatch, *, target: ResolvedTarget | None, exit_code: int = 0
+    monkeypatch, *, target: ResolvedTarget | None, error: SelectionError | None = None
 ) -> dict[str, object]:
-    """Patch resolve_with_client so tests exercise the command, not the picker.
+    """Patch resolve_alloc_task so tests exercise the command, not the picker.
 
-    Mirrors the ``(exit_code, target)`` contract ``resolve_with_client`` returns: a
-    non-zero ``exit_code`` simulates a selection failure or an unavailable prompt, both
-    of which it has already reported via ``pp.error`` before returning. Returns the dict
-    the fake populates with each call's arguments so a test can assert on it without
-    reading shared module state.
+    A given ``error`` is raised instead of returning ``target``, as a failed resolution
+    does. Returns the dict the fake populates with each call's arguments so a test can
+    assert on it without reading shared module state.
     """
     calls: dict[str, object] = {}
 
     async def _fake_resolve(
         client, *, job_arg, task_arg, alloc_arg=None, alloc_remedy="", running_only=True
-    ) -> tuple[int, ResolvedTarget | None]:
+    ) -> ResolvedTarget | None:
         calls.update(
             job_arg=job_arg, task_arg=task_arg, alloc_arg=alloc_arg, running_only=running_only
         )
-        return exit_code, target
+        if error is not None:
+            raise error
+        return target
 
-    monkeypatch.setattr(signal_mod, "resolve_with_client", _fake_resolve)
+    monkeypatch.setattr(signal_mod, "resolve_alloc_task", _fake_resolve)
     return calls
 
 
@@ -179,19 +179,17 @@ def test_signal_dry_run_resolves_but_sends_nothing(
 
 
 @pytest.mark.usefixtures("nomad_env")
-def test_signal_honors_a_nonzero_resolver_exit_code(
-    httpx2_mock: respx.Router, monkeypatch, typer_runner
-):
-    """Verify a non-zero code from the resolver ends the command without signaling."""
+def test_signal_unresolvable_target_exits_one(httpx2_mock: respx.Router, monkeypatch, typer_runner):
+    """Verify a selection failure ends the command with exit 1 without signaling."""
     # Given a resolver reporting a selection failure
-    _patch_resolver(monkeypatch, target=None, exit_code=1)
+    _patch_resolver(monkeypatch, target=None, error=SelectionError("No running job matching 'x'"))
 
     # When signaling that name
     result = typer_runner.invoke(app, ["signal", "x", "-s", "SIGUSR1"])
 
     # Then it exits 1 and nothing was sent
     assert result.exit_code == 1
-    assert isinstance(result.exception, SystemExit)
+    assert isinstance(result.exception, SelectionError)
     assert not httpx2_mock.calls
 
 
@@ -210,7 +208,7 @@ def test_signal_named_job_not_running_exits_one(
 
     # Then it exits 1 and never posts a signal
     assert result.exit_code == 1
-    assert isinstance(result.exception, SystemExit)
+    assert isinstance(result.exception, SelectionError)
     assert not [c for c in httpx2_mock.calls if c.request.method == "POST"]
 
 

@@ -20,13 +20,12 @@ from nd.targets.selection import pick_single, resolve_targets, select_one_candid
 from nd.ui.prompts import (
     INTERACTIVE_REMEDY,
     NAME_JOB_REMEDY,
-    PromptUnavailableError,
     require_prompt,
 )
 from nd.ui.text import short_id
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Callable
 
     from nd.nomad.config import NomadConfig
     from nd.nomad.models.allocation import AllocListStub
@@ -34,7 +33,7 @@ if TYPE_CHECKING:
 
 
 class SelectionError(Exception):
-    """Raised when a target cannot be resolved and the command should exit non-zero."""
+    """Raised when a target cannot be resolved; ``nd.cli.main`` reports it and exits 1."""
 
 
 @dataclass(frozen=True)
@@ -228,13 +227,12 @@ async def resolve_allocation(
 
     Use it for an action on a whole allocation, where a task prompt would ask a question
     the action does not need answered. Returns the resolved allocation, or None when
-    nothing is selectable and no job was named, or the user cancels a prompt (the caller
-    exits 0). Each of those cases reports itself.
+    nothing is selectable and no job was named, or the user cancels a prompt. Each of
+    those cases reports itself, so the caller exits 0.
 
     Raises:
-        SelectionError: If an argument matches nothing selectable (the caller exits 1).
-        PromptUnavailableError: If a choice needs a prompt the session cannot show (the
-            caller exits 1).
+        SelectionError: If an argument matches nothing selectable.
+        PromptUnavailableError: If a choice needs a prompt the session cannot show.
     """
     resolved = await _resolve_job_and_alloc(
         client=client, job_arg=job_arg, target_filter=_TargetFilter(running_only=True)
@@ -261,13 +259,12 @@ async def resolve_alloc_task(
     are still reachable. ``alloc_arg`` keeps only allocations whose ID starts with it, and
     ``alloc_remedy`` is the fix named when the allocation prompt cannot be shown, for a
     command that offers a flag to skip it. Returns the resolved target, or None when
-    nothing is selectable and no job was named, or the user cancels a prompt (the caller
-    exits 0). Each of those cases reports itself.
+    nothing is selectable and no job was named, or the user cancels a prompt. Each of
+    those cases reports itself, so the caller exits 0.
 
     Raises:
-        SelectionError: If an argument matches nothing selectable (the caller exits 1).
-        PromptUnavailableError: If a choice needs a prompt the session cannot show (the
-            caller exits 1).
+        SelectionError: If an argument matches nothing selectable.
+        PromptUnavailableError: If a choice needs a prompt the session cannot show.
     """
     target_filter = _TargetFilter(running_only=running_only)
     resolved = await _resolve_job_and_alloc(
@@ -304,13 +301,12 @@ async def resolve_task_in_every_alloc(
     several exist and ``task_arg`` is None. Allocations without that task are left out,
     and one whose copy of the task is not running is named in a warning, so a skipped
     copy is visible. Returns the targets in allocation order, or None when nothing is
-    selectable and no job was named, or the user cancels a prompt (the caller exits 0).
-    Each of those cases reports itself.
+    selectable and no job was named, or the user cancels a prompt. Each of those cases
+    reports itself, so the caller exits 0.
 
     Raises:
-        SelectionError: If an argument matches nothing selectable (the caller exits 1).
-        PromptUnavailableError: If a choice needs a prompt the session cannot show (the
-            caller exits 1).
+        SelectionError: If an argument matches nothing selectable.
+        PromptUnavailableError: If a choice needs a prompt the session cannot show.
     """
     target_filter = _TargetFilter(running_only=True)
     job = await _resolve_job(client=client, job_arg=job_arg, target_filter=target_filter)
@@ -342,80 +338,18 @@ async def resolve_task_in_every_alloc(
     ]
 
 
-async def _exit_code_for[T](resolution: Awaitable[T | None]) -> tuple[int, T | None]:
-    """Await a resolver, reporting a selection failure or unavailable prompt as exit 1."""
-    try:
-        return 0, await resolution
-    except (SelectionError, PromptUnavailableError) as exc:
-        pp.error(str(exc))
-        return 1, None
-
-
-async def resolve_with_client(
-    client: NomadClient,
-    *,
-    job_arg: str | None,
-    task_arg: str | None,
-    alloc_arg: str | None = None,
-    alloc_remedy: str = INTERACTIVE_REMEDY,
-    running_only: bool = True,
-) -> tuple[int, ResolvedTarget | None]:
-    """Resolve a target through an already-open client, mapping failures to an exit code.
-
-    Resolve on a client the caller owns, so the connection stays open past resolution and
-    the caller can act on the target over it. :func:`resolve_target` wraps this for
-    callers that only need the target. The arguments match :func:`resolve_alloc_task`.
-    Returns ``(exit_code, target)``: a target with code 0 on success, ``(0, None)`` when
-    there is nothing to act on or the user cancels, and ``(1, None)`` when an argument
-    matched nothing or a needed prompt could not be shown.
-    """
-    return await _exit_code_for(
-        resolve_alloc_task(
-            client=client,
-            job_arg=job_arg,
-            task_arg=task_arg,
-            alloc_arg=alloc_arg,
-            alloc_remedy=alloc_remedy,
-            running_only=running_only,
-        )
-    )
-
-
-async def resolve_every_alloc_with_client(
-    client: NomadClient, *, job_arg: str | None, task_arg: str | None
-) -> tuple[int, list[ResolvedTarget] | None]:
-    """Resolve a task in every running allocation, mapping failures to an exit code.
-
-    The every-allocation counterpart of :func:`resolve_with_client`, with the same
-    ``(exit_code, targets)`` contract.
-    """
-    return await _exit_code_for(
-        resolve_task_in_every_alloc(client=client, job_arg=job_arg, task_arg=task_arg)
-    )
-
-
-async def resolve_allocation_with_client(
-    client: NomadClient, *, job_arg: str | None
-) -> tuple[int, ResolvedAllocation | None]:
-    """Resolve an allocation through an already-open client, mapping failures to an exit code.
-
-    The allocation-only counterpart of :func:`resolve_with_client`, with the same
-    ``(exit_code, target)`` contract.
-    """
-    return await _exit_code_for(resolve_allocation(client=client, job_arg=job_arg))
-
-
 async def resolve_target(
     config: NomadConfig, *, job_arg: str | None, task_arg: str | None, running_only: bool = True
-) -> tuple[int, ResolvedTarget | None]:
-    """Open a client and resolve a target, mapping selection failures to an exit code.
+) -> ResolvedTarget | None:
+    """Open a client and resolve a target, for a caller that needs no client afterwards.
 
-    ``running_only`` is forwarded to :func:`resolve_alloc_task`: ``nd exec`` keeps the
-    default (live targets only), ``nd logs`` passes False. Returns ``(exit_code,
-    target)``: a target with code 0 on success, ``(0, None)`` when there is nothing to
-    act on or the user cancels, and ``(1, None)`` when an argument matched nothing.
+    The arguments and contract match :func:`resolve_alloc_task`.
+
+    Raises:
+        SelectionError: If an argument matches nothing selectable.
+        PromptUnavailableError: If a choice needs a prompt the session cannot show.
     """
     async with NomadClient(config) as client:
-        return await resolve_with_client(
-            client, job_arg=job_arg, task_arg=task_arg, running_only=running_only
+        return await resolve_alloc_task(
+            client=client, job_arg=job_arg, task_arg=task_arg, running_only=running_only
         )

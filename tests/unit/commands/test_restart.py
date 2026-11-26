@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from nd.cli import app
+from nd.targets import SelectionError
 from tests.builders import alloc_stub, job_stub, task_state, to_payload
 from tests.helpers import NOMAD_TEST_ADDR
 
@@ -90,7 +91,7 @@ def test_restart_unresolvable_target_exits_one(
 
     # Then it exits 1 and never posts a restart
     assert result.exit_code == 1
-    assert isinstance(result.exception, SystemExit)
+    assert isinstance(result.exception, SelectionError)
     assert not [c for c in httpx2_mock.calls if c.request.method == "POST"]
 
 

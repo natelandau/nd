@@ -63,14 +63,14 @@ Match the existing commands: optional `NAME` substring argument and `--dry-run /
 - `commands/_orchestration.py`: `Outcome`/`Severity` for multi-target results, `run_outcome_rows` (live rows, report, exit code), `request_all` (`--detach` fan-out), `confirm_jobs`.
 - `commands/_lifecycle.py`: `watch_deploy`, `stop_and_wait`, `poll_until` (deadline poll loop), `task_lifecycle`.
 - `ui/`: styles, panels, prompts (`confirm`, `select_one`, `select_many`), durations, `text.plural`, `text.short_id`, `text.untrusted_markup` and `text.strip_terminal_controls` (required for task logs, events, and other workload text), `live_panel.run_rows` (concurrent per-target rows), `links.WebUi` and `links.file_link` (clickable job, node, and file names).
-- `targets/`: `select_targets` (substring match, multi-select, exits on no match), `job_file_label`; `alloc_target.py`: `resolve_with_client` (one job/alloc/task), `resolve_allocation_with_client` (job/alloc only, no task prompt), `resolve_every_alloc_with_client` (one task in every running alloc).
+- `targets/`: `select_targets` (substring match, multi-select, exits on no match), `job_file_label`; `alloc_target.py`: `resolve_alloc_task` (one job/alloc/task), `resolve_allocation` (job/alloc only, no task prompt), `resolve_task_in_every_alloc` (one task in every running alloc). Each returns None when there is nothing to act on or the user cancels (exit 0), and raises `SelectionError` or `PromptUnavailableError`, which `main()` turns into exit 1.
 - `nodes.py`: `node_names_by_id`, `node_label` (name, or short ID when unknown).
 
 ## Testing
 
 - `tests/unit/` mirrors `src/nd/`.
 - Invoke CLI commands with the `typer_runner` fixture, not `typer.testing.CliRunner`. Typer colors output when `GITHUB_ACTIONS`/`FORCE_COLOR` is set, and only `typer_runner` strips the ANSI, so raw substring asserts pass locally and fail in CI.
-- Assert on `exit_code`; `pp` output is not reliably captured. For an expected exit 1, also assert the exception type (`isinstance(result.exception, SystemExit)` for `typer.Exit`, or `PromptUnavailableError`): the runner turns any exception into exit 1, including respx's error for an unmocked request, which `httpx2_mock.calls` does not record. To assert rendered output, call `capture_output()` from `tests/helpers.py` and read the returned console's `export_text()`.
+- Assert on `exit_code`; `pp` output is not reliably captured. For an expected exit 1, also assert the exception type (`isinstance(result.exception, SystemExit)` for `typer.Exit`, or `SelectionError`/`PromptUnavailableError`): the runner turns any exception into exit 1, including respx's error for an unmocked request, which `httpx2_mock.calls` does not record. To assert rendered output, call `capture_output()` from `tests/helpers.py` and read the returned console's `export_text()`.
 - Autouse fixtures in `tests/conftest.py` give each test a fresh `pp` emitter, fail any real DNS lookup or socket connection, and hide the `nomad` binary, so an unmocked request or `NomadBinary.create` fails instead of reaching a real cluster.
 - Fixtures in `tests/conftest.py` (prefer them over patching module internals):
     - `nomad_env`: sets `NOMAD_ADDR` to `NOMAD_TEST_ADDR` for code that calls `NomadConfig.resolve()`.
