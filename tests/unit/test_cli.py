@@ -11,7 +11,7 @@ from nd.cli import app, main
 from nd.nomad import NomadAuthError, NomadConfigError, NomadError, NomadServerError
 from nd.targets import SelectionError
 from nd.ui.prompts import PromptUnavailableError
-from tests.helpers import NOMAD_TEST_ADDR
+from tests.helpers import NOMAD_TEST_ADDR, capture_output
 
 
 def test_cli_version_prints_and_exits(typer_runner):
@@ -135,6 +135,10 @@ def test_main_maps_connection_error_to_clean_exit(httpx2_mock: respx.Router, mon
             id="other-nomad-error",
         ),
         pytest.param(NomadError("decode failed"), id="base-nomad-error"),
+        pytest.param(
+            ExceptionGroup("view", [ExceptionGroup("readers", [NomadError("stream lost")])]),
+            id="nested-group-of-nomad-errors",
+        ),
     ],
 )
 def test_main_maps_expected_errors_to_exit_one(mocker, error: Exception):
@@ -149,12 +153,54 @@ def test_main_maps_expected_errors_to_exit_one(mocker, error: Exception):
     assert exit_info.value.code == 1
 
 
-def test_main_lets_unexpected_errors_escape(mocker):
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(ValueError("bug"), id="bare-error"),
+        pytest.param(
+            ExceptionGroup("view", [NomadError("stream lost"), ValueError("bug")]),
+            id="group-with-a-non-nomad-error",
+        ),
+    ],
+)
+def test_main_lets_unexpected_errors_escape(mocker, error: Exception):
     """Verify a bug surfaces as its own exception instead of a misleading clean exit."""
     # Given a command that fails with an error main() does not handle
-    mocker.patch("nd.cli.app", side_effect=ValueError("bug"))
+    mocker.patch("nd.cli.app", side_effect=error)
 
     # When running main()
     # Then the error propagates unchanged
-    with pytest.raises(ValueError, match="bug"):
+    with pytest.raises(type(error)) as raised:
         main()
+    assert raised.value is error
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(
+            SelectionError("No task 'x'; its tasks are: web\x1b]52;c;cm0gLXJm\x07"), id="selection"
+        ),
+        pytest.param(
+            NomadServerError(
+                "boom\x1bc", status_code=500, method="GET", path="/jobs", body="\x1b]0;title\x07"
+            ),
+            id="nomad-error",
+        ),
+    ],
+)
+def test_main_strips_terminal_controls_from_errors(mocker, error: Exception):
+    """Verify cluster text in an error message cannot send escape sequences to the terminal."""
+    # Given a command that fails with an error carrying escape sequences
+    console = capture_output()
+    mocker.patch("nd.cli.app", side_effect=error)
+
+    # When running main()
+    with pytest.raises(SystemExit):
+        main()
+
+    # Then no escape sequence from the error reaches the output
+    output = console.export_text(styles=False)
+    assert "]52;" not in output
+    assert "]0;title" not in output
+    assert "\x1bc" not in output

@@ -3,21 +3,25 @@
 from __future__ import annotations
 
 import ssl
+from contextlib import asynccontextmanager, contextmanager
 from typing import TYPE_CHECKING, Any, Self
 
 import httpx2
 
+from nd.constants import BLOCKING_QUERY_TIMEOUT_MARGIN_SECONDS
 from nd.nomad.errors import (
     NomadAuthError,
     NomadBadRequestError,
     NomadConnectionError,
+    NomadDecodeError,
     NomadHTTPError,
     NomadNotFoundError,
     NomadServerError,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator, AsyncIterator, Generator
+    from contextlib import AbstractAsyncContextManager
 
     from nd.nomad.config import NomadConfig
 
@@ -32,6 +36,9 @@ class AsyncTransport:
             base_url=f"{config.address.rstrip('/')}/v1",
             headers=headers,
             timeout=config.timeout,
+            # Each followed log holds a connection open, so a log view of a large job would
+            # exhaust a capped pool and starve its own allocation watch
+            limits=httpx2.Limits(max_connections=None, max_keepalive_connections=20),
             verify=_build_verify(config),
             cert=_build_client_cert(config),
         )
@@ -41,6 +48,24 @@ class AsyncTransport:
             {"sni_hostname": config.tls_server_name} if config.tls_server_name else None
         )
 
+    def _params(self, params: dict[str, Any] | None) -> dict[str, Any]:
+        return {**self.default_params, **(params or {})}
+
+    @contextmanager
+    def _mapping_transport_errors(self) -> Generator[None]:
+        try:
+            yield
+        except httpx2.TransportError as exc:
+            msg = f"Could not reach Nomad at {self._config.address}: {exc}"
+            raise NomadConnectionError(msg) from exc
+
+    @staticmethod
+    async def _raise_for_status(method: str, path: str, response: httpx2.Response) -> None:
+        if not response.is_success:
+            # A streamed body is not read yet, and the error carries it
+            await response.aread()
+            raise _http_error(method, path, response)
+
     async def request(
         self,
         method: str,
@@ -49,34 +74,105 @@ class AsyncTransport:
         params: dict[str, Any] | None = None,
         json: Any = None,  # noqa: ANN401
         content: bytes | None = None,
+        request_timeout: float | None = None,
     ) -> httpx2.Response:
         """Perform a request, raising typed errors on failure.
 
         Pass ``content`` instead of ``json`` to send an already-encoded JSON body as is.
+        Pass ``request_timeout`` for a request that Nomad holds open on purpose, such as a blocking
+        query, so the configured timeout cannot cut it short; None keeps the configured one.
 
         Raises:
             NomadConnectionError: If the agent is unreachable.
             NomadHTTPError: If Nomad returns a non-2xx response.
         """
-        merged = {**self.default_params, **(params or {})}
         headers = {"Content-Type": "application/json"} if content is not None else None
-        try:
+        with self._mapping_transport_errors():
             response = await self._client.request(
                 method=method,
                 url=path,
-                params=merged,
+                params=self._params(params),
                 json=json,
                 content=content,
                 headers=headers,
+                timeout=httpx2.USE_CLIENT_DEFAULT if request_timeout is None else request_timeout,
                 extensions=self._extensions,
             )
-        except httpx2.TransportError as exc:
-            msg = f"Could not reach Nomad at {self._config.address}: {exc}"
-            raise NomadConnectionError(msg) from exc
+        await self._raise_for_status(method, path, response)
+        return response
 
-        if response.is_success:
-            return response
-        raise _http_error(method, path, response)
+    async def blocking_request(
+        self, path: str, *, index: int, wait_seconds: int, params: dict[str, Any] | None = None
+    ) -> tuple[httpx2.Response, int]:
+        """Run a blocking GET query that Nomad holds open until its data changes past ``index``.
+
+        Use it to watch a resource in a loop, passing back the returned index each time;
+        index 0 returns at once. The request timeout is longer than the wait, whatever
+        timeout the client has.
+
+        Args:
+            path: The API path to query.
+            index: The index from the previous call, or 0 for the current state.
+            wait_seconds: The longest time Nomad holds the request open.
+            params: Extra query parameters.
+
+        Returns:
+            tuple[httpx2.Response, int]: The response and the index to pass next, never
+            below 1 so a server that sends 0 cannot make the next query return at once.
+
+        Raises:
+            NomadConnectionError: If the agent is unreachable.
+            NomadHTTPError: If Nomad returns a non-2xx response.
+            NomadDecodeError: If the response has no numeric ``X-Nomad-Index`` header.
+        """
+        response = await self.request(
+            "GET",
+            path,
+            params={**(params or {}), "index": index, "wait": f"{wait_seconds}s"},
+            request_timeout=wait_seconds + BLOCKING_QUERY_TIMEOUT_MARGIN_SECONDS,
+        )
+        raw_index = response.headers.get("X-Nomad-Index", "")
+        try:
+            new_index = int(raw_index)
+        except ValueError as exc:
+            msg = f"Expected a numeric X-Nomad-Index header from {path}, got {raw_index!r}"
+            raise NomadDecodeError(msg) from exc
+        return response, max(new_index, 1)
+
+    def stream(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+    ) -> AbstractAsyncContextManager[AsyncIterator[bytes]]:
+        """Open a long-lived response and yield its body chunks as they arrive.
+
+        Use it for endpoints that never finish on their own, such as followed logs. The
+        read timeout is disabled so a quiet stream stays open; the connect timeout still
+        applies.
+
+        Raises:
+            NomadConnectionError: If the agent is unreachable or the stream drops.
+            NomadHTTPError: If Nomad returns a non-2xx response.
+        """
+        return self._stream(method, path, params)
+
+    @asynccontextmanager
+    async def _stream(
+        self, method: str, path: str, params: dict[str, Any] | None
+    ) -> AsyncGenerator[AsyncIterator[bytes]]:
+        timeout = httpx2.Timeout(self._config.timeout, read=None)
+        with self._mapping_transport_errors():
+            async with self._client.stream(
+                method=method,
+                url=path,
+                params=self._params(params),
+                timeout=timeout,
+                extensions=self._extensions,
+            ) as response:
+                await self._raise_for_status(method, path, response)
+                yield response.aiter_bytes()
 
     async def paginate(
         self,

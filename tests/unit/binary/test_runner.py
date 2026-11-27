@@ -155,16 +155,7 @@ def test_job_spec_command_failure_raises(monkeypatch, nomad, method: str) -> Non
     assert exc_info.value.detail == "cannot launch"
 
 
-# --- allocations (interactive exec, log streaming) -----------------------------------
-
-
-def _patch_subprocess(
-    monkeypatch, *, stdout: bytes = b"", stderr: bytes = b"", returncode: int = 0
-) -> MagicMock:
-    """Patch subprocess.run on the runner module; return the run mock for argv assertions."""
-    run = MagicMock(return_value=MagicMock(returncode=returncode, stdout=stdout, stderr=stderr))
-    monkeypatch.setattr(runner_mod.subprocess, "run", run)
-    return run
+# --- allocations (interactive exec) -----------------------------------
 
 
 def _patch_run_interactive(monkeypatch, *, returncode: int = 0) -> MagicMock:
@@ -247,112 +238,6 @@ def test_exec_command_returns_nonzero_exit_code(monkeypatch, nomad) -> None:
     # Then check is disabled so the code passes through instead of raising
     assert run.call_args.kwargs["check"] is False
     assert code == 3
-
-
-@pytest.mark.parametrize(
-    ("options", "expected_argv"),
-    [
-        pytest.param(
-            {},
-            ["/usr/bin/nomad", "alloc", "logs", "-f", "-task", "web", "alloc-1"],
-            id="default-follows-both-streams",
-        ),
-        pytest.param(
-            {"streams": ("stdout",)},
-            ["/usr/bin/nomad", "alloc", "logs", "-f", "-stdout", "-task", "web", "alloc-1"],
-            id="follow-single-stream-is-explicit",
-        ),
-        pytest.param(
-            {"streams": ("stderr",), "tail": 50},
-            [
-                "/usr/bin/nomad",
-                "alloc",
-                "logs",
-                "-tail",
-                "-n",
-                "50",
-                "-stderr",
-                "-task",
-                "web",
-                "alloc-1",
-            ],
-            id="tail-is-static",
-        ),
-    ],
-)
-def test_stream_logs_builds_argv(
-    monkeypatch, nomad, *, options: dict[str, object], expected_argv: list[str]
-) -> None:
-    """Verify follow mode passes no stream flag for both streams, and a tail reads statically."""
-    # Given a patched subprocess
-    run = _patch_subprocess(monkeypatch)
-
-    # When streaming logs with the parametrized stream selection and tail
-    nomad.stream_logs("alloc-1", "web", **options)
-
-    # Then the argv follows (-f) unless a tail is given, naming a stream only when one is chosen
-    assert run.call_args.args[0] == expected_argv
-
-
-def test_stream_logs_export_writes_snapshot(monkeypatch, tmp_path, nomad) -> None:
-    """Verify export captures a single stream and writes it to the file without following."""
-    # Given a binary that returns log bytes
-    run = _patch_subprocess(monkeypatch, stdout=b"line1\nline2\n")
-    out = tmp_path / "web.log"
-
-    # When exporting only stdout
-    code = nomad.stream_logs("alloc-1", "web", streams=("stdout",), export_path=out)
-
-    # Then it captured output (no -f), wrote the file, and reported success
-    argv = run.call_args.args[0]
-    assert "-f" not in argv
-    assert run.call_args.kwargs["capture_output"] is True
-    assert out.read_bytes() == b"line1\nline2\n"
-    assert code == 0
-
-
-def test_stream_logs_export_both_concatenates_streams(monkeypatch, tmp_path, nomad) -> None:
-    """Verify exporting both streams reads each in turn and concatenates them."""
-    # Given a binary that returns log bytes for every read
-    run = _patch_subprocess(monkeypatch, stdout=b"chunk\n")
-    out = tmp_path / "web.log"
-
-    # When exporting with the default (both) stream selection
-    nomad.stream_logs("alloc-1", "web", export_path=out)
-
-    # Then both stdout and stderr are read (two calls) and their output is concatenated
-    assert run.call_count == 2
-    assert out.read_bytes() == b"chunk\nchunk\n"
-
-
-def test_stream_logs_export_failure_raises(monkeypatch, tmp_path, nomad) -> None:
-    """Verify export raises NomadBinaryError when the binary exits non-zero."""
-    # Given a binary that fails with stderr
-    _patch_subprocess(monkeypatch, returncode=1, stderr=b"boom")
-    out = tmp_path / "web.log"
-
-    # When / Then exporting raises and the file is not written
-    with pytest.raises(NomadBinaryError):
-        nomad.stream_logs("alloc-1", "web", streams=("stdout",), export_path=out)
-    assert not out.exists()
-
-
-def test_stream_logs_export_with_tail_writes_snapshot(monkeypatch, tmp_path, nomad) -> None:
-    """Verify combined tail and export captures last N lines to file without following."""
-    # Given a binary that returns log bytes
-    run = _patch_subprocess(monkeypatch, stdout=b"x\n")
-    out = tmp_path / "t.log"
-
-    # When exporting only stdout with a tail count
-    nomad.stream_logs("alloc-1", "web", streams=("stdout",), tail=10, export_path=out)
-
-    # Then it includes tail args, does not follow, and writes the file
-    argv = run.call_args.args[0]
-    assert "-tail" in argv
-    assert "-n" in argv
-    assert "10" in argv
-    assert "-f" not in argv
-    assert out.read_bytes() == b"x\n"
 
 
 def test_exec_command_launch_failure_raises(monkeypatch, nomad) -> None:

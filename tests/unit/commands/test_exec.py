@@ -59,7 +59,10 @@ def exec_command(fake_nomad_binary: MagicMock) -> MagicMock:
 def test_exec_default_probes_bash_then_sh(monkeypatch, typer_runner, exec_command: MagicMock):
     """Verify the default command probes for bash and falls back to sh."""
     # Given a resolver that returns a concrete target
-    _patch_resolver(monkeypatch, target=ResolvedTarget("web", "alloc-1", "server"))
+    _patch_resolver(
+        monkeypatch,
+        target=ResolvedTarget("web", "alloc-1", "server", job_id="web", namespace="default"),
+    )
 
     # When invoking exec with just a job name
     result = typer_runner.invoke(app, ["exec", "web"])
@@ -76,7 +79,10 @@ def test_exec_default_probes_bash_then_sh(monkeypatch, typer_runner, exec_comman
 def test_exec_honors_shell_option(monkeypatch, typer_runner, exec_command: MagicMock):
     """Verify --shell runs the chosen shell verbatim with no fallback."""
     # Given a resolver that returns a concrete target
-    _patch_resolver(monkeypatch, target=ResolvedTarget("web", "alloc-1", "server"))
+    _patch_resolver(
+        monkeypatch,
+        target=ResolvedTarget("web", "alloc-1", "server", job_id="web", namespace="default"),
+    )
 
     # When requesting bash explicitly
     result = typer_runner.invoke(app, ["exec", "web", "--shell", "/bin/bash"])
@@ -105,7 +111,10 @@ def test_exec_unresolvable_target_exits_one(monkeypatch, typer_runner, exec_comm
 def test_exec_missing_binary_exits_one(monkeypatch, typer_runner, exec_command: MagicMock):
     """Verify a missing nomad binary surfaces a friendly error and exits 1."""
     # Given a resolver that returns a concrete target
-    _patch_resolver(monkeypatch, target=ResolvedTarget("web", "alloc-1", "server"))
+    _patch_resolver(
+        monkeypatch,
+        target=ResolvedTarget("web", "alloc-1", "server", job_id="web", namespace="default"),
+    )
     # And exec_command raises NomadBinaryError because the binary is absent
     exec_command.side_effect = NomadBinaryError("nomad not found")
 
@@ -141,7 +150,10 @@ def test_exec_runs_command_after_separator(
 ):
     """Verify everything after the first `--` reaches the binary layer verbatim, unparsed."""
     # Given a resolver that returns a concrete target
-    _patch_resolver(monkeypatch, target=ResolvedTarget("web", "alloc-1", "server"))
+    _patch_resolver(
+        monkeypatch,
+        target=ResolvedTarget("web", "alloc-1", "server", job_id="web", namespace="default"),
+    )
 
     # When passing a command after the separator
     result = typer_runner.invoke(app, ["exec", *argv])
@@ -156,7 +168,10 @@ def test_exec_command_keeps_job_argument_optional(
 ):
     """Verify `nd exec -- ps` leaves JOB unset so the job picker still resolves it."""
     # Given a resolver that returns a concrete target
-    calls = _patch_resolver(monkeypatch, target=ResolvedTarget("web", "alloc-1", "server"))
+    calls = _patch_resolver(
+        monkeypatch,
+        target=ResolvedTarget("web", "alloc-1", "server", job_id="web", namespace="default"),
+    )
 
     # When passing a command with no job named
     result = typer_runner.invoke(app, ["exec", "--", "ps", "-ef"])
@@ -172,7 +187,10 @@ def test_exec_option_still_follows_the_job_argument(
 ):
     """Verify options are still accepted on either side of JOB in command mode."""
     # Given a resolver that returns a concrete target
-    calls = _patch_resolver(monkeypatch, target=ResolvedTarget("web", "alloc-1", "server"))
+    calls = _patch_resolver(
+        monkeypatch,
+        target=ResolvedTarget("web", "alloc-1", "server", job_id="web", namespace="default"),
+    )
 
     # When passing --task after the job and before the separator
     result = typer_runner.invoke(app, ["exec", "web", "-t", "server", "--", "cat", "/etc/hosts"])
@@ -188,7 +206,10 @@ def test_exec_rejects_shell_combined_with_a_command(
 ):
     """Verify --shell and a `-- COMMAND` cannot be combined."""
     # Given a resolver that would return a concrete target
-    _patch_resolver(monkeypatch, target=ResolvedTarget("web", "alloc-1", "server"))
+    _patch_resolver(
+        monkeypatch,
+        target=ResolvedTarget("web", "alloc-1", "server", job_id="web", namespace="default"),
+    )
 
     # When both are passed
     result = typer_runner.invoke(app, ["exec", "web", "-s", "/bin/bash", "--", "ps"])
@@ -202,7 +223,10 @@ def test_exec_rejects_shell_combined_with_a_command(
 def test_exec_rejects_an_empty_command(monkeypatch, typer_runner, exec_command: MagicMock):
     """Verify a bare trailing `--` is a usage error rather than a silent exec_command."""
     # Given a resolver that would return a concrete target
-    _patch_resolver(monkeypatch, target=ResolvedTarget("web", "alloc-1", "server"))
+    _patch_resolver(
+        monkeypatch,
+        target=ResolvedTarget("web", "alloc-1", "server", job_id="web", namespace="default"),
+    )
 
     # When the separator has nothing after it
     result = typer_runner.invoke(app, ["exec", "web", "--"])
@@ -240,7 +264,10 @@ def test_wants_tty_policy(monkeypatch, no_tty, stdin_tty, stdout_tty, expected):
 def test_exec_command_exit_code_propagates(monkeypatch, typer_runner, exec_command: MagicMock):
     """Verify a non-zero exit code from the container command becomes nd's own exit code."""
     # Given a resolver that returns a concrete target, with the container command failing
-    _patch_resolver(monkeypatch, target=ResolvedTarget("web", "alloc-1", "server"))
+    _patch_resolver(
+        monkeypatch,
+        target=ResolvedTarget("web", "alloc-1", "server", job_id="web", namespace="default"),
+    )
     exec_command.return_value = 3
 
     # When running a command that exits non-zero inside the container
@@ -255,7 +282,10 @@ def test_exec_signal_death_maps_to_the_shell_convention(
 ):
     """Verify a child killed by a signal exits 128 + signal rather than a truncated code."""
     # Given a resolver that returns a concrete target, with the child killed by SIGPIPE
-    _patch_resolver(monkeypatch, target=ResolvedTarget("web", "alloc-1", "server"))
+    _patch_resolver(
+        monkeypatch,
+        target=ResolvedTarget("web", "alloc-1", "server", job_id="web", namespace="default"),
+    )
     exec_command.return_value = -13
 
     # When the exec output is closed early, as in `nd exec web -- yes | head -1`
@@ -270,7 +300,10 @@ def test_exec_no_tty_flag_reaches_the_binary_layer(
 ):
     """Verify -T is passed down as tty=False regardless of the session's streams."""
     # Given a resolver that returns a concrete target
-    _patch_resolver(monkeypatch, target=ResolvedTarget("web", "alloc-1", "server"))
+    _patch_resolver(
+        monkeypatch,
+        target=ResolvedTarget("web", "alloc-1", "server", job_id="web", namespace="default"),
+    )
 
     # When opening a shell with -T
     result = typer_runner.invoke(app, ["exec", "web", "-T"])

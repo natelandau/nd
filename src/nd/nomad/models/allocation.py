@@ -20,6 +20,7 @@ class TaskEvent(NomadModel, frozen=True, kw_only=True):
 
     type: str
     display_message: str = ""
+    message: str = ""
 
 
 class TaskState(NomadModel, frozen=True, kw_only=True):

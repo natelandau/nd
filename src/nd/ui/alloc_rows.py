@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import TYPE_CHECKING
 
+from nd.constants import TASK_DEAD_STATE
 from nd.nodes import node_label
 from nd.ui.live_panel import LiveChild
 from nd.ui.styles import accent, muted, status_cell
@@ -100,6 +101,6 @@ def _task_status(state: str, *, failed: bool) -> str:
     A finished task reports the raw state ``dead``; render it as ``complete`` or
     ``failed`` so it reads as success or failure rather than an error.
     """
-    if state == "dead":
+    if state == TASK_DEAD_STATE:
         return "failed" if failed else "complete"
     return state

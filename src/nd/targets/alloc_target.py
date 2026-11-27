@@ -10,11 +10,12 @@ or completed task's logs stay reachable.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from nclutils import pp
 
+from nd.constants import TASK_RUNNING_STATE
 from nd.nomad import NomadClient
 from nd.targets.selection import pick_single, resolve_targets, select_one_candidate
 from nd.ui.prompts import (
@@ -38,10 +39,20 @@ class SelectionError(Exception):
 
 @dataclass(frozen=True)
 class ResolvedAllocation:
-    """A resolved allocation target, for commands that act on a whole allocation."""
+    """A resolved allocation target, for commands that act on a whole allocation.
+
+    Attributes:
+        job_name: The job's name, for display.
+        alloc_id: The full allocation ID.
+        job_id: The job's ID, for API calls about the job; it can differ from the name.
+        namespace: The job's namespace, for API calls that must find the job when the
+            configured namespace is a wildcard.
+    """
 
     job_name: str
     alloc_id: str
+    job_id: str = field(kw_only=True)
+    namespace: str = field(kw_only=True)
 
 
 @dataclass(frozen=True)
@@ -79,7 +90,7 @@ class _TargetFilter:
     def task_names(self, alloc: AllocListStub) -> list[str]:
         """Return the allocation's task names, limited to running tasks when live-only."""
         if self.running_only:
-            return sorted(n for n, s in alloc.task_states.items() if s.state == "running")
+            return sorted(n for n, s in alloc.task_states.items() if s.state == TASK_RUNNING_STATE)
         return sorted(alloc.task_states)
 
 
@@ -220,6 +231,23 @@ async def _choose_task(
     return chosen
 
 
+async def resolve_job(client: NomadClient, *, job_arg: str | None) -> JobListStub | None:
+    """Resolve one job of any status, prompting only when ambiguous.
+
+    Use it for a command that acts on a whole job, such as the merged log view, where a
+    crash-looping or stopped job must stay selectable. Returns the job, or None when no job
+    exists and none was named, or the user cancels the prompt. Each of those cases reports
+    itself, so the caller exits 0.
+
+    Raises:
+        SelectionError: If the job argument matches no job.
+        PromptUnavailableError: If a choice needs a prompt the session cannot show.
+    """
+    return await _resolve_job(
+        client=client, job_arg=job_arg, target_filter=_TargetFilter(running_only=False)
+    )
+
+
 async def resolve_allocation(
     client: NomadClient, *, job_arg: str | None
 ) -> ResolvedAllocation | None:
@@ -240,7 +268,9 @@ async def resolve_allocation(
     if resolved is None:
         return None
     job, alloc = resolved
-    return ResolvedAllocation(job_name=job.name, alloc_id=alloc.id)
+    return ResolvedAllocation(
+        job_name=job.name, alloc_id=alloc.id, job_id=job.id, namespace=job.namespace
+    )
 
 
 async def resolve_alloc_task(
@@ -287,7 +317,9 @@ async def resolve_alloc_task(
     )
     if task is None:
         return None
-    return ResolvedTarget(job_name=job.name, alloc_id=alloc.id, task=task)
+    return ResolvedTarget(
+        job_name=job.name, alloc_id=alloc.id, task=task, job_id=job.id, namespace=job.namespace
+    )
 
 
 async def resolve_task_in_every_alloc(
@@ -332,7 +364,9 @@ async def resolve_task_in_every_alloc(
     if not_running:
         pp.warning(f"Skipping task {task} where it is not running", details=not_running)
     return [
-        ResolvedTarget(job_name=job.name, alloc_id=alloc.id, task=task)
+        ResolvedTarget(
+            job_name=job.name, alloc_id=alloc.id, task=task, job_id=job.id, namespace=job.namespace
+        )
         for alloc in allocs
         if task in tasks_by_alloc[alloc.id]
     ]

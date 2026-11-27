@@ -79,7 +79,10 @@ def test_signal_sends_the_signal_to_the_resolved_task(
 ):
     """Verify the resolved allocation and task receive the requested signal."""
     # Given a resolved target and a mocked signal endpoint
-    _patch_resolver(monkeypatch, target=ResolvedTarget("backup", "alloc-1", "ezbak"))
+    _patch_resolver(
+        monkeypatch,
+        target=ResolvedTarget("backup", "alloc-1", "ezbak", job_id="backup", namespace="default"),
+    )
     route = httpx2_mock.post(f"{NOMAD_TEST_ADDR}/v1/client/allocation/alloc-1/signal").respond(
         json={}
     )
@@ -98,7 +101,10 @@ def test_signal_normalizes_the_signal_before_sending(
 ):
     """Verify a lowercase unprefixed signal reaches Nomad in canonical form."""
     # Given a resolved target and a mocked signal endpoint
-    _patch_resolver(monkeypatch, target=ResolvedTarget("backup", "alloc-1", "ezbak"))
+    _patch_resolver(
+        monkeypatch,
+        target=ResolvedTarget("backup", "alloc-1", "ezbak", job_id="backup", namespace="default"),
+    )
     route = httpx2_mock.post(f"{NOMAD_TEST_ADDR}/v1/client/allocation/alloc-1/signal").respond(
         json={}
     )
@@ -115,7 +121,10 @@ def test_signal_normalizes_the_signal_before_sending(
 def test_signal_resolves_only_running_targets(httpx2_mock: respx.Router, monkeypatch, typer_runner):
     """Verify the picker is restricted to running jobs, allocations, and tasks."""
     # Given a resolved target and a mocked signal endpoint
-    calls = _patch_resolver(monkeypatch, target=ResolvedTarget("backup", "alloc-1", "ezbak"))
+    calls = _patch_resolver(
+        monkeypatch,
+        target=ResolvedTarget("backup", "alloc-1", "ezbak", job_id="backup", namespace="default"),
+    )
     httpx2_mock.post(f"{NOMAD_TEST_ADDR}/v1/client/allocation/alloc-1/signal").respond(json={})
 
     # When signaling with an explicit task and allocation
@@ -151,7 +160,10 @@ def test_signal_rejects_an_unknown_signal_before_any_request(
 ):
     """Verify a misspelled signal fails locally without contacting Nomad."""
     # Given a resolved target
-    _patch_resolver(monkeypatch, target=ResolvedTarget("backup", "alloc-1", "ezbak"))
+    _patch_resolver(
+        monkeypatch,
+        target=ResolvedTarget("backup", "alloc-1", "ezbak", job_id="backup", namespace="default"),
+    )
 
     # When passing a signal that does not exist
     result = typer_runner.invoke(app, ["signal", "backup", "-s", "SIGWAT"])
@@ -167,7 +179,10 @@ def test_signal_dry_run_resolves_but_sends_nothing(
 ):
     """Verify --dry-run resolves the target, then reports it without signaling it."""
     # Given a resolved target
-    calls = _patch_resolver(monkeypatch, target=ResolvedTarget("backup", "alloc-1", "ezbak"))
+    calls = _patch_resolver(
+        monkeypatch,
+        target=ResolvedTarget("backup", "alloc-1", "ezbak", job_id="backup", namespace="default"),
+    )
 
     # When running with --dry-run
     result = typer_runner.invoke(app, ["signal", "backup", "-s", "SIGUSR1", "--dry-run"])
@@ -234,7 +249,10 @@ def test_signal_success_message_claims_delivery_only(
 ):
     """Verify the success line reports delivery, never that the signal acted on the task."""
     # Given a resolved target and a mocked signal endpoint
-    _patch_resolver(monkeypatch, target=ResolvedTarget("backup", "alloc-1", "ezbak"))
+    _patch_resolver(
+        monkeypatch,
+        target=ResolvedTarget("backup", "alloc-1", "ezbak", job_id="backup", namespace="default"),
+    )
     httpx2_mock.post(f"{NOMAD_TEST_ADDR}/v1/client/allocation/alloc-1/signal").respond(json={})
     capture = capture_output()
 

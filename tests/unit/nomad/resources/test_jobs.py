@@ -2,10 +2,11 @@
 
 import json
 
+import httpx  # respx-bundled; used to build sequenced mock responses
 import pytest
 import respx
 
-from nd.nomad import NomadDecodeError
+from nd.nomad import NomadClient, NomadDecodeError
 from tests.builders import alloc_stub, deployment, job_spec, job_stub, to_payload
 from tests.helpers import NOMAD_TEST_ADDR, run_with_client
 
@@ -79,6 +80,29 @@ def test_allocations_lists_job_allocations(httpx2_mock: respx.Router):
     # Then the allocation decodes and the expected path was called
     assert allocs[0].client_status == "running"
     assert route.calls.last.request.url.path == "/v1/job/web/allocations"
+
+
+def test_watch_allocations_queries_from_the_last_index(httpx2_mock: respx.Router):
+    """Verify each step of an allocation watch blocks on the index the previous step returned."""
+    # Given a job-allocations endpoint that answers with index 42, then 43
+    route = httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/job/web/allocations")
+    route.side_effect = [
+        httpx.Response(200, json=[to_payload(alloc_stub("a1"))], headers={"X-Nomad-Index": "42"}),
+        httpx.Response(200, json=[], headers={"X-Nomad-Index": "43"}),
+    ]
+
+    # When taking two steps of a watch in the job's namespace
+    async def two_steps(client: NomadClient) -> list[list[str]]:
+        watch = client.jobs.watch_allocations("web", wait_seconds=30, namespace="team-a")
+        return [[alloc.id for alloc in await anext(watch)] for _ in range(2)]
+
+    steps = run_with_client(two_steps)
+
+    # Then each step decodes, the first asks for the current state, and the second blocks
+    # on the first step's index in the same namespace
+    assert steps == [["a1"], []]
+    assert [call.request.url.params["index"] for call in route.calls] == ["0", "42"]
+    assert {call.request.url.params["namespace"] for call in route.calls} == {"team-a"}
 
 
 def test_jobs_register_posts_compiled_body(httpx2_mock: respx.Router):

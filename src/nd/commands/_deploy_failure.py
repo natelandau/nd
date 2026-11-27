@@ -17,7 +17,6 @@ from rich.text import Text
 from nd.constants import (
     DEPLOY_FAILURE_EVENTS_PER_TASK,
     DEPLOY_FAILURE_MAX_ALLOCS,
-    DEPLOY_FAILURE_STDERR_BYTES,
     DEPLOY_FAILURE_STDERR_LINES,
 )
 from nd.nodes import node_label
@@ -74,30 +73,23 @@ class FailedAlloc:
     tasks: tuple[FailedTask, ...]
 
 
-def _troubled_tasks(alloc: AllocListStub) -> dict[str, TaskState]:
-    """Pick the tasks that explain the failure: failed or restarted, else every task.
+def troubled_tasks(task_states: dict[str, TaskState]) -> dict[str, TaskState]:
+    """Pick the tasks that explain an allocation's failure: failed or restarted, else every task.
 
-    A task that runs but fails its health check neither fails nor restarts, so falling
-    back to every task still shows the event that marked the allocation unhealthy.
+    Use it to choose whose events and logs to show for a failed allocation. A task that
+    runs but fails its health check neither fails nor restarts, so falling back to every
+    task still shows the event that marked the allocation unhealthy.
+
+    Args:
+        task_states: The allocation's task states by task name, or the ones to consider.
+
+    Returns:
+        dict[str, TaskState]: The troubled tasks by name.
     """
     troubled = {
-        name: state
-        for name, state in alloc.task_states.items()
-        if state.failed or state.restarts > 0
+        name: state for name, state in task_states.items() if state.failed or state.restarts > 0
     }
-    return troubled or alloc.task_states
-
-
-def _tail_lines(text: str) -> tuple[str, ...]:
-    """Keep the last stderr lines, dropping a first line the byte limit cut in half.
-
-    A tail that is a single line keeps it, cut or not, so a task that logs one long
-    line still shows something.
-    """
-    lines = text.splitlines()
-    if len(text.encode()) >= DEPLOY_FAILURE_STDERR_BYTES and len(lines) > 1:
-        lines = lines[1:]
-    return tuple(lines[-DEPLOY_FAILURE_STDERR_LINES:])
+    return troubled or task_states
 
 
 async def _failed_task(
@@ -110,16 +102,12 @@ async def _failed_task(
     if not state.started_at_ns:
         return FailedTask(name=name, events=events)
     try:
-        text = await client.allocations.log_tail(
-            alloc_id, task=name, stream="stderr", max_bytes=DEPLOY_FAILURE_STDERR_BYTES
+        lines = await client.allocations.tail_log(
+            alloc_id, task=name, stream="stderr", lines=DEPLOY_FAILURE_STDERR_LINES
         )
     except NomadError as exc:
         return FailedTask(name=name, events=events, stderr_error=str(exc))
-    return FailedTask(
-        name=name,
-        events=events,
-        stderr_lines=_tail_lines(text),
-    )
+    return FailedTask(name=name, events=events, stderr_lines=tuple(lines))
 
 
 async def collect_failed_allocs(
@@ -156,7 +144,7 @@ async def collect_failed_allocs(
         tasks = await asyncio.gather(
             *(
                 _failed_task(client=client, alloc_id=alloc.id, name=name, state=state)
-                for name, state in sorted(_troubled_tasks(alloc).items())
+                for name, state in sorted(troubled_tasks(alloc.task_states).items())
             )
         )
         return FailedAlloc(

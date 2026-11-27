@@ -64,6 +64,7 @@ def job_stub(
     status: str = "running",
     job_type: str = "service",
     parent_id: str = "",
+    namespace: str = "default",
 ) -> JobListStub:
     """Build a job list entry whose ID equals its name.
 
@@ -76,6 +77,7 @@ def job_stub(
         type=job_type,
         status=status,
         priority=50,
+        namespace=namespace,
         parent_id_raw=parent_id,
         create_index=1,
         modify_index=2,

@@ -12,6 +12,7 @@ from nd.targets.alloc_target import (
     SelectionError,
     resolve_alloc_task,
     resolve_allocation,
+    resolve_job,
     resolve_target,
     resolve_task_in_every_alloc,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "pick_single",
     "resolve_alloc_task",
     "resolve_allocation",
+    "resolve_job",
     "resolve_target",
     "resolve_targets",
     "resolve_task_in_every_alloc",
