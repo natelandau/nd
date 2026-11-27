@@ -34,6 +34,7 @@ from nd.nomad import (
 )
 from nd.targets import SelectionError
 from nd.ui.prompts import PromptUnavailableError
+from nd.ui.text import strip_terminal_controls
 
 DEFAULT_SUBCOMMAND = "status"
 
@@ -153,26 +154,53 @@ def root(
         status.status(ctx, verbose=verbose)
 
 
+def _run_app() -> None:
+    """Run the CLI, raising a group of Nomad errors as its first error.
+
+    A command that runs tasks in a task group fails with an exception group, while main()
+    reports a bare Nomad error.
+    """
+    try:
+        app()
+    except BaseExceptionGroup as group:
+        nomad_errors, others = group.split(NomadError)
+        if nomad_errors is None or others is not None:
+            raise
+        error: BaseException = nomad_errors
+        while isinstance(error, BaseExceptionGroup):
+            error = error.exceptions[0]
+        raise error from None
+
+
+def _plain(error: BaseException) -> str:
+    """Render an error as text with no terminal control sequences.
+
+    Error messages carry names and response bodies from the cluster, such as job and task
+    names, so an escape sequence in one could otherwise drive the user's terminal.
+    """
+    return strip_terminal_controls(str(error))
+
+
 def main() -> None:
     """Run the CLI, mapping Nomad client errors to clean, non-zero exits."""
     try:
-        app()
+        _run_app()
     except KeyboardInterrupt as exc:
         # 130 = 128 + SIGINT(2), the conventional shell exit code for Ctrl-C.
         pp.warning("Aborted")
         raise SystemExit(130) from exc
     except (PromptUnavailableError, SelectionError) as exc:
-        pp.error(str(exc))
+        pp.error(_plain(exc))
         raise SystemExit(1) from exc
     except NomadConnectionError as exc:
-        pp.error("Could not reach the Nomad agent", details=[str(exc)])
+        pp.error("Could not reach the Nomad agent", details=[_plain(exc)])
         raise SystemExit(1) from exc
     except NomadAuthError as exc:
-        pp.error("Not authorized by Nomad (check NOMAD_TOKEN)", details=[str(exc)])
+        pp.error("Not authorized by Nomad (check NOMAD_TOKEN)", details=[_plain(exc)])
         raise SystemExit(1) from exc
     except NomadConfigError as exc:
-        pp.error("Invalid Nomad configuration", details=[str(exc)])
+        pp.error("Invalid Nomad configuration", details=[_plain(exc)])
         raise SystemExit(1) from exc
     except NomadError as exc:
-        pp.error("Nomad request failed", details=[str(exc)])
+        pp.error("Nomad request failed", details=[_plain(exc)])
         raise SystemExit(1) from exc
