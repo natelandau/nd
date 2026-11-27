@@ -10,7 +10,6 @@ binary and builds the env once rather than per call.
 from __future__ import annotations
 
 import asyncio
-import subprocess
 from typing import TYPE_CHECKING
 
 from nclutils import pp
@@ -30,7 +29,7 @@ class NomadBinary:
 
     Build it with :meth:`create`, which resolves the binary on PATH. The job-spec
     methods (`validate`/`plan`/`compile_to_json`) act on local HCL2 files; the
-    allocation methods (`exec_command`/`stream_logs`) act on a running task.
+    allocation methods (`exec_command`) act on a running task.
     """
 
     def __init__(self, config: NomadConfig, path: Path) -> None:
@@ -155,78 +154,6 @@ class NomadBinary:
         except ShellCommandError as exc:
             msg = f"`nomad alloc exec` could not run: {_stderr(exc)}"
             raise NomadBinaryError(msg) from exc
-
-    def stream_logs(
-        self,
-        alloc_id: str,
-        task: str,
-        *,
-        streams: tuple[str, ...] = ("stdout", "stderr"),
-        tail: int | None = None,
-        export_path: Path | None = None,
-    ) -> int:
-        """Stream, tail, or export a task's logs via `nomad alloc logs`.
-
-        ``streams`` selects which of ``stdout``/``stderr`` to read; the default reads both.
-        By default follows live until interrupted. ``tail`` shows the last N lines
-        statically. ``export_path`` writes the currently-available logs to a file instead
-        of streaming. Returns the binary's exit code; for an export, 0 on a successful write.
-
-        In follow mode both streams are read together through Nomad's native interleaving
-        (no stream flag, its `-f` default). A tail read or an export is one-shot, and Nomad
-        cannot merge streams without `-f`, so each requested stream is read in turn (stdout
-        then stderr) and concatenated.
-
-        Raises:
-            NomadBinaryError: If a read fails.
-        """
-        if tail is None and export_path is None:
-            argv = [self._path, "alloc", "logs", "-f"]
-            # One stream -> select it explicitly; both -> omit the flag so Nomad
-            # interleaves stdout and stderr (its native `-f` behavior).
-            if len(streams) == 1:
-                argv.append(f"-{streams[0]}")
-            argv += ["-task", task, alloc_id]
-            pp.debug("logs: " + " ".join(argv))
-            # Log streaming is one-way output; detach stdin so it never inherits the
-            # parent's terminal or a broken pipe.
-            completed = subprocess.run(  # noqa: S603
-                argv, env=self._env, stdin=subprocess.DEVNULL, check=False
-            )
-            return completed.returncode
-
-        # One-shot tail/export: read each requested stream in turn (Nomad cannot merge
-        # streams without -f).
-        chunks: list[bytes] = []
-        exit_code = 0
-        for stream in streams:
-            argv = [self._path, "alloc", "logs"]
-            if tail is not None:
-                argv += ["-tail", "-n", str(tail)]
-            argv += [f"-{stream}", "-task", task, alloc_id]
-            pp.debug("logs: " + " ".join(argv))
-            if export_path is not None:
-                completed = subprocess.run(  # noqa: S603
-                    argv, env=self._env, stdin=subprocess.DEVNULL, capture_output=True, check=False
-                )
-                if completed.returncode != 0:
-                    detail = completed.stderr.decode("utf-8", "replace").strip()
-                    msg = f"`nomad alloc logs` failed: {detail}"
-                    raise NomadBinaryError(msg)
-                chunks.append(completed.stdout)
-            else:
-                # Tail prints straight to the terminal; with both streams this prints
-                # stdout's tail then stderr's.
-                completed = subprocess.run(  # noqa: S603
-                    argv, env=self._env, stdin=subprocess.DEVNULL, check=False
-                )
-                exit_code = exit_code or completed.returncode
-
-        if export_path is not None:
-            export_path.write_bytes(b"".join(chunks))
-            pp.success(f"Wrote logs to {export_path}")
-            return 0
-        return exit_code
 
 
 def _stderr(exc: ShellCommandError) -> str:

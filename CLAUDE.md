@@ -37,7 +37,7 @@ Async `NomadClient` facade -> per-resource namespaces (`client.jobs`, `client.no
 
 Discovered from directories in `$XDG_CONFIG_HOME/nd/config.toml`. Both kinds share `*.hcl`/`*.nomad`, so classify by content: `type = "host"` -> volume spec (`parse_volume_spec()`, `python-hcl2`), `job "..." {` block -> job (`is_job_file()`). Skip names that are unresolved `${...}` interpolations.
 
-`src/nd/binary/` wraps the local `nomad` binary because the HTTP API cannot parse HCL2 or run the raw-TTY exec protocol. Build with `NomadBinary.create(config)`, once per command. It provides `validate`, `validate_all` (concurrent), `plan`, `compile_to_json` (HCL -> JSON for `client.jobs.register()`; `compile_job` is its async form), `exec_command`, `stream_logs`. Everything else uses the API client.
+`src/nd/binary/` wraps the local `nomad` binary because the HTTP API cannot parse HCL2 or run the raw-TTY exec protocol. Build with `NomadBinary.create(config)`, once per command. It provides `validate`, `validate_all` (concurrent), `plan`, `compile_to_json` (HCL -> JSON for `client.jobs.register()`; `compile_job` is its async form), `exec_command`. Everything else uses the API client.
 
 ## Console output
 

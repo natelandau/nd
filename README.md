@@ -27,8 +27,8 @@ allocation ID and task name for you.
 
 - Python 3.13, 3.14, or 3.15.
 - A reachable Nomad cluster.
-- The `nomad` binary on your `PATH`. The `plan`, `run`, `update`, `exec`, and `logs`
-  commands shell out to it, because the HTTP API cannot parse HCL2 job files and does
+- The `nomad` binary on your `PATH`. The `plan`, `run`, `update`, and `exec` commands
+  shell out to it, because the HTTP API cannot parse HCL2 job files and does
   not own the interactive exec protocol. The other commands use the API only.
 
 ## Installation
@@ -152,7 +152,7 @@ Run `nd --help`, or `nd <command> --help`, for the full option list at any time.
 | `nd run [JOB]`              | Deploy not-yet-running job files and watch the rollout.                           |
 | `nd update [JOB]`           | Recreate a running job from its local file and watch the rollout.                 |
 | `nd stop [JOB]`             | Stop, and optionally purge, running jobs and watch them drain.                    |
-| `nd logs [JOB]`             | Stream, tail, or export a task's logs.                                            |
+| `nd logs [JOB]`             | Stream, tail, or export a task's logs, or all of a job's tasks at once.           |
 | `nd exec [JOB] [-- CMD]`    | Open a shell inside a running task, or run one command in it.                     |
 | `nd signal [JOB] -s SIG`    | Send a signal to a running task, such as to trigger an on-demand action.          |
 | `nd restart [JOB]`          | Restart a running allocation's tasks, or one task, in place.                      |
@@ -240,15 +240,50 @@ guarantees fresh allocations. The image policy stays with your job spec.
 
 ### Working with logs
 
-`nd logs` streams both stdout and stderr live until you press Ctrl-C. Narrow or
-redirect the output with flags:
+`nd logs` prints the whole log of one task, then streams stdout and stderr. The stream
+stops when the task stops, or when you press Ctrl-C. Output is colored, and lines from
+stderr carry a marker. Use flags to select a stream, print a fixed number of
+lines, or save the logs:
 
 ```bash
-nd logs web                 # follow stdout and stderr
-nd logs web --stderr        # follow stderr only
-nd logs web --tail 100      # print the last 100 lines, no follow
+nd logs web                   # follow stdout and stderr
+nd logs web --stderr          # follow stderr only
+nd logs web --tail 100        # print the last 100 lines, no follow
 nd logs web --export run.log  # write the current logs to a file
 ```
+
+Three flags filter the lines. Each flag takes a Python regular expression and accepts
+repeats. A pattern that does not compile is a usage error.
+
+```bash
+nd logs web --include "ERROR|WARN"    # print only lines that match
+nd logs web --exclude "healthcheck"   # hide lines that match, even if they match --include
+nd logs web --highlight "timeout"     # print every line and mark each match
+```
+
+The filters apply to followed and tailed output. The `--export` file applies
+`--include` and `--exclude`, and holds plain text with no color or stderr marker.
+Combine `--export` with `--tail` to save only the last lines.
+
+To read every allocation and every task of a job in one stream, add `--all`. The
+command does not ask for an allocation or a task. Each line starts with a colored
+prefix that names the task and the allocation, for example `app[3f2a1b9c]`. If the
+job has more than one task group, the prefix also names the group: `web/app[3f2a1b9c]`.
+
+```bash
+nd logs web --all               # follow every task of every allocation
+nd logs web --all --task app    # follow only the app task, in every allocation
+nd logs web --all --tail 50     # print the last 50 lines of each task, no follow
+```
+
+The merged view does these things:
+
+- Each running task prints its last 20 lines, then new output as it arrives.
+- The last lines of the three newest failed allocations print once, under a `failed` line.
+- When Nomad places or stops an allocation, a dim line says so, and the view adds or removes its tasks.
+- The view continues until you press Ctrl-C, also when no allocation is live. If the job is purged, the view stops.
+
+The stream and filter flags work with `--all`. The `--export` flag does not.
 
 ### Signaling a task
 
