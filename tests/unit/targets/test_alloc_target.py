@@ -24,7 +24,9 @@ if TYPE_CHECKING:
     from nd.nomad.models.allocation import AllocListStub
     from nd.nomad.models.job import JobListStub
 
-_WEB_TARGET = ResolvedTarget(job_name="web", alloc_id="alloc-1", task="server")
+_WEB_TARGET = ResolvedTarget(
+    job_name="web", alloc_id="alloc-1", task="server", job_id="web", namespace="default"
+)
 
 
 def _mock_cluster(
@@ -240,6 +242,23 @@ def test_resolve_unambiguous_target_needs_no_terminal(monkeypatch, httpx2_mock: 
     assert target == _WEB_TARGET
 
 
+def test_resolve_carries_the_job_namespace(httpx2_mock: respx.Router):
+    """Verify the resolved target names the namespace of the job it came from."""
+    # Given a running job in namespace team-a
+    _mock_cluster(
+        httpx2_mock,
+        jobs=[job_stub("web", namespace="team-a")],
+        allocs=[alloc_stub("alloc-1", task_states={"server": task_state()})],
+    )
+
+    # When resolving its task
+    target = _resolve(job_arg="web", task_arg=None)
+
+    # Then the target carries the job's namespace
+    assert target is not None
+    assert target.namespace == "team-a"
+
+
 def test_resolve_allocation_skips_the_task_choice(monkeypatch, httpx2_mock: respx.Router):
     """Verify resolving an allocation never asks for a task, even when it runs several."""
     # Given one running allocation with two running tasks and a session that cannot prompt
@@ -256,7 +275,9 @@ def test_resolve_allocation_skips_the_task_choice(monkeypatch, httpx2_mock: resp
     result = run_with_client(lambda client: resolve_allocation(client=client, job_arg="web"))
 
     # Then the allocation resolves without the task prompt a task resolver would need
-    assert result == ResolvedAllocation(job_name="web", alloc_id="alloc-1")
+    assert result == ResolvedAllocation(
+        job_name="web", alloc_id="alloc-1", job_id="web", namespace="default"
+    )
 
 
 def test_resolve_alloc_arg_picks_by_id_prefix_without_a_prompt(
@@ -303,7 +324,9 @@ def test_resolve_every_alloc_targets_each_alloc_running_the_task(httpx2_mock: re
     # Then both allocations running `server` are targeted
     assert targets == [
         _WEB_TARGET,
-        ResolvedTarget(job_name="web", alloc_id="alloc-2", task="server"),
+        ResolvedTarget(
+            job_name="web", alloc_id="alloc-2", task="server", job_id="web", namespace="default"
+        ),
     ]
 
 

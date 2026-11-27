@@ -127,9 +127,9 @@ def run_alloc_action(
     running_only: bool,
     action: Callable[[NomadBinary, str, str], int],
 ) -> NoReturn:
-    """Resolve an exec/logs target, run a ``nomad`` binary action against it, then exit.
+    """Resolve an exec target, run a ``nomad`` binary action against it, then exit.
 
-    Shared tail of ``nd exec`` and ``nd logs``: resolve the (job, allocation, task)
+    Tail of ``nd exec``: resolve the (job, allocation, task)
     target through the API client, exit cleanly when there is nothing to act on, then
     build the configured ``NomadBinary`` and hand it (with the resolved alloc id and
     task name) to ``action``. A missing binary or failed invocation becomes a friendly
