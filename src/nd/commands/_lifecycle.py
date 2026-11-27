@@ -16,11 +16,13 @@ from nd.constants import (
     HEALTHY_ALLOC_STATUSES,
     POLL_INTERVAL_SECONDS,
     STOP_TIMEOUT_SECONDS,
+    TASK_RUNNING_STATE,
 )
 from nd.nomad.errors import NomadDecodeError, NomadError
 from nd.nomad.models import decode_json
 from nd.nomad.models.job import JobRegisterPayload
 from nd.ui.alloc_rows import alloc_children
+from nd.ui.text import untrusted_markup
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -64,6 +66,24 @@ class StopOutcome(Outcome):
     drained: int = 0
 
 
+async def pause_after_decode_error(subject: str, error: NomadDecodeError) -> None:
+    """Log a skipped poll, then wait one poll interval before the caller asks again.
+
+    Call it when a poll's response does not decode: a freshly placed or restarted
+    allocation can briefly serialize in a shape that does not decode (such as
+    ``TaskStates: null`` before its tasks start), and the next poll sees it settled.
+
+    Args:
+        subject: What is being polled, for the debug line.
+        error: The decode error.
+    """
+    pp.debug(
+        f"{untrusted_markup(subject)}: skipping a poll after a transient decode error: "
+        f"{untrusted_markup(str(error))}"
+    )
+    await asyncio.sleep(POLL_INTERVAL_SECONDS)
+
+
 async def poll_until[T](
     check: Callable[[], Awaitable[T | None]],
     *,
@@ -91,13 +111,13 @@ async def poll_until[T](
         try:
             result = await check()
         except NomadDecodeError as exc:
-            # A freshly placed or restarted allocation can briefly serialize in a shape
-            # that does not decode (e.g. TaskStates: null before its tasks start). Skip
-            # this tick rather than failing healthy work; the deadline is the backstop.
-            pp.debug(f"{subject}: skipping poll after transient decode error: {exc}")
-        else:
-            if result is not None:
-                return result
+            # The deadline is the backstop against a shape that never settles
+            if time.monotonic() >= deadline:
+                return timed_out
+            await pause_after_decode_error(subject, exc)
+            continue
+        if result is not None:
+            return result
         if time.monotonic() >= deadline:
             return timed_out
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
@@ -320,7 +340,7 @@ def running_task_names(allocs: list[AllocListStub]) -> list[str]:
         name
         for alloc in allocs
         for name, state in alloc.task_states.items()
-        if state.state == "running"
+        if state.state == TASK_RUNNING_STATE
     }
     return sorted(names)
 

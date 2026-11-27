@@ -16,7 +16,6 @@ from nd.commands._lifecycle import DeployOutcome
 from nd.commands._orchestration import Severity
 from nd.constants import (
     DEPLOY_FAILURE_MAX_ALLOCS,
-    DEPLOY_FAILURE_STDERR_BYTES,
     DEPLOY_FAILURE_STDERR_LINES,
 )
 from nd.ui.links import WebUi
@@ -118,32 +117,13 @@ def test_collect_failed_allocs_picks_the_tasks_that_explain_it(
     assert [t.name for t in failed.tasks] == expected
 
 
-_MANY_LINES = [f"line {i}" for i in range(DEPLOY_FAILURE_STDERR_LINES + 5)]
-_LONG_LINE = "y" * DEPLOY_FAILURE_STDERR_BYTES
-
-
-@pytest.mark.parametrize(
-    ("log_text", "expected"),
-    [
-        pytest.param(
-            "\n".join(_MANY_LINES),
-            tuple(_MANY_LINES[-DEPLOY_FAILURE_STDERR_LINES:]),
-            id="more-lines-than-the-cap",
-        ),
-        pytest.param(
-            f"cut in half\n{_LONG_LINE}\nlast",
-            (_LONG_LINE, "last"),
-            id="byte-limit-cut-the-first-line",
-        ),
-        pytest.param(_LONG_LINE, (_LONG_LINE,), id="one-line-over-the-byte-limit"),
-    ],
-)
-def test_collect_failed_allocs_reads_the_end_of_stderr(
-    httpx2_mock: respx.Router, log_text: str, expected: tuple[str, ...]
-) -> None:
-    """Verify a started task's stderr is read from the end, keeping only whole last lines."""
-    # Given a failed task that started and a log tail
-    route = httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/client/fs/logs/a1").respond(text=log_text)
+def test_collect_failed_allocs_reads_the_end_of_stderr(httpx2_mock: respx.Router) -> None:
+    """Verify a started task's stderr is read from the end, keeping only the last lines."""
+    # Given a failed task that started and a stderr log longer than the line cap
+    many_lines = [f"line {i}" for i in range(DEPLOY_FAILURE_STDERR_LINES + 5)]
+    route = httpx2_mock.get(f"{NOMAD_TEST_ADDR}/v1/client/fs/logs/a1").respond(
+        text="\n".join(many_lines)
+    )
     alloc = alloc_stub(
         client_status="failed",
         job_version=1,
@@ -156,7 +136,7 @@ def test_collect_failed_allocs_reads_the_end_of_stderr(
     # Then the request asks for the task's stderr from the end, and the last lines are kept
     params = route.calls.last.request.url.params
     assert (params["task"], params["type"], params["origin"]) == ("app", "stderr", "end")
-    assert failed.tasks[0].stderr_lines == expected
+    assert failed.tasks[0].stderr_lines == tuple(many_lines[-DEPLOY_FAILURE_STDERR_LINES:])
 
 
 def test_collect_failed_allocs_skips_stderr_for_a_task_that_never_started(

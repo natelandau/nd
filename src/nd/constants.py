@@ -23,6 +23,10 @@ HEALTHY_ALLOC_STATUSES = frozenset({"running", "complete"})
 # finishing cleanly). Used both to color a failure red mid-drain and to flag a job as
 # degraded when such an alloc is left unreplaced.
 FAILED_ALLOC_STATUSES = frozenset({"failed", "lost"})
+# Task states: a running task can write output; a dead one has exited for good, so its log
+# cannot grow.
+TASK_RUNNING_STATE = "running"
+TASK_DEAD_STATE = "dead"
 # How often to poll a stopped job's allocations, and how long to wait for them to
 # drain before warning that the job is still stopping.
 POLL_INTERVAL_SECONDS = 1.0
@@ -47,8 +51,6 @@ DEPLOY_TIMEOUT_SECONDS = 300.0
 DEPLOY_FAILURE_MAX_ALLOCS = 3
 DEPLOY_FAILURE_EVENTS_PER_TASK = 5
 DEPLOY_FAILURE_STDERR_LINES = 15
-# Bytes read back from the end of stderr; enough for the line count above.
-DEPLOY_FAILURE_STDERR_BYTES = 4096
 
 # --- Allocation exec / logs ------------------------------------------------------------
 # The POSIX shell guaranteed to exist; used as the `-c` interpreter for the probe
@@ -58,6 +60,24 @@ DEFAULT_EXEC_SHELL = "/bin/sh"
 # minimal images that lack it. The choice is probed inside the container (via
 # `sh -c`) so it reflects what the container actually ships, not the local host.
 EXEC_SHELL_PROBE = "command -v bash >/dev/null 2>&1 && exec bash || exec sh"
+# Lines of earlier output each followed task prints before new output.
+LOGS_BACKLOG_LINES = 20
+# A read of a log's last lines starts at this many bytes per line, and at least the minimum,
+# then doubles until it holds enough lines.
+LOGS_TAIL_BYTES_PER_LINE = 120
+LOGS_TAIL_MIN_BYTES = 8192
+# Failed allocations found at start of the merged log view whose last lines print.
+LOGS_MAX_FAILED_ALLOCS = 3
+# How long one blocking query of the log views' allocation watcher waits.
+LOGS_WATCH_WAIT_SECONDS = 30
+# Added to a blocking query's wait for its request timeout; Nomad adds up to wait/16 jitter.
+BLOCKING_QUERY_TIMEOUT_MARGIN_SECONDS = 10.0
+# The most lines and lifecycle lines a log view holds before its readers wait for the printer.
+LOGS_QUEUE_MAX_ITEMS = 1000
+# How long a task's readers keep reading after the task ends, for its final output.
+LOGS_FINAL_OUTPUT_GRACE_SECONDS = 2.0
+# Waits between reconnects of a lost log stream; the last value repeats.
+LOGS_RECONNECT_DELAYS_SECONDS = (1.0, 2.0, 5.0, 10.0)
 
 # --- Doctor checks ---------------------------------------------------------------------
 # A task restarting at least this many times, with its last restart inside the window,

@@ -8,6 +8,9 @@ import msgspec
 
 if TYPE_CHECKING:
     import builtins
+    from typing import Any, Self
+
+    from nd.nomad.transport import AsyncTransport
 
 from nd.nomad.errors import NomadDecodeError
 from nd.nomad.models import decode_json
@@ -64,6 +67,32 @@ class JobsResource(BaseResource):
         """
         return await self._paginate_list(path=f"/job/{job_id}/allocations", item_type=AllocListStub)
 
+    def watch_allocations(
+        self, job_id: str, *, wait_seconds: int, namespace: str | None = None
+    ) -> AllocationWatch:
+        """Watch a job's allocations: list them now, then again each time they change.
+
+        Each step is a blocking query (``GET /v1/job/:id/allocations``) from the index of the
+        last step, so a quiet job costs one request per wait period. A step that raises can
+        be retried by awaiting the next one, which queries from the same index. The endpoint
+        returns one page when blocking, so a step does not paginate.
+
+        Args:
+            job_id: The job whose allocations to watch.
+            wait_seconds: The longest time Nomad holds each query open.
+            namespace: The job's own namespace, when it came from a listing.
+
+        Returns:
+            AllocationWatch: An endless async iterator of the job's allocations.
+        """
+        params = {"namespace": namespace} if namespace else None
+        return AllocationWatch(
+            transport=self._transport,
+            path=f"/job/{job_id}/allocations",
+            params=params,
+            wait_seconds=wait_seconds,
+        )
+
     async def register(self, body: bytes) -> JobRegisterResponse:
         """Register a job (``POST /v1/jobs``).
 
@@ -109,3 +138,45 @@ class JobsResource(BaseResource):
             content=msgspec.json.encode({**request, "Diff": True}),
         )
         return self._decode(response=response, type_=JobPlanResponse)
+
+
+class AllocationWatch(BaseResource):
+    """An endless async iterator of a job's allocations, one list per change.
+
+    Build it with `JobsResource.watch_allocations`.
+    """
+
+    def __init__(
+        self,
+        *,
+        transport: AsyncTransport,
+        path: str,
+        params: dict[str, Any] | None,
+        wait_seconds: int,
+    ) -> None:
+        super().__init__(transport)
+        self._path = path
+        self._params = params
+        self._wait_seconds = wait_seconds
+        self._index = 0
+
+    def __aiter__(self) -> Self:
+        """Return the watch itself, which is its own iterator."""
+        return self
+
+    async def __anext__(self) -> list[AllocListStub]:
+        """Wait for the allocations to change past the last step, then list them.
+
+        Returns:
+            list[AllocListStub]: The job's allocations.
+
+        Raises:
+            NomadDecodeError: If the response does not decode; the next step asks again
+                from the same index.
+        """
+        response, index = await self._transport.blocking_request(
+            self._path, index=self._index, wait_seconds=self._wait_seconds, params=self._params
+        )
+        allocs = self._decode_list(response=response, item_type=AllocListStub)
+        self._index = index
+        return allocs
